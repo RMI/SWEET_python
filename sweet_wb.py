@@ -120,3 +120,5 @@ x3 = city.landfill_w_capture.ch4
 x4 = city.divs['recycling']
 
 city.ks
+
+rmi_db.at['Kabul', 'total_precipitation(mm)_1970-2000'].iloc[0]

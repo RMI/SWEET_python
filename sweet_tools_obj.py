@@ -100,7 +100,6 @@ class City:
             precip = rmi_db.at[self.name, 'total_precipitation(mm)_1970-2000'].iloc[0]
         except:
             precip = rmi_db.at[self.name, 'total_precipitation(mm)_1970-2000']
-        print(precip)
         self.precip_zone = defaults.get_precipitation_zone(precip)
     
         # depth
