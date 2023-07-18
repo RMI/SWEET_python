@@ -95,8 +95,12 @@ class City:
         except:
             self.mef_compost = 0
         
-        # Precipitation
-        precip = rmi_db.at[self.name, 'total_precipitation(mm)_1970-2000']
+        # Precipitation, remove this try except when there are no duplicates
+        try:
+            precip = rmi_db.at[self.name, 'total_precipitation(mm)_1970-2000'].iloc[0]
+        except:
+            precip = rmi_db.at[self.name, 'total_precipitation(mm)_1970-2000']
+        print(precip)
         self.precip_zone = defaults.get_precipitation_zone(precip)
     
         # depth
@@ -199,7 +203,7 @@ class City:
             net_mass = masses[waste] - (self.divs['compost'][waste] + self.divs['anaerobic'][waste] + self.divs['combustion'][waste] + self.divs['recycling'][waste])
             self.net_masses_before_check[waste] = net_mass
 
-        self.input_problems = self.check_masses()
+        self.changed_diversion, self.input_problems = self.check_masses()
     
         self.net_masses_after_check = {}
         for waste in masses.keys():
@@ -405,6 +409,10 @@ class City:
         dont_add_to = problems[0].copy()
         #old_net_masses = copy.deepcopy(net_masses)
         
+        print(len(problems))
+        if len(problems) == 0:
+            return False, False
+        
         while problems:
             probs = problems.pop(0)
             for waste in probs:
@@ -459,7 +467,7 @@ class City:
                     fraction_of_types_adding_to = sum([getattr(self, f"{div}_waste_fractions")[x] for x in types_to_add_to])
                     
                     if (amount > 0) & (fraction_of_types_adding_to == 0):
-                        return True
+                        return True, True
                     
                     for w in types_to_add_to:
                         if div == 'compost':
@@ -535,7 +543,7 @@ class City:
         #     except:
         #         original_fractions['recycling'][waste] = np.nan
         
-        return False    
+        return True, False    
     
     def convert_methane_m3_to_ton_co2e(self, volume_m3):
         density_kg_per_m3 = 0.7168

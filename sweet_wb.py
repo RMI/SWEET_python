@@ -23,11 +23,16 @@ rmi_db.index = rmi_db['City']
 cities_to_run = {}
 # Loop over rows and store sets of parameters
 for row in param_file.iterrows():
+    try:
+        rmi_db.at[row[1]['city_name'], '1950_Population']
+    except:
+        continue
     city = City(row[1]['city_name'])
     city.load_wb_params(row, rmi_db)
     cities_to_run[city.name] = city
     
 runs = {}
+diversion_adjusted_cities = []
 problem_cities = []
 for city_name in cities_to_run.keys():
     
