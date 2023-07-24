@@ -82,19 +82,20 @@ class SWEET:
         for year in range(self.landfill.open_date, self.landfill.close_date):
             
             t = year - 2016
-            t2 = year - self.landfill.open_date
+            #print(t)
+            #print(year)
+            #t2 = year - self.landfill.open_date
             self.qs[year] = {}
             self.ms[year] = {}
             self.ch4_produced[year] = {}
             # Loop through years
             caps = []
             for waste in self.city.components:
+                if year < 2016:
+                    growth_rate = self.city.growth_rate_historic
+                else:
+                    growth_rate = self.city.growth_rate_future
                 if waste == 'paper_cardboard':
-                    if year < 2016:
-                        growth_rate = self.city.growth_rate_historic
-                    else:
-                        growth_rate = self.city.growth_rate_future
-                        
                     self.ms[year][waste] = (self.city.waste_mass * 
                                             self.city.waste_fractions[waste] - 
                                             0 - 
