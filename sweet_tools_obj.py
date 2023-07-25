@@ -619,114 +619,263 @@ class City:
         self.total_emissions = summed_emissions
     
     def check_masses(self):
-        #masses = {x: self.waste_fractions[x] * self.waste_mass for x in self.waste_fractions.keys()}
-        
-        fractions_before = {}
-        for div in self.divs.keys():
-            fractions_before[div] = sum([x for x in self.divs[div].values()]) / self.waste_mass
-        
+        self.div_component_fractions_adjusted = copy.deepcopy(self.div_component_fractions)
+        dont_add_to = set([x for x in self.waste_fractions.keys() if self.waste_fractions[x] == 0])
         
         problems = [set()]
-        net_masses = {}
-        for waste in self.waste_masses.keys():
-            net_mass = self.waste_masses[waste] - sum([self.divs[x][waste] for x in self.divs.keys()])
-            net_masses[waste] = net_mass
-            if net_mass < 0:
-                #print(self.name)
+        for waste in self.waste_fractions:
+            div_components = []
+            for div in self.divs:
+                try:
+                    component = self.div_fractions[div] * self.div_component_fractions[div][waste]
+                except:
+                    component = 0
+                div_components.append(component)
+            s = sum(div_components)
+            #print(div, waste, 'in', self.waste_fractions[waste], 'diverted', s)
+            if s > self.waste_fractions[waste]:
+                # if div not in problems:
+                #     problems[div] = [waste]
+                # else:
+                #     problems[div].append(waste)
                 problems[0].add(waste)
-        dont_add_to = problems[0].copy()
-        #old_net_masses = copy.deepcopy(net_masses)
-        
-        for waste in self.waste_masses.keys():
-            if self.waste_masses[waste] == 0:
-                dont_add_to.add(waste)
-        
-        if len(problems[0]) == 0:
-            return False, False
-        
+
+        dont_add_to.update(problems[0])
+
+        removes = {}
         while problems:
             probs = problems.pop(0)
             for waste in probs:
-                deficit = -net_masses[waste]
-                total_subtracted = sum([self.divs[x][waste] for x in self.divs.keys()])
-                # fractions = [compost_vol[waste] / total_subtracted, 
-                #              anaerobic_vol[waste] / total_subtracted, 
-                #              combustion_vol[waste] / total_subtracted, 
-                #              recycling_vol[waste] / total_subtracted]
+                remove = {}
+                distribute = {}
+                overflow = {}
+                can_be_adjusted = []
                 
-                fraction_to_fix = deficit / total_subtracted
-                # add_back_amounts = {'compost': compost_vol[waste] * fraction_to_fix, 
-                #                     'anaerobic': anaerobic_vol[waste] * fraction_to_fix, 
-                #                     'combustion': combustion_vol[waste] * fraction_to_fix, 
-                #                     'recycling': recycling_vol[waste] * fraction_to_fix}
-                
-                add_back_amounts = {}
+                div_total = 0
                 for div in self.divs.keys():
-                    if div == 'compost':
-                        if waste in self.unprocessable:
-                            add_back_amounts[div] = self.divs[div][waste] * fraction_to_fix / \
-                                                    (1 - self.non_compostable_not_targeted_total) / \
-                                                    (1 - self.unprocessable[waste])
-                        else:
-                            assert self.divs[div][waste] == 0, 'Hope this doesnt happen'
-                            add_back_amounts[div] = 0
-                    elif div == 'combustion':
-                        #continue
-                        add_back_amounts[div] = self.divs[div][waste] * fraction_to_fix / \
-                                                (1 - self.combustion_reject_rate)
-                    elif div == 'recycling':
-                        if waste in self.recycling_reject_rates:
-                            add_back_amounts[div] = self.divs[div][waste] * fraction_to_fix / \
-                                                    (self.recycling_reject_rates[waste])
-                        else:
-                            assert self.divs[div][waste] == 0, 'Hope this doesnt happen'
-                            add_back_amounts[div] = 0
-                    else:
-                        add_back_amounts[div] = self.divs[div][waste] * fraction_to_fix
-                        
-                    # Don't adjust the amount subtracted by the efficiency losses, this is the important part
-                    self.divs[div][waste] -= self.divs[div][waste] * fraction_to_fix
+                    try:
+                        component = self.div_fractions[div] * self.div_component_fractions_adjusted[div][waste]
+                    except:
+                        component = 0
+                    div_total += component
+                div_target = self.waste_fractions[waste]
+                diff = div_total - div_target
+                #print(waste, div_total, div_target)
+                diff = (diff / div_total)
                 
-                for div in self.divs.keys():
-                    amount = add_back_amounts[div]
-                    if amount == 0:
+                #diff = diffs[waste]
+                for div in self.div_component_fractions:
+                    if self.div_fractions[div] == 0:
                         continue
-                    types_to_add_to = [x for x in getattr(self, f"{div}_waste_fractions").keys() if x not in dont_add_to]
-                    fraction_of_types_adding_to = sum([getattr(self, f"{div}_waste_fractions")[x] for x in types_to_add_to])
-                    
-                    if (amount > 0) & (fraction_of_types_adding_to == 0):
-                        return True, True
-                    
-                    for w in types_to_add_to:
-                        if div == 'compost':
-                            self.divs[div][w] += amount * getattr(self, f"{div}_waste_fractions")[w] / fraction_of_types_adding_to * \
-                                            (1 - self.non_compostable_not_targeted_total) * \
-                                            (1 - self.unprocessable[w])                                
-                        elif div == 'combustion':
-                            #continue
-                            self.divs[div][w] += amount * getattr(self, f"{div}_waste_fractions")[w] / fraction_of_types_adding_to * \
-                                            (1 - self.combustion_reject_rate)
-                        elif div == 'recycling':
-                            self.divs[div][w] += amount * getattr(self, f"{div}_waste_fractions")[w] / fraction_of_types_adding_to * \
-                                            (self.recycling_reject_rates[w])
+                    distribute[div] = {}
+                    try:
+                        component = self.div_component_fractions_adjusted[div][waste]
+                    except:
+                        continue
+                    to_be_removed = diff * component
+                    #print(to_be_removed, waste, 'has to be removed from', div)
+                    to_distribute_to = [x for x in self.div_components[div] if x not in dont_add_to]
+                    to_distribute_to_sum = sum([self.div_component_fractions_adjusted[div][x] for x in to_distribute_to])
+                    if to_distribute_to_sum == 0:
+                        overflow[div] = 1
+                        continue
+                    distributed = 0
+                    for w in to_distribute_to:
+                        add_amount = to_be_removed * (self.div_component_fractions_adjusted[div][w] / to_distribute_to_sum )
+                        #self.div_component_fractions[div][w] += add_amount
+                        if w not in distribute[div]:
+                            distribute[div][w] = [add_amount]
                         else:
-                            self.divs[div][w] += amount * getattr(self, f"{div}_waste_fractions")[w] / fraction_of_types_adding_to
-                        
-            net_masses = {}
-            new_probs = set()
-            for waste in self.waste_masses.keys():
-                net_mass = self.waste_masses[waste] - sum([self.divs[x][waste] for x in self.divs.keys()])
-                net_masses[waste] = net_mass
-                if (net_mass < -0.1):
-                    new_probs.add(waste)
-                    dont_add_to.add(waste)
+                            distribute[div][w].append(add_amount)
+                        distributed += add_amount
+                    #self.div_component_fractions[div][waste] -= 
+                    remove[div] = to_be_removed
+                    #print('removed', to_be_removed, 'fixing', waste, 'div is', div)
+                    removes[waste] = remove
+                    can_be_adjusted.append(div)
+                    #print(to_be_removed, distributed)
                     
-            if len(new_probs) > 0:
-                problems.append(new_probs)
+                    
+                #for div in overflow:
+                    #del distribute[div]
+                    #del remove[div]
+                    
+                for div in overflow:
+                    # First, get the amount we were hoping to redistribute away from problem waste component
+                    component = self.div_fractions[div] * self.div_component_fractions_adjusted[div][waste]
+                    to_be_removed = diff * component
+                    # Which other diversions can be adjusted instead?
+                    to_distribute_to = [x for x in distribute.keys() if waste in self.div_components[x]]
+                    to_distribute_to = [x for x in to_distribute_to if x not in overflow]
+                    to_distribute_to_sum = sum([self.div_fractions[x] for x in to_distribute_to])
+                    
+                    if to_distribute_to_sum == 0:
+                        print('aaagh')
+                        print(self.name)
+                        
+                    for d in to_distribute_to:
+                        to_be_removed = to_be_removed * (self.div_fractions[d] / to_distribute_to_sum) / self.div_fractions[d]
+                        to_distribute_to = [x for x in self.div_component_fractions_adjusted[d].keys() if x not in dont_add_to]
+                        to_distribute_to_sum = sum([self.div_component_fractions_adjusted[d][x] for x in to_distribute_to])
+                        if to_distribute_to_sum == 0:
+                            #print('grumble')
+                            print(self.name)
+                            #to_distribute_to_sum -= self.div_fractions[d]
+                            continue
+                        #distributed = 0
+                        for w in to_distribute_to:
+                            add_amount = to_be_removed * self.div_component_fractions_adjusted[d][w] / to_distribute_to_sum
+                            #self.div_component_fractions[div][w] += add_amount
+                            if w in distribute[d]:
+                                distribute[d][w].append(add_amount)
+                            #distributed += add_amount
+                        
+                        remove[d] += to_be_removed
+                        #print('removed', to_be_removed, 'fixing', waste, 'div didnt work is', div, 'going to', d)
+            
+                for div in distribute:
+                    for w in distribute[div]:
+                        self.div_component_fractions_adjusted[div][w] += sum(distribute[div][w])
+                        
+                for div in remove:
+                    self.div_component_fractions_adjusted[div][waste] -= remove[div]
+                    
+                #for div in self.div_component_fractions_adjusted.values():
+                    #print(sum(x for x in div.values()))
+                    
+            if len(probs) > 0: 
+                new_probs = set()
+                for waste in self.waste_fractions:
+                    div_components = []
+                    for div in self.divs:
+                        try:
+                            component = self.div_fractions[div] * self.div_component_fractions_adjusted[div][waste]
+                        except:
+                            component = 0
+                        div_components.append(component)
+                    s = sum(div_components)
+                    #print(div, waste, 'in', self.waste_fractions[waste], 'diverted', s)
+                    if s > self.waste_fractions[waste] + 0.01:
+                        #print(waste, s, self.waste_fractions[waste])
+                        # if div not in problems:
+                        #     problems[div] = [waste]
+                        # else:
+                        #     problems[div].append(waste)
+                        new_probs.add(waste)
+                    
+                if len(new_probs) > 0:
+                    problems.append(new_probs)
+                dont_add_to.update(new_probs)
+    
+    # def check_masses(self):
+    #     #masses = {x: self.waste_fractions[x] * self.waste_mass for x in self.waste_fractions.keys()}
         
-        fractions_after = {}
-        for div in self.divs.keys():
-            fractions_after[div] = sum([x for x in self.divs[div].values()]) / self.waste_mass
+    #     fractions_before = {}
+    #     for div in self.divs.keys():
+    #         fractions_before[div] = sum([x for x in self.divs[div].values()]) / self.waste_mass
+        
+        
+    #     problems = [set()]
+    #     net_masses = {}
+    #     for waste in self.waste_masses.keys():
+    #         net_mass = self.waste_masses[waste] - sum([self.divs[x][waste] for x in self.divs.keys()])
+    #         net_masses[waste] = net_mass
+    #         if net_mass < 0:
+    #             #print(self.name)
+    #             problems[0].add(waste)
+    #     dont_add_to = problems[0].copy()
+    #     #old_net_masses = copy.deepcopy(net_masses)
+        
+    #     for waste in self.waste_masses.keys():
+    #         if self.waste_masses[waste] == 0:
+    #             dont_add_to.add(waste)
+        
+    #     if len(problems[0]) == 0:
+    #         return False, False
+        
+    #     while problems:
+    #         probs = problems.pop(0)
+    #         for waste in probs:
+    #             deficit = -net_masses[waste]
+    #             total_subtracted = sum([self.divs[x][waste] for x in self.divs.keys()])
+    #             # fractions = [compost_vol[waste] / total_subtracted, 
+    #             #              anaerobic_vol[waste] / total_subtracted, 
+    #             #              combustion_vol[waste] / total_subtracted, 
+    #             #              recycling_vol[waste] / total_subtracted]
+                
+    #             fraction_to_fix = deficit / total_subtracted
+    #             # add_back_amounts = {'compost': compost_vol[waste] * fraction_to_fix, 
+    #             #                     'anaerobic': anaerobic_vol[waste] * fraction_to_fix, 
+    #             #                     'combustion': combustion_vol[waste] * fraction_to_fix, 
+    #             #                     'recycling': recycling_vol[waste] * fraction_to_fix}
+                
+    #             add_back_amounts = {}
+    #             for div in self.divs.keys():
+    #                 if div == 'compost':
+    #                     if waste in self.unprocessable:
+    #                         add_back_amounts[div] = self.divs[div][waste] * fraction_to_fix / \
+    #                                                 (1 - self.non_compostable_not_targeted_total) / \
+    #                                                 (1 - self.unprocessable[waste])
+    #                     else:
+    #                         assert self.divs[div][waste] == 0, 'Hope this doesnt happen'
+    #                         add_back_amounts[div] = 0
+    #                 elif div == 'combustion':
+    #                     #continue
+    #                     add_back_amounts[div] = self.divs[div][waste] * fraction_to_fix / \
+    #                                             (1 - self.combustion_reject_rate)
+    #                 elif div == 'recycling':
+    #                     if waste in self.recycling_reject_rates:
+    #                         add_back_amounts[div] = self.divs[div][waste] * fraction_to_fix / \
+    #                                                 (self.recycling_reject_rates[waste])
+    #                     else:
+    #                         assert self.divs[div][waste] == 0, 'Hope this doesnt happen'
+    #                         add_back_amounts[div] = 0
+    #                 else:
+    #                     add_back_amounts[div] = self.divs[div][waste] * fraction_to_fix
+                        
+    #                 # Don't adjust the amount subtracted by the efficiency losses, this is the important part
+    #                 self.divs[div][waste] -= self.divs[div][waste] * fraction_to_fix
+                
+    #             for div in self.divs.keys():
+    #                 amount = add_back_amounts[div]
+    #                 if amount == 0:
+    #                     continue
+    #                 types_to_add_to = [x for x in getattr(self, f"{div}_waste_fractions").keys() if x not in dont_add_to]
+    #                 fraction_of_types_adding_to = sum([getattr(self, f"{div}_waste_fractions")[x] for x in types_to_add_to])
+                    
+    #                 if (amount > 0) & (fraction_of_types_adding_to == 0):
+    #                     return True, True
+                    
+    #                 for w in types_to_add_to:
+    #                     if div == 'compost':
+    #                         self.divs[div][w] += amount * getattr(self, f"{div}_waste_fractions")[w] / fraction_of_types_adding_to * \
+    #                                         (1 - self.non_compostable_not_targeted_total) * \
+    #                                         (1 - self.unprocessable[w])                                
+    #                     elif div == 'combustion':
+    #                         #continue
+    #                         self.divs[div][w] += amount * getattr(self, f"{div}_waste_fractions")[w] / fraction_of_types_adding_to * \
+    #                                         (1 - self.combustion_reject_rate)
+    #                     elif div == 'recycling':
+    #                         self.divs[div][w] += amount * getattr(self, f"{div}_waste_fractions")[w] / fraction_of_types_adding_to * \
+    #                                         (self.recycling_reject_rates[w])
+    #                     else:
+    #                         self.divs[div][w] += amount * getattr(self, f"{div}_waste_fractions")[w] / fraction_of_types_adding_to
+                        
+    #         net_masses = {}
+    #         new_probs = set()
+    #         for waste in self.waste_masses.keys():
+    #             net_mass = self.waste_masses[waste] - sum([self.divs[x][waste] for x in self.divs.keys()])
+    #             net_masses[waste] = net_mass
+    #             if (net_mass < -0.1):
+    #                 new_probs.add(waste)
+    #                 dont_add_to.add(waste)
+                    
+    #         if len(new_probs) > 0:
+    #             problems.append(new_probs)
+        
+    #     fractions_after = {}
+    #     for div in self.divs.keys():
+    #         fractions_after[div] = sum([x for x in self.divs[div].values()]) / self.waste_mass
             
         # for div in divs.keys():
         #     assert (fractions_before[div] - fractions_after[div]) < .01, 'total diversion fractions should not change'

@@ -1,6 +1,7 @@
 from sweet_tools_obj import City
 import defaults
 import pandas as pd
+import numpy as np
 
 # from fastapi import FastAPI, Query
 # from fastapi.encoders import jsonable_encoder
@@ -33,9 +34,24 @@ for row in param_file.iterrows():
         rmi_db.at[row[1]['city_name'], '1950_Population']
     except:
         continue
-    #print(row[1]['city_name'])
+    if row[1]['city_name'] in ['Kanpur', 'Canberra', 'Paris', 'Bristol', 'Naha', 'Toyama', 'Oslo', 'Stockholm', 'Seattle']:
+        continue
     city = City(row[1]['city_name'])
+    print(city.name)
     city.load_wb_params(row, rmi_db)
+    
+    # for waste in city.waste_fractions.keys():
+    #     div_components = []
+    #     for div in city.divs.keys():
+    #         try:
+    #             component = city.div_fractions[div] * city.div_component_fractions_adjusted[div][waste]
+    #         except:
+    #             component = 0
+    #         div_components.append(component)
+    #     s = sum(div_components)
+    #     if np.absolute(s - city.waste_fractions[waste]) > .01:
+    #         print(city.name, waste)
+    
     cities_to_run[city.name] = city
     
 # for row in un_data_overview.iterrows():
