@@ -228,6 +228,7 @@ region_lookup = {'China': 'Eastern Asia',
                  'Vanuatu': 'Rest of Oceania',
                  'Samoa': 'Rest of Oceania',
                  'Yemen, Rep.': 'Western Asia',
+                 'DRC': 'Middle Africa'
                 }
 
 
