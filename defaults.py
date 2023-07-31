@@ -290,3 +290,100 @@ mef_anaerobic = 0.26/1000*1.1023 # Unit is Mg CH4/Mg organic waste...wtf
 ch4_to_co2e = 28
 
 gas_capture_efficiency = {'landfill': 0.6, 'controlled_dumpsite': 0.45, 'dumpsite': 0}
+
+# These numbers are kind of weird. I think...
+# Does this mean...waste that isn't diverted? But also is landfilled, as opposed to untracked?
+# These are from IPCC, regions are slightly weird....SWEET has Central and Southern Asia, IPCC has south central and western...using south central for western here. 
+# Africa is a single average and rest of oceania is from aus/nz
+fraction_to_swds = {
+    'Australia and New Zealand' : 0.85,
+    'Caribbean' : 0.83,
+    'Central America' : 0.50,
+    'Eastern Africa' : 0.69,
+    'Eastern Asia' : 0.55,
+    'Eastern Europe' : 0.90,
+    'Middle Africa' : 0.69,
+    "North America" : 0.58,
+    "Northern Africa" : 0.69,
+    "Northern Europe" : 0.47,
+    "Rest of Oceania" : 0.85,
+    "South America" : 0.54,
+    "Central Asia" : 0.74,
+    "South-Eastern Asia" : 0.59,
+    "Southern Africa" : 0.69,
+    "Southern Europe" : 0.85,
+    "Western Africa" : 0.69,
+    "Western Asia" : 0.68,
+    "Western Europe" : 0.47,
+    "Southern Asia" : 0.74
+    }
+
+fraction_incinerated = {
+    'Australia and New Zealand' : 0,
+    'Caribbean' : 0.02,
+    'Central America' : 0,
+    'Eastern Africa' : 0,
+    'Eastern Asia' : 0.26,
+    'Eastern Europe' : 0.04,
+    'Middle Africa' : 0,
+    "North America" : 0.06,
+    "Northern Africa" : 0,
+    "Northern Europe" : 0.24,
+    "Rest of Oceania" : 0,
+    "South America" : 0.01,
+    "Central Asia" : 0,
+    "South-Eastern Asia" : 0.09,
+    "Southern Africa" : 0,
+    "Southern Europe" : 0.05,
+    "Western Africa" : 0,
+    "Western Asia" : 0,
+    "Western Europe" : 0.22,
+    "Southern Asia" : 0
+    }
+
+fraction_composted = {
+    'Australia and New Zealand' : 0,
+    'Caribbean' : 0,
+    'Central America' : 0,
+    'Eastern Africa' : 0,
+    'Eastern Asia' : 0.01,
+    'Eastern Europe' : 0.01,
+    'Middle Africa' : 0,
+    "North America" : 0.06,
+    "Northern Africa" : 0,
+    "Northern Europe" : 0.08,
+    "Rest of Oceania" : 0,
+    "South America" : 0.003,
+    "Central Asia" : 0.05,
+    "South-Eastern Asia" : 0.05,
+    "Southern Africa" : 0,
+    "Southern Europe" : 0.05,
+    "Western Africa" : 0,
+    "Western Asia" : 0.05,
+    "Western Europe" : 0.15,
+    "Southern Asia" : 0.05
+    }
+
+# Includes recycling...sometimes, seems like junk. Also, don't try adding this stuff to 100. 
+fraction_unspecified = {
+    'Australia and New Zealand' : 0.15,
+    'Caribbean' : 0.15,
+    'Central America' : 0.50,
+    'Eastern Africa' : 0.31,
+    'Eastern Asia' : 0.18,
+    'Eastern Europe' : 0.02,
+    'Middle Africa' : 0.31,
+    "North America" : 0.29,
+    "Northern Africa" : 0.31,
+    "Northern Europe" : 0.20,
+    "Rest of Oceania" : 0.15,
+    "South America" : 0.46,
+    "Central Asia" : 0.21,
+    "South-Eastern Asia" : 0.27,
+    "Southern Africa" : 0.15,
+    "Southern Europe" : 0.05,
+    "Western Africa" : 0.15,
+    "Western Asia" : 0.21,
+    "Western Europe" : 0.15,
+    "Southern Asia" : 0.21
+    }
