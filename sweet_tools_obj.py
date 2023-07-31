@@ -20,13 +20,13 @@ class City:
         # Population, remove the try except when no duplicates
         self.population = float(row['population_population_number_of_people']) # * (1.03 ** (2010 - 2023))
         try:
-            population_1950 = rmi_db.at[self.name, '1950_Population'].iloc[0]
-            population_2020 = rmi_db.at[self.name, '2020_Population'].iloc[0]
-            population_2035 = rmi_db.at[self.name, '2035_Population'].iloc[0]
+            population_1950 = rmi_db.at[self.name, 'Population_1950'].iloc[0]
+            population_2020 = rmi_db.at[self.name, 'Population_2020'].iloc[0]
+            population_2035 = rmi_db.at[self.name, 'Population_2035'].iloc[0]
         except:
-            population_1950 = rmi_db.at[self.name, '1950_Population']
-            population_2020 = rmi_db.at[self.name, '2020_Population']
-            population_2035 = rmi_db.at[self.name, '2035_Population']
+            population_1950 = rmi_db.at[self.name, 'Population_1950']
+            population_2020 = rmi_db.at[self.name, 'Population_2020']
+            population_2035 = rmi_db.at[self.name, 'Population_2035']
         self.growth_rate_historic = ((population_2020 / population_1950) ** (1 / (2020 - 1950)))
         self.growth_rate_future = ((population_2035 / population_2020) ** (1 / (2035 - 2020)))
         
@@ -162,7 +162,7 @@ class City:
         # Determine split between landfill and dump site
         split_fractions = {'landfill_w_capture': np.nan_to_num(row['waste_treatment_sanitary_landfill_landfill_gas_system_percent'])/100,
                            'landfill_wo_capture': (np.nan_to_num(row['waste_treatment_controlled_landfill_percent']) + 
-                                       np.nan_to_num(row['waste_treatment_landfill_unspecified_percent']))/100,
+                                                  np.nan_to_num(row['waste_treatment_landfill_unspecified_percent']))/100,
                            'dumpsite': (np.nan_to_num(row['waste_treatment_open_dump_percent']) +
                                         np.nan_to_num(row['waste_treatment_unaccounted_for_percent']))/100}
         
@@ -196,6 +196,9 @@ class City:
         self.div_fractions['anaerobic'] = self.anaerobic_fraction
         self.div_fractions['combustion'] = self.combustion_fraction
         self.div_fractions['recycling'] = self.recycling_fraction
+        if sum(x for x in self.div_fractions.values()) > 1:
+            for div in self.div_fractions:
+                self.div_fractions[div] /= sum(x for x in self.div_fractions.values())
         self.div_component_fractions = {}
         self.calc_compost_vol()
         self.calc_anaerobic_vol()
@@ -624,14 +627,14 @@ class City:
         
         problems = [set()]
         for waste in self.waste_fractions:
-            div_components = []
+            components = []
             for div in self.divs:
                 try:
                     component = self.div_fractions[div] * self.div_component_fractions[div][waste]
                 except:
                     component = 0
-                div_components.append(component)
-            s = sum(div_components)
+                components.append(component)
+            s = sum(components)
             #print(div, waste, 'in', self.waste_fractions[waste], 'diverted', s)
             if s > self.waste_fractions[waste]:
                 # if div not in problems:
@@ -641,6 +644,9 @@ class City:
                 problems[0].add(waste)
 
         dont_add_to.update(problems[0])
+
+        if len(problems[0]) == 0:
+            return False, False
 
         removes = {}
         while problems:
@@ -711,17 +717,18 @@ class City:
                     
                     if to_distribute_to_sum == 0:
                         print('aaagh')
-                        print(self.name)
+                        #print(self.name)
+                        return True, True
                         
                     for d in to_distribute_to:
                         to_be_removed = to_be_removed * (self.div_fractions[d] / to_distribute_to_sum) / self.div_fractions[d]
                         to_distribute_to = [x for x in self.div_component_fractions_adjusted[d].keys() if x not in dont_add_to]
                         to_distribute_to_sum = sum([self.div_component_fractions_adjusted[d][x] for x in to_distribute_to])
                         if to_distribute_to_sum == 0:
-                            #print('grumble')
-                            print(self.name)
+                            print('grumble')
+                            #print(self.name)
                             #to_distribute_to_sum -= self.div_fractions[d]
-                            continue
+                            return True, True
                         #distributed = 0
                         for w in to_distribute_to:
                             add_amount = to_be_removed * self.div_component_fractions_adjusted[d][w] / to_distribute_to_sum
@@ -746,14 +753,14 @@ class City:
             if len(probs) > 0: 
                 new_probs = set()
                 for waste in self.waste_fractions:
-                    div_components = []
+                    components = []
                     for div in self.divs:
                         try:
                             component = self.div_fractions[div] * self.div_component_fractions_adjusted[div][waste]
                         except:
                             component = 0
-                        div_components.append(component)
-                    s = sum(div_components)
+                        components.append(component)
+                    s = sum(components)
                     #print(div, waste, 'in', self.waste_fractions[waste], 'diverted', s)
                     if s > self.waste_fractions[waste] + 0.01:
                         #print(waste, s, self.waste_fractions[waste])
