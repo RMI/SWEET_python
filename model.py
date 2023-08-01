@@ -95,24 +95,30 @@ class SWEET:
                     growth_rate = self.city.growth_rate_historic
                 else:
                     growth_rate = self.city.growth_rate_future
-                if waste == 'paper_cardboard':
-                    self.ms[year][waste] = (self.city.waste_mass * 
-                                            self.city.waste_fractions[waste] - 
-                                            0 - 
-                                            0 - 
-                                            self.city.divs['combustion'][waste] - 
-                                            self.city.divs['recycling'][waste]) * \
-                                            self.landfill.fraction_of_waste * \
-                                            (growth_rate ** t)
+                if year >= 2023:
+                    divs = self.city.new_divs
                 else:
-                    self.ms[year][waste] = (self.city.waste_mass * 
-                                            self.city.waste_fractions[waste] - 
-                                            self.city.divs['compost'][waste] - 
-                                            self.city.divs['anaerobic'][waste] - 
-                                            self.city.divs['combustion'][waste] - 
-                                            self.city.divs['recycling'][waste]) * \
-                                            self.landfill.fraction_of_waste * \
-                                            (growth_rate ** t)
+                    divs = self.city.divs
+                if waste == 'paper_cardboard':
+                    self.ms[year][waste] = (
+                        self.city.waste_mass * 
+                        self.city.waste_fractions[waste] - 
+                        0 - 
+                        0 - 
+                        divs['combustion'][waste] - 
+                        divs['recycling'][waste]) * \
+                        self.landfill.fraction_of_waste * \
+                        (growth_rate ** t)
+                else:
+                    self.ms[year][waste] = (
+                        self.city.waste_mass * 
+                        self.city.waste_fractions[waste] - 
+                        divs['compost'][waste] - 
+                        divs['anaerobic'][waste] - 
+                        divs['combustion'][waste] - 
+                        divs['recycling'][waste]) * \
+                        self.landfill.fraction_of_waste * \
+                        (growth_rate ** t)
                 
                 # Loop through previous years to get methane after decay
                 

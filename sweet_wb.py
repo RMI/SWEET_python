@@ -1,3 +1,5 @@
+#%%
+
 from sweet_tools_obj import City
 import defaults
 import pandas as pd
