@@ -200,7 +200,7 @@ class City:
             for div in self.div_fractions:
                 self.div_fractions[div] /= sum(x for x in self.div_fractions.values())
         self.div_component_fractions = {}
-        self.calc_compost_vol()
+        self.divs['compost'] = self.calc_compost_vol(self.div_fractions['compost'])
         self.calc_anaerobic_vol()
         self.calc_combustion_vol()
         self.calc_recycling_vol()
@@ -225,11 +225,17 @@ class City:
             self.net_masses_before_check[waste] = net_mass
 
         self.changed_diversion, self.input_problems = self.check_masses()
+        #self.changed_diversion = False
+        #self.input_problems = False
     
         self.net_masses_after_check = {}
         for waste in self.waste_masses.keys():
             net_mass = self.waste_masses[waste] - (self.divs['compost'][waste] + self.divs['anaerobic'][waste] + self.divs['combustion'][waste] + self.divs['recycling'][waste])
             self.net_masses_after_check[waste] = net_mass
+
+        self.new_divs = copy.deepcopy(self.divs)
+        self.new_div_fractions = {}
+        self.new_div_component_fractions = {}
 
     # def load_un_habitat_params(self, row, rmi_db, un_recovered_materials):
         
@@ -435,33 +441,33 @@ class City:
     #         net_mass = self.waste_masses[waste] - (self.divs['compost'][waste] + self.divs['anaerobic'][waste] + self.divs['combustion'][waste] + self.divs['recycling'][waste])
     #         self.net_masses_after_check[waste] = net_mass
     
-    def calc_compost_vol(self):
+    def calc_compost_vol(self, compost_fraction):
         # Helps to set to 0 at start
         compost_total = 0
         
         # Total mass of compost
-        compost_total = self.compost_fraction * self.waste_mass
+        compost_total = compost_fraction * self.waste_mass
         
         # Sum of fraction of waste types that are compostable
         fraction_compostable_types = sum([self.waste_fractions[x] for x in self.compost_components])
         self.unprocessable = {'food': .0192, 'green': .042522, 'wood': .07896, 'paper_cardboard': .12}
         
-        if self.compost_fraction != 0:
+        if compost_fraction != 0:
             compost_waste_fractions = {x: self.waste_fractions[x] / fraction_compostable_types for x in self.compost_components}
             #non_compostable_not_targeted = .1 # I don't know what this means, basically, waste that gets composted that shouldn't have been and isn't compostable?
             non_compostable_not_targeted = {'food': .1, 'green': .05, 'wood': .05, 'paper_cardboard': .1}
             non_compostable_not_targeted_total = sum([non_compostable_not_targeted[x] * \
                                                       compost_waste_fractions[x] for x in self.compost_components])
-            self.divs['compost'] = {}
+            compost = {}
             for waste in self.compost_components:
-                self.divs['compost'][waste] = (
+                compost[waste] = (
                     compost_total * 
                     (1 - non_compostable_not_targeted_total) *
                     compost_waste_fractions[waste] *
                     (1 - self.unprocessable[waste])
                     )
         else:
-            self.divs['compost'] = {x: 0 for x in self.compost_components}
+            compost = {x: 0 for x in self.compost_components}
             compost_waste_fractions = {x: 0 for x in self.compost_components}
             non_compostable_not_targeted = {'food': 0, 'green': 0, 'wood': 0, 'paper_cardboard': 0}
             non_compostable_not_targeted_total = 0
@@ -472,6 +478,8 @@ class City:
         self.div_component_fractions['compost'] = compost_waste_fractions
         self.non_compostable_not_targeted = non_compostable_not_targeted
         self.non_compostable_not_targeted_total = non_compostable_not_targeted_total
+        
+        return compost
     
     def calc_anaerobic_vol(self):
         anaerobic_total = 0
@@ -532,6 +540,25 @@ class City:
         self.div_component_fractions['recycling'] = recycling_waste_fractions
         
         #self.divs = pd.DataFrame(self.divs)
+
+    def change_compost(self, new_value):
+        # Set the value
+        self.new_div_fractions['compost'] = new_value
+
+        # Recalculate the volumes
+        self.new_divs['compost'] = self.calc_compost_vol(new_value)
+
+        # Add zeros for non-compost components, incorporate this into calc_compost_vol
+        for c in self.waste_fractions.keys():
+            if c not in self.new_divs['compost'].keys():
+                self.new_divs['compost'][c] = 0
+
+        # Run the model
+        for landfill in self.landfills:
+            landfill.estimate_emissions()
+
+        self.estimate_diversion_emissions()
+        self.sum_landfill_emissions()
     
     # def estimate_diversion_emissions(self):
         
@@ -574,10 +601,13 @@ class City:
         
         # REMOVE THE MASS CALCULATION PART OF THIS IT SHOULD BE HAPPENING ALREADY IN DIVS
         
-        # Define years and t_values 
+        # Define years and t_values.
+        # Population and waste data are from 2016. New diversions kick in in 2023.
         years_historic = np.arange(1960, 2016)
-        years_future = np.arange(2016, 2073)
+        years_middle = np.arange(2016, 2023)
+        years_future = np.arange(2023, 2073)
         t_values_historic = years_historic - 2016
+        t_values_middle = years_middle - 2016
         t_values_future = years_future - 2016
         
         # Initialize empty DataFrames to hold 'ms' and 'qs' values for each diversion type
@@ -588,13 +618,15 @@ class City:
         for div in self.divs.keys():
             # Create dataframe with years from div dictionary. All values should be the same, no exponential growth yet
             div_data_historic = pd.DataFrame({waste_type: [value] * len(years_historic) for waste_type, value in self.divs[div].items()}, index=years_historic)
-            div_data_future = pd.DataFrame({waste_type: [value] * len(years_future) for waste_type, value in self.divs[div].items()}, index=years_future)
+            div_data_middle = pd.DataFrame({waste_type: [value] * len(years_middle) for waste_type, value in self.divs[div].items()}, index=years_middle)
+            div_data_future = pd.DataFrame({waste_type: [value] * len(years_future) for waste_type, value in self.new_divs[div].items()}, index=years_future)
             
             # Compute 'ms' values
             #ms = div_data * (1.03 ** (t_values[:, np.newaxis]))
             ms_historic = div_data_historic * (self.growth_rate_historic ** (t_values_historic[:, np.newaxis]))
+            ms_middle = div_data_middle * (self.growth_rate_future ** (t_values_middle[:, np.newaxis]))
             ms_future = div_data_future * (self.growth_rate_future ** (t_values_future[:, np.newaxis]))
-            ms_dict[div] = pd.concat((ms_historic, ms_future), axis=0)
+            ms_dict[div] = pd.concat((ms_historic, ms_middle, ms_future), axis=0)
         
             # Compute 'qs' values based on the diversion type
             if div == 'compost':
