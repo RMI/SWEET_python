@@ -291,6 +291,8 @@ ch4_to_co2e = 28
 
 gas_capture_efficiency = {'landfill': 0.6, 'controlled_dumpsite': 0.45, 'dumpsite': 0}
 
+landfill_default_regions = set(['Eastern Asia', 'Eastern Europe', 'North America', 'Northern Europe', 'Southern Europe', 'Western Europe'])
+
 # These numbers are kind of weird. I think...
 # Does this mean...waste that isn't diverted? But also is landfilled, as opposed to untracked?
 # These are from IPCC, regions are slightly weird....SWEET has Central and Southern Asia, IPCC has south central and western...using south central for western here. 
@@ -387,3 +389,4 @@ fraction_unspecified = {
     "Western Europe" : 0.15,
     "Southern Asia" : 0.21
     }
+

@@ -167,11 +167,14 @@ class City:
                                         np.nan_to_num(row['waste_treatment_unaccounted_for_percent']))/100}
         
         # Get the total that goes to landfill and dump site combined
-        split_total = sum([split_fractions[x] for x in split_fractions.keys()])
+        split_total = sum([x for x in split_fractions.values()])
         
         if split_total == 0:
-            # Set to dump site only if no data. This gets changed later to country lookup for wealthier countries, default to landfill
-            split_fractions = {'landfill_w_capture': 0, 'landfill_wo_capture': 0, 'dumpsite': 1}
+            # Set to dump site only if no data
+            if self.region in defaults.landfill_default_regions:
+                split_fractions = {'landfill_w_capture': 0, 'landfill_wo_capture': 1, 'dumpsite': 0}
+            else:
+                split_fractions = {'landfill_w_capture': 0, 'landfill_wo_capture': 0, 'dumpsite': 1}
         else:
             # # Calculate % of waste that goes to landfill and dump site, of waste
             # # going to one or the other
@@ -196,9 +199,11 @@ class City:
         self.div_fractions['anaerobic'] = self.anaerobic_fraction
         self.div_fractions['combustion'] = self.combustion_fraction
         self.div_fractions['recycling'] = self.recycling_fraction
-        if sum(x for x in self.div_fractions.values()) > 1:
+        s = sum(x for x in self.div_fractions.values())
+        if  s > 1:
             for div in self.div_fractions:
-                self.div_fractions[div] /= sum(x for x in self.div_fractions.values())
+                self.div_fractions[div] /= s
+        assert sum(x for x in self.div_fractions.values()) <= 1, 'Diversion fractions sum to more than 1'
         self.div_component_fractions = {}
         self.divs['compost'] = self.calc_compost_vol(self.div_fractions['compost'])
         self.calc_anaerobic_vol()
@@ -541,17 +546,17 @@ class City:
         
         #self.divs = pd.DataFrame(self.divs)
 
-    def change_compost(self, new_value):
+    def change_diversion(self, diversion_type, new_value):
         # Set the value
-        self.new_div_fractions['compost'] = new_value
+        self.new_div_fractions[diversion_type] = new_value
 
         # Recalculate the volumes
-        self.new_divs['compost'] = self.calc_compost_vol(new_value)
+        self.new_divs[diversion_type] = self.calc_compost_vol(new_value)
 
         # Add zeros for non-compost components, incorporate this into calc_compost_vol
         for c in self.waste_fractions.keys():
-            if c not in self.new_divs['compost'].keys():
-                self.new_divs['compost'][c] = 0
+            if c not in self.new_divs[diversion_type].keys():
+                self.new_divs[diversion_type][c] = 0
 
         # Run the model
         for landfill in self.landfills:
@@ -805,6 +810,14 @@ class City:
                 if len(new_probs) > 0:
                     problems.append(new_probs)
                 dont_add_to.update(new_probs)
+        
+        for div, fracs in self.div_component_fractions_adjusted.items():
+            s = sum([x for x in fracs.values()])
+            # make sure the component fractions add up to 1
+            if (s != 0) and (np.absolute(1 - s) > 0.01):
+                print(s, 'problems')
+            for waste in fracs.keys():
+                self.divs[div][waste] = self.waste_mass * self.div_fractions[div] * self.div_component_fractions_adjusted[div][waste]
     
     # def check_masses(self):
     #     #masses = {x: self.waste_fractions[x] * self.waste_mass for x in self.waste_fractions.keys()}
@@ -974,6 +987,9 @@ class City:
         mass_kg = mass_ton * 1000
         volume_m3 = mass_kg / density_kg_per_m3
         return volume_m3
+
+    def export_tables(self, out_path):
+        self.total_emissions.to_csv(f'../../data/city_emissions/{city_name}.csv')
 
 class Landfill:
     def __init__(self, city, open_date, close_date, site_type, mcf, fraction_of_waste=1, gas_capture=False):

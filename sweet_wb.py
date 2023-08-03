@@ -1,5 +1,7 @@
 #%%
-
+from importlib import reload
+import sweet_tools_obj 
+sweet_tools_obj = reload(sweet_tools_obj)
 from sweet_tools_obj import City
 import defaults
 import pandas as pd
@@ -16,9 +18,11 @@ import warnings
 # Convert RuntimeWarning into an error
 warnings.filterwarnings('error', category=RuntimeWarning)
 
-filepath_wb = 'city_level_data_0_0.csv'
-filepath_rmi = 'Merged Waste Dataset Updated.xlsx'
-filepath_un = 'data_overview_2022.xlsx'
+pth = '/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/WasteMAP/decision_support_tool/python_only_sweet/'
+
+filepath_wb = pth + 'city_level_data_0_0.csv'
+filepath_rmi = pth + 'Merged Waste Dataset Updated.xlsx'
+filepath_un = pth + 'data_overview_2022.xlsx'
 # Initiate parameter dictionary
 params = {}
 
