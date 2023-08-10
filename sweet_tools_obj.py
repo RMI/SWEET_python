@@ -214,7 +214,7 @@ class City:
             self.changed_diversion = True
             self.input_problems = False
         else:
-            self.changed_diversion, self.input_problems, self.div_component_fractions, self.divs = self.check_masses(self.div_fractions)
+            self.changed_diversion, self.input_problems, self.div_component_fractions, self.divs = self.check_masses(self.div_fractions, self.divs)
 
         if self.input_problems:
             return
@@ -392,12 +392,12 @@ class City:
         # Recalculate the volumes
         self.new_divs[diversion_type] = method(new_value)
 
-        # Add zeros for non-compost components
+        # Add zeros for remaining diversion components
         for c in self.waste_fractions.keys():
             if c not in self.new_divs[diversion_type]:
                 self.new_divs[diversion_type][c] = 0
 
-        self.changed_diversion, self.input_problems, self.div_component_fractions, self.new_divs = self.check_masses(self.new_div_fractions)
+        self.changed_diversion, self.input_problems, self.div_component_fractions, self.new_divs = self.check_masses(self.new_div_fractions, self.new_divs)
         if self.input_problems:
             f'Invalid new {diversion_type} value'
 
@@ -462,7 +462,7 @@ class City:
         
         self.total_emissions = summed_emissions
     
-    def check_masses(self, div_fractions):
+    def check_masses(self, div_fractions, divs):
         div_component_fractions_adjusted = copy.deepcopy(self.div_component_fractions)
         dont_add_to = set([x for x in self.waste_fractions.keys() if self.waste_fractions[x] == 0])
         
@@ -487,7 +487,7 @@ class City:
         dont_add_to.update(problems[0])
 
         if len(problems[0]) == 0:
-            return False, False, self.div_component_fractions, self.divs
+            return False, False, self.div_component_fractions, divs
 
         removes = {}
         while problems:
@@ -628,7 +628,7 @@ class City:
 
         # Reduce them by non-compostable and unprocessable and etc rates
         for waste in self.compost_components:
-            self.divs['compost'][waste] = (
+            divs['compost'][waste] = (
                 divs['compost'][waste]  * 
                 (1 - self.non_compostable_not_targeted_total) *
                 (1 - self.unprocessable[waste])
