@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-import defaults
+from . import defaults
 
 class SWEET:
     def __init__(self, landfill, city):
@@ -8,7 +8,7 @@ class SWEET:
         self.city = city
         self.landfill = landfill
     
-    def estimate_emissions(self): 
+    def estimate_emissions(self):
         
         self.qs = {}
         self.ms = {}
@@ -18,37 +18,62 @@ class SWEET:
         self.m_dfs = {}
         self.organic_df = {}
         self.captured = {}
+        self.ch4_produced = {}
+        
         for year in range(self.landfill.open_date, self.landfill.close_date):
             
-            t = year - self.landfill.open_date
-            
+            t = year - 2016
+            #print(t)
+            #print(year)
+            #t2 = year - self.landfill.open_date
             self.qs[year] = {}
             self.ms[year] = {}
-
+            self.ch4_produced[year] = {}
             # Loop through years
             caps = []
             for waste in self.city.components:
-                self.ms[year][waste] = (self.city.waste_mass * 
-                                        self.city.waste_fractions[waste] - 
-                                        self.city.divs['compost'][waste] - 
-                                        self.city.divs['anaerobic'][waste] - 
-                                        self.city.divs['combustion'][waste] - 
-                                        self.city.divs['recycling'][waste]) * \
-                                        self.landfill.fraction_of_waste * \
-                                        (1.03 ** t)
+                if year < 2016:
+                    growth_rate = self.city.growth_rate_historic
+                else:
+                    growth_rate = self.city.growth_rate_future
+                if year >= 2023:
+                    divs = self.city.new_divs
+                else:
+                    divs = self.city.divs
+
+                self.ms[year][waste] = (
+                    self.city.waste_mass * 
+                    self.city.waste_fractions[waste] - 
+                    divs['compost'][waste] - 
+                    divs['anaerobic'][waste] - 
+                    divs['combustion'][waste] - 
+                    divs['recycling'][waste]) * \
+                    self.landfill.fraction_of_waste * \
+                    (growth_rate ** t)
                 
                 # Loop through previous years to get methane after decay
                 
+                ch4_produced = []
                 ch4 = []
-                for y in range(t):
-                    year_back = y + self.landfill.open_date
+                for y in range(self.landfill.open_date, year):
+                    years_back = year - y
                     ch4_produce = self.city.ks[waste] * \
-                                   defaults.L_0[waste] * \
-                                   self.ms[year_back][waste] * \
-                                   np.exp(-self.city.ks[waste] * \
-                                   (t - y - 0.5)) * \
-                                   self.landfill.mcf
-                          
+                                    defaults.L_0[waste] * \
+                                    self.ms[y][waste] * \
+                                    np.exp(-self.city.ks[waste] * \
+                                    (years_back - 0.5)) * \
+                                    self.landfill.mcf
+
+                # for y in range(t2):
+                #     year_back = y + self.landfill.open_date
+                #     ch4_produce = self.city.ks[waste] * \
+                #           defaults.L_0[waste] * \
+                #           self.ms[year_back][waste] * \
+                #           np.exp(-self.city.ks[waste] * \
+                #           (t2 - y - 0.5)) * \
+                #           self.landfill.mcf
+                    
+                    ch4_produced.append(ch4_produce)
                     ch4_capture = ch4_produce * self.landfill.gas_capture_efficiency
                     caps.append(ch4_capture)
                     val = (ch4_produce - ch4_capture) * (1 - self.landfill.oxidation_factor) + ch4_capture * .02
@@ -57,15 +82,16 @@ class SWEET:
                     
                 # Sum CH4 for waste from all previous years
                 self.qs[year][waste] = sum(ch4)
+                self.ch4_produced[year][waste] = sum(ch4_produced)
                 
             self.captured[year] = sum(caps) / 365 / 24
-        
-        # How do I deel with compost now...it's separate, but requires it's own loop? Ya I think, just do the time loop again. 
-        self.q_df = pd.DataFrame(self.qs)
+
+        self.q_df = pd.DataFrame(self.qs).T
         self.q_df['total'] = self.q_df.sum(axis=1)
-        self.m_df = pd.DataFrame(self.ms)
+        self.m_df = pd.DataFrame(self.ms).T
+        self.ch4_df = pd.DataFrame(self.ch4_produced).T
         
-        return self.m_df, self.q_df
+        return self.m_df, self.q_df, self.ch4_df, self.captured
     
     def estimate_emissions_match_excel(self):
         
