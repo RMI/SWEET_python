@@ -31,6 +31,14 @@ class City:
         self.growth_rate_historic = ((population_2020 / population_1950) ** (1 / (2020 - 1950)))
         self.growth_rate_future = ((population_2035 / population_2020) ** (1 / (2035 - 2020)))
         
+        # lat lon
+        try:
+            self.lat = rmi_db.at[self.name, 'latitude_original'].values[0]
+            self.lon = rmi_db.at[self.name, 'longitude_original'].values[0]
+        except:
+            self.lat = rmi_db.at[self.name, 'latitude_original']
+            self.lon = rmi_db.at[self.name, 'longitude_original']
+            
         # Get waste total
         try:
             self.waste_mass = float(row['total_msw_total_msw_generated_tons_year']) # unit is tons
@@ -44,9 +52,8 @@ class City:
             self.waste_mass = self.waste_per_capita * self.population / 1000 * 365
         
         # Subtract mass that is informally collected
-        self.informal_fraction = float(row['percent_informal_sector_percent_collected_by_informal_sector_percent']) / 100
-        if self.informal_fraction == self.informal_fraction:
-            self.waste_mass *= (1 - self.informal_fraction)
+        self.informal_fraction = np.nan_to_num(row['percent_informal_sector_percent_collected_by_informal_sector_percent']) / 100
+        self.waste_mass *= (1 - self.informal_fraction)
         
         # # Collection coverage_stats
         # # Don't use these for now, as it seems like WB already adjusted total msw to account for these. 
@@ -95,6 +102,9 @@ class City:
     
         self.waste_fractions = waste_fractions.to_dict()
         
+        s = sum([x for x in self.waste_fractions.values()])
+        self.waste_fractions = {x: self.waste_fractions[x] / s for x in self.waste_fractions.keys()}
+
         try:
             self.mef_compost = (0.0055 * waste_fractions['food']/(waste_fractions['food'] + waste_fractions['green']) + \
                            0.0139 * waste_fractions['green']/(waste_fractions['food'] + waste_fractions['green'])) * 1.1023 * 0.7 # / 28
@@ -104,10 +114,10 @@ class City:
         
         # Precipitation, remove this try except when there are no duplicates
         try:
-            precip = rmi_db.at[self.name, 'total_precipitation(mm)_1970-2000'].iloc[0]
+            self.precip = rmi_db.at[self.name, 'total_precipitation(mm)_1970-2000'].iloc[0]
         except:
-            precip = rmi_db.at[self.name, 'total_precipitation(mm)_1970-2000']
-        self.precip_zone = defaults.get_precipitation_zone(precip)
+            self.precip = rmi_db.at[self.name, 'total_precipitation(mm)_1970-2000']
+        self.precip_zone = defaults.get_precipitation_zone(self.precip)
     
         # depth
         #depth = 10
@@ -166,6 +176,7 @@ class City:
             for site in split_fractions.keys():
                 split_fractions[site] /= split_total
 
+        self.split_fractions = split_fractions
         
         self.landfill_w_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=split_fractions['landfill_w_capture'], gas_capture=True)
         self.landfill_wo_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=split_fractions['landfill_wo_capture'], gas_capture=False)
@@ -179,11 +190,17 @@ class City:
         self.div_fractions['anaerobic'] = self.anaerobic_fraction
         self.div_fractions['combustion'] = self.combustion_fraction
         self.div_fractions['recycling'] = self.recycling_fraction
+
         s = sum(x for x in self.div_fractions.values())
         if  s > 1:
             for div in self.div_fractions:
                 self.div_fractions[div] /= s
         assert sum(x for x in self.div_fractions.values()) <= 1, 'Diversion fractions sum to more than 1'
+        # Use IPCC defaults if no data
+        if s == 0:
+            self.div_fractions['compost'] = defaults.fraction_composted[self.region]
+            self.div_fractions['combustion'] = defaults.fraction_incinerated[self.region]
+
         self.div_component_fractions = {}
         self.divs['compost'] = self.calc_compost_vol(self.div_fractions['compost'])
         self.divs['anaerobic'] = self.calc_anaerobic_vol(self.div_fractions['anaerobic'])
@@ -213,6 +230,8 @@ class City:
             city_manual_baselines.get_manual_baseline(self)
             self.changed_diversion = True
             self.input_problems = False
+            if self.name == 'Kitakyushu':
+                self.divs['combustion']['paper_cardboard'] -= 410
         else:
             self.changed_diversion, self.input_problems, self.div_component_fractions, self.divs = self.check_masses(self.div_fractions, self.divs)
 
@@ -224,6 +243,11 @@ class City:
             net_mass = self.waste_masses[waste] - (self.divs['compost'][waste] + self.divs['anaerobic'][waste] + self.divs['combustion'][waste] + self.divs['recycling'][waste])
             self.net_masses_after_check[waste] = net_mass
 
+        for waste in self.net_masses_after_check.values():
+            if waste < -1:
+                print(waste)
+            assert waste >= -1, 'Waste diversion is net negative'
+
         self.new_divs = copy.deepcopy(self.divs)
         self.new_div_fractions = copy.deepcopy(self.div_fractions)
         self.new_div_component_fractions = copy.deepcopy(self.div_component_fractions)
@@ -234,47 +258,48 @@ class City:
         
         # Total mass of compost
         compost_total = compost_fraction * self.waste_mass
+
+        # if update:
+        #     compost = {}
+        #     for waste in self.compost_components:
+        #         compost[waste] = (
+        #             compost_total * 
+        #             (1 - self.non_compostable_not_targeted_total) *
+        #             self.div_component_fractions['compost'][waste] *
+        #             (1 - self.unprocessable[waste])
+        #         )
+        # else:
+        # Sum of fraction of waste types that are compostable
+        fraction_compostable_types = sum([self.waste_fractions[x] for x in self.compost_components])
+        self.unprocessable = {'food': .0192, 'green': .042522, 'wood': .07896, 'paper_cardboard': .12}
         
-        if update:
+        if compost_fraction != 0:
+            compost_waste_fractions = {x: self.waste_fractions[x] / fraction_compostable_types for x in self.compost_components}
+            #non_compostable_not_targeted = .1 # I don't know what this means, basically, waste that gets composted that shouldn't have been and isn't compostable?
+            non_compostable_not_targeted = {'food': .1, 'green': .05, 'wood': .05, 'paper_cardboard': .1}
+            self.non_compostable_not_targeted_total = sum([non_compostable_not_targeted[x] * \
+                                                    compost_waste_fractions[x] for x in self.compost_components])
             compost = {}
             for waste in self.compost_components:
                 compost[waste] = (
                     compost_total * 
                     (1 - self.non_compostable_not_targeted_total) *
-                    self.div_component_fractions['compost'][waste] *
+                    compost_waste_fractions[waste] *
                     (1 - self.unprocessable[waste])
-                )
+                    )
+
         else:
-            # Sum of fraction of waste types that are compostable
-            fraction_compostable_types = sum([self.waste_fractions[x] for x in self.compost_components])
-            self.unprocessable = {'food': .0192, 'green': .042522, 'wood': .07896, 'paper_cardboard': .12}
+            compost = {x: 0 for x in self.compost_components}
+            compost_waste_fractions = {x: 0 for x in self.compost_components}
+            non_compostable_not_targeted = {'food': 0, 'green': 0, 'wood': 0, 'paper_cardboard': 0}
+            self.non_compostable_not_targeted_total = 0
             
-            if compost_fraction != 0:
-                compost_waste_fractions = {x: self.waste_fractions[x] / fraction_compostable_types for x in self.compost_components}
-                #non_compostable_not_targeted = .1 # I don't know what this means, basically, waste that gets composted that shouldn't have been and isn't compostable?
-                non_compostable_not_targeted = {'food': .1, 'green': .05, 'wood': .05, 'paper_cardboard': .1}
-                self.non_compostable_not_targeted_total = sum([non_compostable_not_targeted[x] * \
-                                                        compost_waste_fractions[x] for x in self.compost_components])
-                compost = {}
-                for waste in self.compost_components:
-                    compost[waste] = (
-                        compost_total * 
-                        (1 - self.non_compostable_not_targeted_total) *
-                        compost_waste_fractions[waste] *
-                        (1 - self.unprocessable[waste])
-                        )
-            else:
-                compost = {x: 0 for x in self.compost_components}
-                compost_waste_fractions = {x: 0 for x in self.compost_components}
-                non_compostable_not_targeted = {'food': 0, 'green': 0, 'wood': 0, 'paper_cardboard': 0}
-                self.non_compostable_not_targeted_total = 0
-                
-            self.compost_total = compost_total
-            self.fraction_compostable_types = fraction_compostable_types
-            self.compost_waste_fractions = compost_waste_fractions
-            self.div_component_fractions['compost'] = compost_waste_fractions
-            self.non_compostable_not_targeted = non_compostable_not_targeted
-            #self.non_compostable_not_targeted_total = non_compostable_not_targeted_total
+        self.compost_total = compost_total
+        self.fraction_compostable_types = fraction_compostable_types
+        self.compost_waste_fractions = compost_waste_fractions
+        self.div_component_fractions['compost'] = compost_waste_fractions
+        self.non_compostable_not_targeted = non_compostable_not_targeted
+        #self.non_compostable_not_targeted_total = non_compostable_not_targeted_total
         
         return compost
     
@@ -382,6 +407,10 @@ class City:
         return recycling
 
     def change_diversion(self, diversion_type, new_value):
+        # Check if new value is valid
+        assert (sum(x for _, x in self.new_div_fractions.items() if x != new_value) + new_value <= 1), \
+            f'New {diversion_type} value is too large. Total diversion cannot exceed 100%.'
+        
         # Set the value
         self.new_div_fractions[diversion_type] = new_value
 
@@ -390,7 +419,7 @@ class City:
         method = getattr(self, method_name)
 
         # Recalculate the volumes
-        self.new_divs[diversion_type] = method(new_value)
+        self.new_divs[diversion_type] = method(new_value, update=False)
 
         # Add zeros for remaining diversion components
         for c in self.waste_fractions.keys():
@@ -399,7 +428,14 @@ class City:
 
         self.changed_diversion, self.input_problems, self.div_component_fractions, self.new_divs = self.check_masses(self.new_div_fractions, self.new_divs)
         if self.input_problems:
-            f'Invalid new {diversion_type} value'
+            print(f'Invalid new {diversion_type} value')
+            return
+
+        net = self.calculate_net_masses(self.new_divs)
+        for mass in net.values():
+            if mass < 0:
+                print(f'Invalid new {diversion_type} value')
+                return
 
         # Run the model
         for landfill in self.landfills:
@@ -407,6 +443,25 @@ class City:
 
         self.estimate_diversion_emissions()
         self.sum_landfill_emissions()
+
+    # def change_compost(self, new_value):
+    #     # Set the value
+    #     self.new_div_fractions['compost'] = new_value
+
+    #     # Recalculate the volumes
+    #     self.new_divs['compost'] = self.calc_compost_vol(new_value)
+
+    #     # Add zeros for non-compost components, incorporate this into calc_compost_vol
+    #     for c in self.waste_fractions.keys():
+    #         if c not in self.new_divs['compost'].keys():
+    #             self.new_divs['compost'][c] = 0
+
+    #     # Run the model
+    #     for landfill in self.landfills:
+    #         landfill.estimate_emissions()
+
+    #     self.estimate_diversion_emissions()
+    #     self.sum_landfill_emissions()
     
     def estimate_diversion_emissions(self):
         
@@ -460,12 +515,17 @@ class City:
         # Group by the year index and sum the emissions for each year
         summed_emissions = all_emissions.groupby(all_emissions.index).sum()
         
+        summed_emissions.drop('total', axis=1, inplace=True)
+        summed_emissions['total'] = summed_emissions.sum(axis=1)
+
         self.total_emissions = summed_emissions
     
     def check_masses(self, div_fractions, divs):
         div_component_fractions_adjusted = copy.deepcopy(self.div_component_fractions)
         dont_add_to = set([x for x in self.waste_fractions.keys() if self.waste_fractions[x] == 0])
         
+        self.div_fractions['compost'] * self.div_component_fractions['compost']['green'] + self.div_fractions['anaerobic'] * self.div_component_fractions['anaerobic']['green'] + self.div_fractions['combustion'] * self.div_component_fractions['combustion']['green']
+
         problems = [set()]
         for waste in self.waste_fractions:
             components = []
@@ -487,6 +547,7 @@ class City:
         dont_add_to.update(problems[0])
 
         if len(problems[0]) == 0:
+            #pass
             return False, False, self.div_component_fractions, divs
 
         removes = {}
@@ -542,7 +603,6 @@ class City:
                     can_be_adjusted.append(div)
                     #print(to_be_removed, distributed)
                     
-                    
                 #for div in overflow:
                     #del distribute[div]
                     #del remove[div]
@@ -562,29 +622,30 @@ class City:
                         return True, True, None, None
                         
                     for d in to_distribute_to:
-                        to_be_removed = to_be_removed * (div_fractions[d] / to_distribute_to_sum) / div_fractions[d]
-                        to_distribute_to = [x for x in div_component_fractions_adjusted[d].keys() if x not in dont_add_to]
-                        to_distribute_to_sum = sum([div_component_fractions_adjusted[d][x] for x in to_distribute_to])
-                        if to_distribute_to_sum == 0:
+                        to_be_removed_component = to_be_removed * (div_fractions[d] / to_distribute_to_sum) / div_fractions[d]
+                        to_distribute_to_component = [x for x in div_component_fractions_adjusted[d].keys() if x not in dont_add_to]
+                        to_distribute_to_sum_component = sum([div_component_fractions_adjusted[d][x] for x in to_distribute_to_component])
+                        if to_distribute_to_sum_component == 0:
                             print('grumble')
                             #print(self.name)
                             #to_distribute_to_sum -= self.div_fractions[d]
                             return True, True, None, None
                         #distributed = 0
-                        for w in to_distribute_to:
-                            add_amount = to_be_removed * div_component_fractions_adjusted[d][w] / to_distribute_to_sum
+                        for w in to_distribute_to_component:
+                            add_amount = to_be_removed_component * div_component_fractions_adjusted[d][w] / to_distribute_to_sum_component
                             #self.div_component_fractions[div][w] += add_amount
                             if w in distribute[d]:
                                 distribute[d][w].append(add_amount)
                             #distributed += add_amount
                         
-                        remove[d] += to_be_removed
-                        #print('removed', to_be_removed, 'fixing', waste, 'div didnt work is', div, 'going to', d)
+                    remove[d] += to_be_removed
+                    #print('removed', to_be_removed, 'fixing', waste, 'div didnt work is', div, 'going to', d)
             
                 for div in distribute:
                     for w in distribute[div]:
                         div_component_fractions_adjusted[div][w] += sum(distribute[div][w])
-                        
+                
+                #print(remove)
                 for div in remove:
                     div_component_fractions_adjusted[div][waste] -= remove[div]
                     
@@ -602,8 +663,8 @@ class City:
                             component = 0
                         components.append(component)
                     s = sum(components)
-                    #print(div, waste, 'in', self.waste_fractions[waste], 'diverted', s)
-                    if s > self.waste_fractions[waste] + 0.01:
+                    #print(waste, s, self.waste_fractions[waste])
+                    if s > self.waste_fractions[waste] + 0.001:
                         #print(waste, s, self.waste_fractions[waste])
                         # if div not in problems:
                         #     problems[div] = [waste]
@@ -614,7 +675,7 @@ class City:
                 if len(new_probs) > 0:
                     problems.append(new_probs)
                 dont_add_to.update(new_probs)
-        
+
         # Calculate diversion amounts with new fractions
         divs = {}
         for div, fracs in div_component_fractions_adjusted.items():
@@ -622,9 +683,22 @@ class City:
             s = sum([x for x in fracs.values()])
             # make sure the component fractions add up to 1
             if (s != 0) and (np.absolute(1 - s) > 0.01):
-                print(s, 'problems')
+                print(s, 'problems', div)
             for waste in fracs.keys():
                 divs[div][waste] = self.waste_mass * div_fractions[div] * div_component_fractions_adjusted[div][waste]
+
+        # Set divs to 0 for components that are not in the diversion
+        for c in self.waste_fractions:
+            if c not in divs['compost']:
+                divs['compost'][c] = 0
+            if c not in divs['anaerobic']:
+                divs['anaerobic'][c] = 0
+            if c not in divs['combustion']:
+                divs['combustion'][c] = 0
+            if c not in divs['recycling']:
+                divs['recycling'][c] = 0
+
+        net = self.calculate_net_masses(divs)
 
         # Reduce them by non-compostable and unprocessable and etc rates
         for waste in self.compost_components:
@@ -643,21 +717,17 @@ class City:
                 divs['recycling'][waste]  * 
                 self.recycling_reject_rates[waste]
                 )
-            
-        # Set divs to 0 for components that are not in the diversion
-        for c in self.waste_fractions:
-            if c not in divs['compost']:
-                divs['compost'][c] = 0
-            if c not in divs['anaerobic']:
-                divs['anaerobic'][c] = 0
-            if c not in divs['combustion']:
-                divs['combustion'][c] = 0
-            if c not in divs['recycling']:
-                divs['recycling'][c] = 0
-
 
         return True, False, div_component_fractions_adjusted, divs
     
+    def calculate_net_masses(self, divs):
+        net = {}
+        for waste in self.waste_fractions:
+            net_mass = self.waste_masses[waste] - (divs['compost'][waste] + divs['anaerobic'][waste] + divs['combustion'][waste] + divs['recycling'][waste])
+            net[waste] = net_mass
+
+        return net
+
     def convert_methane_m3_to_ton_co2e(self, volume_m3):
         density_kg_per_m3 = 0.7168
         mass_kg = volume_m3 * density_kg_per_m3
