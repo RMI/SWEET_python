@@ -190,14 +190,15 @@ def get_manual_baseline(city):
         for div, fracs in div_multiplied_through_adjusted.items():
             for waste, f in fracs.items():
                 if city.div_fractions[div] > 0:
-                    city.div_component_fractions_adjusted[div][waste] = f / city.div_fractions[div]
+                    city.div_component_fractions[div][waste] = f / city.div_fractions[div]
                     city.divs[div][waste] = city.waste_mass * f
                     assert np.absolute((city.waste_mass * f) - \
                         (city.waste_mass * city.div_component_fractions_adjusted[div][waste] * city.div_fractions[div])) < 1e-3
                 else:
-                    city.div_component_fractions_adjusted[div][waste] = 0
+                    city.div_component_fractions[div][waste] = 0
                     city.divs[div][waste] = 0
     else:
+        city.div_component_fractions = city.div_component_fractions_adjusted
         for div, fracs in city.div_component_fractions_adjusted.items():
             s = sum([x for x in fracs.values()])
             # make sure the component fractions add up to 1
