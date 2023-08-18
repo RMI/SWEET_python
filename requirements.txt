@@ -1,6 +1,0 @@
-pandas
-numpy
-fastapi~=0.100.0
-uvicorn
-pytest
-httpx

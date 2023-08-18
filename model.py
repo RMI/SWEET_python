@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from . import defaults
+#import defaults
 
 class SWEET:
     def __init__(self, landfill, city):
