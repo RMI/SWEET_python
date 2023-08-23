@@ -651,31 +651,33 @@ class City:
 
         # Update the landfill split
         # REMEMBER TO ADJUST THESE FOR 0-100 PERCENTAGE OR 0-1 FRACTION
-        # Get the % that is not gas capture
-        pct_not_gas = (1 - self.split_fractions['landfill_w_capture'])
 
         # Set the value
-        self.split_fractions_new['landfill_wo_capture'] = new_landfill_pct * pct_not_gas
-        self.split_fractions_new['dumpsite'] = (1 - new_landfill_pct) * pct_not_gas
+        self.split_fractions_new['dumpsite'] = 1 - new_landfill_pct
 
         # Recalculate the volumes
         #landfill_wo_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=self.split_fractions_new['landfill_wo_capture'], gas_capture=False)
-        dumpsite = Landfill(self, 1960, 2073, 'dumpsite', 0.4, fraction_of_waste=self.split_fractions_new['dumpsite'], gas_capture=False)
+        #dumpsite = Landfill(self, 2023, 2073, 'dumpsite', 0.4, fraction_of_waste=self.split_fractions_new['dumpsite'], gas_capture=False)
+        self.landfills[2].fraction_of_waste_new = self.split_fractions_new['dumpsite']
 
         pct_landfill = 1 - self.split_fractions_new['dumpsite']
 
         self.split_fractions_new['landfill_w_capture'] = new_gas_split * pct_landfill
         self.split_fractions_new['landfill_wo_capture'] = (1 - new_gas_split) * pct_landfill
 
+        print(self.split_fractions_new)
+
         assert np.absolute(1 - sum(x for x in self.split_fractions_new.values()) <= .0001)
 
-        landfill_w_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=self.split_fractions['landfill_w_capture'], gas_capture=True)
-        landfill_wo_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=self.split_fractions['landfill_wo_capture'], gas_capture=False)
+        #landfill_w_capture = Landfill(self, 2023, 2073, 'landfill', 1, fraction_of_waste=self.split_fractions['landfill_w_capture'], gas_capture=True)
+        #landfill_wo_capture = Landfill(self, 2023, 2073, 'landfill', 1, fraction_of_waste=self.split_fractions['landfill_wo_capture'], gas_capture=False)
+        self.landfills[0].fraction_of_waste_new = self.split_fractions_new['landfill_w_capture']
+        self.landfills[1].fraction_of_waste_new = self.split_fractions_new['landfill_wo_capture']
 
-        self.landfills_new = [landfill_w_capture, landfill_wo_capture, dumpsite]
+        #self.landfills_new = [landfill_w_capture, landfill_wo_capture, dumpsite]
 
         # Run the model
-        for landfill in self.landfills_new:
+        for landfill in self.landfills:
             landfill.estimate_emissions(baseline=False)
 
         self.organic_emissions_new = self.estimate_diversion_emissions(baseline=False)
@@ -697,7 +699,7 @@ class City:
         qs_dict = {}
         
         # Iterate over each diversion type
-        for div in self.divs.keys():
+        for div in ['compost', 'anaerobic']:
 
             if baseline:
                 # Create dataframe with years from div dictionary. All values should be the same, no exponential growth yet
@@ -733,13 +735,16 @@ class City:
 
     def sum_landfill_emissions(self, baseline=True):
         if baseline:
-            landfills = self.landfills_baseline
             organic_emissions = self.organic_emissions_baseline
         else:
-            landfills = self.landfills_new
             organic_emissions = self.organic_emissions_new
-            
-        landfill_emissions = [x.emissions.applymap(self.convert_methane_m3_to_ton_co2e) for x in landfills]
+
+            # for base, new in zip(self.landfills_baseline, self.landfills_new):
+            #     combined = base.emissions.copy()
+            #     combined.update(new.emissions.copy())
+            #     landfill_emissions.append(combined.applymap(self.convert_methane_m3_to_ton_co2e))
+        
+        landfill_emissions = [x.emissions.applymap(self.convert_methane_m3_to_ton_co2e) for x in self.landfills]
         landfill_emissions.append(organic_emissions.loc[:, list(self.components)])
 
         # Concatenate all emissions dataframes
@@ -992,6 +997,7 @@ class Landfill:
         self.site_type = site_type
         self.mcf = mcf
         self.fraction_of_waste = fraction_of_waste
+        self.fraction_of_waste_new = None
         self.gas_capture = gas_capture
         if self.gas_capture:
             self.gas_capture_efficiency = defaults.gas_capture_efficiency[site_type]
@@ -1001,12 +1007,12 @@ class Landfill:
             self.oxidation_factor = defaults.oxidation_factor['without_lfg'][site_type]
         
     def estimate_emissions(self, baseline=True):
-        if baseline:
-            self.model = SWEET(self, self.city, baseline=True)
-            # This is due to paper coardboard thing
-            #self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions_match_excel()
-            self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions()
-        else:
-            self.model = SWEET(self, self.city, baseline=False)
-            self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions()
+        #if baseline:
+        self.model = SWEET(self, self.city)
+        # This is due to paper coardboard thing
+        #self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions_match_excel()
+        self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions(baseline=baseline)
+        # else:
+        #     self.model = SWEET(self, self.city, baseline=False)
+        #     self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions(baseline=False)
         
