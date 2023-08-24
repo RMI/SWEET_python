@@ -191,6 +191,7 @@ region_lookup = {'China': 'Eastern Asia',
                  'Papua New Guinea': 'Rest of Oceania',
                  'Bhutan': 'Southern Asia',
                  'Côte d’Ivoire': 'Western Africa',
+                 'Ivory Coast': 'Western Africa',
                  'Congo, Dem. Rep.': 'Middle Africa',
                  'Congo, Rep.': 'Middle Africa',
                  'Czech Republic': 'Eastern Europe',
@@ -228,7 +229,13 @@ region_lookup = {'China': 'Eastern Asia',
                  'Vanuatu': 'Rest of Oceania',
                  'Samoa': 'Rest of Oceania',
                  'Yemen, Rep.': 'Western Asia',
-                 'DRC': 'Middle Africa'
+                 'Democratic Republic of the Congo': 'Middle Africa',
+                 'DRC': 'Middle Africa',
+                 'Micronesia': 'Rest of Oceania',
+                 'Gambia': 'Western Africa',
+                 'Macedonia': 'Eastern Europe',
+                 'Mongolia ': 'Central Asia',
+                 'Viet Nam': 'South-Eastern Asia',
                 }
 
 

@@ -25,7 +25,7 @@ class SWEET:
 
         for year in range(self.landfill.open_date, self.landfill.close_date):
             
-            t = year - 2016
+            t = year - self.city.year_of_data
             #print(t)
             #print(year)
             #t2 = year - self.landfill.open_date
@@ -35,7 +35,7 @@ class SWEET:
             # Loop through years
             caps = []
 
-            if year < 2016:
+            if year < self.city.year_of_data:
                 growth_rate = self.city.growth_rate_historic
             else:
                 growth_rate = self.city.growth_rate_future
@@ -44,7 +44,7 @@ class SWEET:
                 divs = self.city.baseline_divs
                 fraction_of_waste = self.landfill.fraction_of_waste
             else:
-                if year >= 2023:
+                if year >= self.dst_implement_year:
                     divs = self.city.new_divs
                     fraction_of_waste = self.landfill.fraction_of_waste_new
                 else:
@@ -119,7 +119,7 @@ class SWEET:
         
         for year in range(self.landfill.open_date, self.landfill.close_date):
             
-            t = year - 2016
+            t = year - self.city.year_of_data
             #print(t)
             #print(year)
             #t2 = year - self.landfill.open_date
@@ -129,7 +129,9 @@ class SWEET:
             # Loop through years
             caps = []
             for waste in self.city.components:
-                if year < 2016:
+
+                # This stuff probs doesn't work anymore, copy the above one
+                if year < self.city.year_of_data:
                     growth_rate = self.city.growth_rate_historic
                 else:
                     growth_rate = self.city.growth_rate_future
