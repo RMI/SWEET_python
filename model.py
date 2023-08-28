@@ -44,7 +44,7 @@ class SWEET:
                 divs = self.city.baseline_divs
                 fraction_of_waste = self.landfill.fraction_of_waste
             else:
-                if year >= self.dst_implement_year:
+                if year >= self.city.dst_implement_year:
                     divs = self.city.new_divs
                     fraction_of_waste = self.landfill.fraction_of_waste_new
                 else:
