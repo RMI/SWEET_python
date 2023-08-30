@@ -1,4 +1,5 @@
 from . import defaults
+from . import defaults_2019
 #import defaults
 import pandas as pd
 import numpy as np
@@ -7,6 +8,10 @@ from .model import SWEET
 import copy
 from . import city_manual_baselines
 #import city_manual_baselines
+from scipy.optimize import curve_fit
+#import matplotlib
+import matplotlib.pyplot as plt
+#matplotlib.use('TkAgg')
 
 class City:
     def __init__(self, name):
@@ -240,6 +245,7 @@ class City:
         row = row[1]
         self.data_source = row['Data Source']
         self.country = row['country_original']
+        self.iso3 = row['iso3_original']
         self.region = defaults.region_lookup[self.country]
         self.year_of_data = row['Year']
         
@@ -250,7 +256,61 @@ class City:
         population_2035 = row['Population_2035']
         self.growth_rate_historic = ((population_2020 / population_1950) ** (1 / (2020 - 1950)))
         self.growth_rate_future = ((population_2035 / population_2020) ** (1 / (2035 - 2020)))
+
+        # # Define the exponential function
+        # def exponential(x, a, b):
+        #     return a * np.exp(b * x)
+
+        # # Extract data from row
+        # years = np.array([1950, 1955, 1960, 1965, 1970, 1975, 1980, 1985, 1990, 1995, 2000, 2005, 2010, 2015, 2020, 2025, 2030, 2035])
+        # populations = np.array([row['Population_1950'], row['Population_1955'], row['Population_1960'], 
+        #                         row['Population_1965'], row['Population_1970'], row['Population_1975'], 
+        #                         row['Population_1980'], row['Population_1985'], row['Population_1990'], 
+        #                         row['Population_1995'], row['Population_2000'], row['Population_2005'], 
+        #                         row['Population_2010'], row['Population_2015'], row['Population_2020'], 
+        #                         row['Population_2025'], row['Population_2030'], row['Population_2035']])
+
+        # # Split data into historic and future
+        # historic_years = years[years <= 2020] - 1950
+        # future_years = years[years > 2020] - 2025
+        # historic_populations = populations[:len(historic_years)]
+        # future_populations = populations[len(historic_years):]
+
+        # # Fit the historic data to the exponential function
+        # params_historic, _ = curve_fit(exponential, historic_years, historic_populations)
+        # a_historic, b_historic = params_historic
+
+        # # Fit the future data to the exponential function
+        # params_future, _ = curve_fit(exponential, future_years, future_populations)
+        # a_future, b_future = params_future
         
+        # self.historic_growth_rate = 100 * (np.exp(b_historic) - 1)
+        # self.future_growth_rate = b_future
+
+        # # Predicting using the curve fit model
+        # historic_prediction = exponential(np.array(historic_years), *params_historic)
+        # future_prediction = exponential(np.array(future_years), *params_future)
+
+        # #%%
+        # # Plotting historic data
+        # plt.figure(figsize=(10, 5))
+
+        # plt.subplot(1, 2, 1)
+        # plt.scatter(historic_years, historic_populations, color='blue', label='Historic Data')
+        # plt.plot(historic_years, historic_prediction, color='red', linestyle='dashed', label='Historic Fit')
+        # plt.title('Historic Population Growth')
+        # plt.legend()
+
+        # # Plotting future data
+        # plt.subplot(1, 2, 2)
+        # plt.scatter(future_years, future_populations, color='green', label='Future Data')
+        # plt.plot(future_years, future_prediction, color='red', linestyle='dashed', label='Future Fit')
+        # plt.title('Future Population Growth')
+        # plt.legend()
+
+        # plt.tight_layout()
+        # plt.show()
+
         # lat lon
         self.lat = row['latitude_original']
         self.lon = row['longitude_original']
@@ -264,7 +324,10 @@ class City:
             self.waste_per_capita = self.waste_mass_load * 1000 / self.population / 365
         if self.waste_mass_load != self.waste_mass_load:
             # Use per capita default
-            self.waste_per_capita = defaults.msw_per_capita_defaults[self.region]
+            if self.iso3 in defaults_2019.msw_per_capita_country:
+                self.waste_per_capita = defaults_2019.msw_per_capita_country[self.iso3]
+            else:
+                self.waste_per_capita = defaults.msw_per_capita_defaults[self.region]
             self.waste_mass_load = self.waste_per_capita * self.population / 1000 * 365
         
         # Subtract mass that is informally collected
@@ -315,7 +378,10 @@ class City:
         
         if (waste_fractions.sum() < .98) or (waste_fractions.sum() > 1.02):
             #print('waste fractions do not sum to 1')
-            waste_fractions = defaults.waste_fraction_defaults.loc[self.region, :]
+            if self.iso3 in defaults_2019.waste_fractions_country:
+                waste_fractions = defaults_2019.waste_fractions_country.loc[self.iso3, :]
+            else:
+                waste_fractions = defaults.waste_fraction_defaults.loc[self.region, :]
     
         self.waste_fractions = waste_fractions.to_dict()
         
