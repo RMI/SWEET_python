@@ -3,7 +3,9 @@
 import pandas as pd
 import numpy as np
 
-lut = pd.read_csv('../../data/ipcc_lut.csv')
+#lut = pd.read_csv('../../data/ipcc_lut.csv')
+#lut = pd.read_csv('../data/ipcc_lut.csv')
+lut = pd.read_csv('data/ipcc_lut.csv')
 country_to_iso3 = lut.set_index('country')['iso3'].to_dict()
 
 #%%
@@ -600,16 +602,11 @@ fraction_open_dumped = {
     "North America" : 0.0,
     "Northern Africa" : 0.79,
     "Northern Europe" : 0.0,
-    "Rest of Oceania" : np.nan,
     "South America" : 0.43,
-    "Central Asia" : np.nan,
-    "South-Eastern Asia" : np.nan,
-    "Southern Africa" : np.nan,
     "Southern Europe" : 0.0,
     "Western Africa" : 0.0,
     "Western Asia" : 0.11,
     "Western Europe" : 0.0,
-    "Southern Asia" : np.nan
 }
 
 fraction_landfilled = {
@@ -623,16 +620,11 @@ fraction_landfilled = {
     "North America" : 0.22,
     "Northern Africa" : 0.17,
     "Northern Europe" : 0.47,
-    "Rest of Oceania" : np.nan,
     "South America" : 0.40,
-    "Central Asia" : np.nan,
-    "South-Eastern Asia" : np.nan,
-    "Southern Africa" : np.nan,
     "Southern Europe" : 0.76,
     "Western Africa" : 0.64,
     "Western Asia" : 0.68,
     "Western Europe" : 0.08,
-    "Southern Asia" : np.nan
 }
 
 fraction_incinerated = {
@@ -646,7 +638,6 @@ fraction_incinerated = {
     "North America" : 0.26,
     "Northern Africa" : 0.0,
     "Northern Europe" : 0.20,
-    "Rest of Oceania" : np.nan,
     "South America" : 0.0,
     "Central Asia" : np.nan,
     "South-Eastern Asia" : np.nan,
