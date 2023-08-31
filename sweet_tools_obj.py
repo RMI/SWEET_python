@@ -371,7 +371,10 @@ class City:
         
         # Add zeros where there are no values unless all values are nan
         if waste_fractions.isna().all():
-            waste_fractions = defaults.waste_fraction_defaults.loc[self.region, :]
+            if self.iso3 in defaults_2019.waste_fractions_country:
+                waste_fractions = defaults_2019.waste_fractions_country.loc[self.iso3, :]
+            else:
+                waste_fractions = defaults.waste_fraction_defaults.loc[self.region, :]
         else:
             waste_fractions.fillna(0, inplace=True)
             waste_fractions['textiles'] = 0
@@ -410,21 +413,24 @@ class City:
         
         # Compost params
         self.compost_components = set(['food', 'green', 'wood', 'paper_cardboard']) # Double check we don't want to include paper
-        self.compost_fraction = np.nan_to_num(row['waste_treatment_compost_percent']) / 100
+        self.compost_fraction = float(row['waste_treatment_compost_percent']) / 100
         
         # Anaerobic digestion params
         self.anaerobic_components = set(['food', 'green', 'wood', 'paper_cardboard'])
-        self.anaerobic_fraction = np.nan_to_num(row['waste_treatment_anaerobic_digestion_percent']) / 100   
+        self.anaerobic_fraction = float(row['waste_treatment_anaerobic_digestion_percent']) / 100   
         
         # Combustion params
         self.combustion_components = set(['food', 'green', 'wood', 'paper_cardboard', 'textiles', 'plastic', 'rubber'])
-        combustion_fraction_of_total = (np.nan_to_num(row['waste_treatment_incineration_percent']) + 
-                                        np.nan_to_num(row['waste_treatment_advanced_thermal_treatment_percent']))/ 100
-        self.combustion_fraction = combustion_fraction_of_total
+        value1 = float(row['waste_treatment_incineration_percent'])
+        value2 = float(row['waste_treatment_advanced_thermal_treatment_percent'])
+        if np.isnan(value1) and np.isnan(value2):
+            self.combustion_fraction = np.nan
+        else:
+            self.combustion_fraction = (np.nan_to_num(value1) + np.nan_to_num(value2)) / 100
         
         # Recycling params
         self.recycling_components = set(['wood', 'paper_cardboard', 'textiles', 'plastic', 'rubber', 'metal', 'glass', 'other'])
-        self.recycling_fraction = np.nan_to_num(row['waste_treatment_recycling_percent']) / 100
+        self.recycling_fraction = float(row['waste_treatment_recycling_percent']) / 100
         
         self.gas_capture_percent = np.nan_to_num(row['waste_treatment_sanitary_landfill_landfill_gas_system_percent']) / 100
         
@@ -433,34 +439,134 @@ class City:
         self.div_components['anaerobic'] = self.anaerobic_components
         self.div_components['combustion'] = self.combustion_components
         self.div_components['recycling'] = self.recycling_components
-        
-        # if all_waste_paths > 1.01:
-        
-        # Determine split between landfill and dump site
-        split_fractions = {'landfill_w_capture': np.nan_to_num(row['waste_treatment_sanitary_landfill_landfill_gas_system_percent'])/100,
-                           'landfill_wo_capture': (np.nan_to_num(row['waste_treatment_controlled_landfill_percent']) + 
-                                                  np.nan_to_num(row['waste_treatment_landfill_unspecified_percent']))/100,
-                           'dumpsite': (np.nan_to_num(row['waste_treatment_open_dump_percent']) +
-                                        np.nan_to_num(row['waste_treatment_unaccounted_for_percent']))/100}
-        
-        # Get the total that goes to landfill and dump site combined
-        split_total = sum([x for x in split_fractions.values()])
-        
-        if split_total == 0:
-            # Set to dump site only if no data
-            if self.region in defaults.landfill_default_regions:
-                split_fractions = {'landfill_w_capture': 0, 'landfill_wo_capture': 1, 'dumpsite': 0}
-            else:
-                split_fractions = {'landfill_w_capture': 0, 'landfill_wo_capture': 0, 'dumpsite': 1}
-        else:
-            for site in split_fractions.keys():
-                split_fractions[site] /= split_total
 
-        self.split_fractions = split_fractions
+        # Determine if we need to use defaults. 
+        # First case to check: all diversions and landfills are 0. Use defaults.
+        landfill_inputs = [
+            float(row['waste_treatment_sanitary_landfill_landfill_gas_system_percent']),
+            float(row['waste_treatment_controlled_landfill_percent']),
+            float(row['waste_treatment_landfill_unspecified_percent']),
+            float(row['waste_treatment_open_dump_percent'])
+        ]
+        all_nan_fill = all(np.isnan(value) for value in landfill_inputs)
+        total_fill = sum(0 if np.isnan(x) else x for x in landfill_inputs) / 100
+        diversions = [self.compost_fraction, self.anaerobic_fraction, self.combustion_fraction, self.recycling_fraction]
+        all_nan_div = all(np.isnan(value) for value in diversions)
+
+        if all_nan_fill and all_nan_div:
+            if self.iso3 in defaults_2019.fraction_composted_country:
+                self.compost_fraction = defaults_2019.fraction_composted_country[self.iso3]
+            elif self.region in defaults_2019.fraction_composted:
+                self.compost_fraction = defaults_2019.fraction_composted[self.region]
+            else:
+                self.compost_fraction = 0.0
+
+            if self.iso3 in defaults_2019.fraction_incinerated_country:
+                self.combustion_fraction = defaults_2019.fraction_incinerated_country[self.iso3]
+            elif self.region in defaults_2019.fraction_incinerated_country:
+                self.combustion_fraction = defaults_2019.fraction_incinerated[self.region]
+            else:
+                self.combustion_fraction = 0.0
+
+            if self.iso3 in ['CAN', 'CHE', 'DEU']:
+                self.split_fractions = {'landfill_w_capture': 0.0, 'landfill_wo_capture': 1.0, 'dumpsite': 0.0}
+            else:
+                if self.iso3 in defaults_2019.fraction_open_dumped_country:
+                    self.split_fractions = {
+                        'landfill_w_capture': 0.0,
+                        'landfill_wo_capture': defaults_2019.fraction_landfilled_country[self.iso3],
+                        'dumpsite': defaults_2019.fraction_open_dumped_country[self.iso3]
+                    }
+                elif self.region in defaults_2019.fraction_open_dumped:
+                    self.split_fractions = {
+                        'landfill_w_capture': 0.0,
+                        'landfill_wo_capture': defaults_2019.fraction_landfilled[self.region],
+                        'dumpsite': defaults_2019.fraction_open_dumped[self.region]
+                    }
+                else:
+                    if self.region in defaults.landfill_default_regions:
+                        self.split_fractions = {'landfill_w_capture': 0, 'landfill_wo_capture': 1, 'dumpsite': 0}
+                    else:
+                        self.split_fractions = {'landfill_w_capture': 0, 'landfill_wo_capture': 0, 'dumpsite': 1}
+
+        # Second case to check: all diversions are nan, but landfills are not. Use defaults for diversions if landfills sum to less than 1
+        # This assumes that entered data is incomplete. Also, normalize landfills to sum to 1.
+        # Caveat: if landfills sum to 1, assume diversions are supposed to be 0. 
+        elif all_nan_div and total_fill > .99:
+            self.split_fractions = {
+                'landfill_w_capture': np.nan_to_num(row['waste_treatment_sanitary_landfill_landfill_gas_system_percent'])/100,
+                'landfill_wo_capture': (np.nan_to_num(row['waste_treatment_controlled_landfill_percent']) + 
+                                        np.nan_to_num(row['waste_treatment_landfill_unspecified_percent']))/100,
+                'dumpsite': np.nan_to_num(row['waste_treatment_open_dump_percent'])/100
+            }
+        elif all_nan_div and total_fill < .99:
+            if self.iso3 in defaults_2019.fraction_composted_country:
+                self.compost_fraction = defaults_2019.fraction_composted_country[self.iso3]
+            elif self.region in defaults_2019.fraction_composted:
+                self.compost_fraction = defaults_2019.fraction_composted[self.region]
+            else:
+                self.compost_fraction = 0.0
+
+            if self.iso3 in defaults_2019.fraction_incinerated_country:
+                self.combustion_fraction = defaults_2019.fraction_incinerated_country[self.iso3]
+            elif self.region in defaults_2019.fraction_incinerated_country:
+                self.combustion_fraction = defaults_2019.fraction_incinerated[self.region]
+            else:
+                self.combustion_fraction = 0.0
+
+            self.split_fractions = {
+                'landfill_w_capture': np.nan_to_num(row['waste_treatment_sanitary_landfill_landfill_gas_system_percent'])/100,
+                'landfill_wo_capture': (np.nan_to_num(row['waste_treatment_controlled_landfill_percent']) + 
+                                        np.nan_to_num(row['waste_treatment_landfill_unspecified_percent']))/100,
+                'dumpsite': np.nan_to_num(row['waste_treatment_open_dump_percent'])/100
+            }
+
+        # Third case to check: all landfills are nan, but diversions are not. Use defaults for landfills
+        elif all_nan_fill:
+            if self.iso3 in ['CAN', 'CHE', 'DEU']:
+                self.split_fractions = {'landfill_w_capture': 0.0, 'landfill_wo_capture': 1.0, 'dumpsite': 0.0}
+            else:
+                if self.iso3 in defaults_2019.fraction_open_dumped_country:
+                    self.split_fractions = {
+                        'landfill_w_capture': 0.0,
+                        'landfill_wo_capture': defaults_2019.fraction_landfilled_country[self.iso3],
+                        'dumpsite': defaults_2019.fraction_open_dumped_country[self.iso3]
+                    }
+                elif self.region in defaults_2019.fraction_open_dumped:
+                    self.split_fractions = {
+                        'landfill_w_capture': 0.0,
+                        'landfill_wo_capture': defaults_2019.fraction_landfilled[self.region],
+                        'dumpsite': defaults_2019.fraction_open_dumped[self.region]
+                    }
+                else:
+                    if self.region in defaults.landfill_default_regions:
+                        self.split_fractions = {'landfill_w_capture': 0.0, 'landfill_wo_capture': 1.0, 'dumpsite': 0.0}
+                    else:
+                        self.split_fractions = {'landfill_w_capture': 0.0, 'landfill_wo_capture': 0.0, 'dumpsite': 1.0}
         
-        self.landfill_w_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=split_fractions['landfill_w_capture'], gas_capture=True)
-        self.landfill_wo_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=split_fractions['landfill_wo_capture'], gas_capture=False)
-        self.dumpsite = Landfill(self, 1960, 2073, 'dumpsite', 0.4, fraction_of_waste=split_fractions['dumpsite'], gas_capture=False)
+        # Fourth case to check: imported non-nan values in both landfills and diversions. Use the values. 
+        else:
+            self.split_fractions = {
+                'landfill_w_capture': np.nan_to_num(row['waste_treatment_sanitary_landfill_landfill_gas_system_percent'])/100,
+                'landfill_wo_capture': (np.nan_to_num(row['waste_treatment_controlled_landfill_percent']) + 
+                                        np.nan_to_num(row['waste_treatment_landfill_unspecified_percent']))/100,
+                'dumpsite': np.nan_to_num(row['waste_treatment_open_dump_percent'])/100
+            }
+        
+        # Normalize landfills to 1
+        split_total = sum([x for x in self.split_fractions.values()])
+        for site in self.split_fractions.keys():
+            self.split_fractions[site] /= split_total
+        
+        # Replace diversion NaN values with 0
+        attrs = ['compost_fraction', 'anaerobic_fraction', 'combustion_fraction', 'recycling_fraction']
+        for attr in attrs:
+            if np.isnan(getattr(self, attr)):
+                setattr(self, attr, 0.0)
+
+        self.landfill_w_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=self.split_fractions['landfill_w_capture'], gas_capture=True)
+        self.landfill_wo_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=self.split_fractions['landfill_wo_capture'], gas_capture=False)
+        self.dumpsite = Landfill(self, 1960, 2073, 'dumpsite', 0.4, fraction_of_waste=self.split_fractions['dumpsite'], gas_capture=False)
         
         self.landfills = [self.landfill_w_capture, self.landfill_wo_capture, self.dumpsite]
         
@@ -1052,7 +1158,7 @@ class City:
             #     combined.update(new.emissions.copy())
             #     landfill_emissions.append(combined.applymap(self.convert_methane_m3_to_ton_co2e))
         
-        landfill_emissions = [x.emissions.applymap(self.convert_methane_m3_to_ton_co2e) for x in self.landfills]
+        landfill_emissions = [x.emissions.map(self.convert_methane_m3_to_ton_co2e) for x in self.landfills]
         landfill_emissions.append(organic_emissions.loc[:, list(self.components)])
 
         # Concatenate all emissions dataframes
