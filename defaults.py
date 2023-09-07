@@ -325,7 +325,7 @@ fraction_to_swds = {
     "Western Asia" : 0.68,
     "Western Europe" : 0.47,
     "Southern Asia" : 0.74
-    }
+}
 
 fraction_incinerated = {
     'Australia and New Zealand' : 0,
@@ -348,7 +348,7 @@ fraction_incinerated = {
     "Western Asia" : 0,
     "Western Europe" : 0.22,
     "Southern Asia" : 0
-    }
+}
 
 fraction_composted = {
     'Australia and New Zealand' : 0,
@@ -371,7 +371,7 @@ fraction_composted = {
     "Western Asia" : 0.05,
     "Western Europe" : 0.15,
     "Southern Asia" : 0.05
-    }
+}
 
 # Includes recycling...sometimes, seems like junk. Also, don't try adding this stuff to 100. 
 fraction_unspecified = {
@@ -395,5 +395,5 @@ fraction_unspecified = {
     "Western Asia" : 0.21,
     "Western Europe" : 0.15,
     "Southern Asia" : 0.21
-    }
+}
 

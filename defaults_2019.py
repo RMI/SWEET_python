@@ -2,10 +2,13 @@
 
 import pandas as pd
 import numpy as np
+import pycountry
 
 #lut = pd.read_csv('../../data/ipcc_lut.csv')
-#lut = pd.read_csv('../data/ipcc_lut.csv')
-lut = pd.read_csv('data/ipcc_lut.csv')
+try:
+    lut = pd.read_csv('../data/ipcc_lut.csv')
+except:
+    lut = pd.read_csv('data/ipcc_lut.csv')
 country_to_iso3 = lut.set_index('country')['iso3'].to_dict()
 
 #%%
@@ -345,6 +348,51 @@ region_lookup = {'China': 'Eastern Asia',
                  'Viet Nam': 'South-Eastern Asia',
                 }
 
+region_lookup_iso3 = {}
+for country in region_lookup:
+    if country == 'Tanzaia':
+        iso3 = 'TZA'
+    elif country == 'Mauritanina':
+        iso3 = 'MRT'
+    elif country == 'Guinne-Bissau':
+        iso3 = 'GNB'
+    elif (country == 'Republic of Congo') or (country == 'Congo, Rep.'):
+        iso3 = 'COG'
+    elif (country == 'Democratic Republic of Congo') or (country == 'Congo, Dem. Rep.') or (country == 'Democratic Republic of the Congo') or (country == 'DRC'):
+        iso3 = 'COD'
+    elif country == 'Croatioa':
+        iso3 = 'HRV'
+    elif country == 'St. Lucia':
+        iso3 = 'LCA'
+    elif country == 'Hondruas':
+        iso3 = 'HND'
+    elif country == 'Nicarauga':
+        iso3 = 'NIC'
+    elif (country == 'Côte d’Ivoire') or (country == 'Ivory Coast'):
+        iso3 = 'CIV'
+    elif country == 'Egypt, Arab Rep.':
+        iso3 = 'EGY'
+    elif country == 'Micronesia, Fed. Sts.':
+        iso3 = 'FSM'
+    elif country == 'Gambia, The':
+        iso3 = 'GMB'
+    elif country == 'Iran, Islamic Rep.':
+        iso3 = 'IRN'
+    elif country == 'Korea, Rep.':
+        iso3 = 'KOR'
+    elif country == 'Lao PDR':
+        iso3 = 'LAO'
+    elif country == 'Macedonia, FYR':
+        iso3 = 'MKD'
+    elif country == 'West Bank and Gaza':
+        iso3 = 'PSE'
+    elif country == 'Venezuela, RB':
+        iso3 = 'VEN'
+    elif country == 'Yemen, Rep.':
+        iso3 = 'YEM'
+    else:
+        iso3 = pycountry.countries.search_fuzzy(country)[0].alpha_3
+    region_lookup_iso3[iso3] = region_lookup[country]
 
 msw_per_capita_defaults = {
     'Australia and New Zealand' : 0.6,
