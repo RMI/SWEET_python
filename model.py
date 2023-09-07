@@ -22,6 +22,26 @@ class SWEET:
         self.organic_df = {}
         self.captured = {}
         self.ch4_produced = {}
+        # Check if city has an attribute named 'div_masses'
+        doing_div_masses = False
+        doing_div_masses_new = False
+        if not hasattr(self.city, 'div_masses'):
+            doing_div_masses = True
+        if doing_div_masses:
+            self.city.div_masses = {}
+            self.city.div_masses['compost'] = {}
+            self.city.div_masses['anaerobic'] = {}
+            self.city.div_masses['combustion'] = {}
+            self.city.div_masses['recycling'] = {}
+
+        if (not baseline) and (not hasattr(self.city, 'div_masses_new')):
+            doing_div_masses_new = True
+        if doing_div_masses_new:
+            self.city.div_masses_new = {}
+            self.city.div_masses_new['compost'] = {}
+            self.city.div_masses_new['anaerobic'] = {}
+            self.city.div_masses_new['combustion'] = {}
+            self.city.div_masses_new['recycling'] = {}
 
         for year in range(self.landfill.open_date, self.landfill.close_date):
             
@@ -32,6 +52,18 @@ class SWEET:
             self.qs[year] = {}
             self.ms[year] = {}
             self.ch4_produced[year] = {}
+            
+            if doing_div_masses:
+                self.city.div_masses['compost'][year] = {}
+                self.city.div_masses['anaerobic'][year] = {}
+                self.city.div_masses['combustion'][year] = {}
+                self.city.div_masses['recycling'][year] = {}
+
+            if doing_div_masses_new:
+                self.city.div_masses_new['compost'][year] = {}
+                self.city.div_masses_new['anaerobic'][year] = {}
+                self.city.div_masses_new['combustion'][year] = {}
+                self.city.div_masses_new['recycling'][year] = {}
             # Loop through years
             caps = []
 
@@ -62,6 +94,17 @@ class SWEET:
                     fraction_of_waste * \
                     (growth_rate ** t)
                 
+                if doing_div_masses:
+                    self.city.div_masses['compost'][year][waste] = divs['compost'][waste] * (growth_rate ** t)
+                    self.city.div_masses['anaerobic'][year][waste] = divs['anaerobic'][waste] * (growth_rate ** t)
+                    self.city.div_masses['combustion'][year][waste] = divs['combustion'][waste] * (growth_rate ** t)
+                    self.city.div_masses['recycling'][year][waste] = divs['recycling'][waste] * (growth_rate ** t)
+
+                if doing_div_masses_new:
+                    self.city.div_masses_new['compost'][year][waste] = divs['compost'][waste] * (growth_rate ** t)
+                    self.city.div_masses_new['anaerobic'][year][waste] = divs['anaerobic'][waste] * (growth_rate ** t)
+                    self.city.div_masses_new['combustion'][year][waste] = divs['combustion'][waste] * (growth_rate ** t)
+                    self.city.div_masses_new['recycling'][year][waste] = divs['recycling'][waste] * (growth_rate ** t)
                 # Loop through previous years to get methane after decay
                 
                 ch4_produced = []
@@ -101,6 +144,18 @@ class SWEET:
         self.q_df['total'] = self.q_df.sum(axis=1)
         self.m_df = pd.DataFrame(self.ms).T
         self.ch4_df = pd.DataFrame(self.ch4_produced).T
+
+        if doing_div_masses:
+            self.city.div_masses['compost'] = pd.DataFrame(self.city.div_masses['compost']).T
+            self.city.div_masses['anaerobic'] = pd.DataFrame(self.city.div_masses['anaerobic']).T
+            self.city.div_masses['combustion'] = pd.DataFrame(self.city.div_masses['combustion']).T
+            self.city.div_masses['recycling'] = pd.DataFrame(self.city.div_masses['recycling']).T
+
+        if doing_div_masses_new:
+            self.city.div_masses_new['compost'] = pd.DataFrame(self.city.div_masses_new['compost']).T
+            self.city.div_masses_new['anaerobic'] = pd.DataFrame(self.city.div_masses_new['anaerobic']).T
+            self.city.div_masses_new['combustion'] = pd.DataFrame(self.city.div_masses_new['combustion']).T
+            self.city.div_masses_new['recycling'] = pd.DataFrame(self.city.div_masses_new['recycling']).T
         
         return self.m_df, self.q_df, self.ch4_df, self.captured
     
