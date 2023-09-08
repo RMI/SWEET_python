@@ -3,12 +3,12 @@
 import pandas as pd
 import numpy as np
 import pycountry
+import os
+from pathlib import Path
 
-#lut = pd.read_csv('../../data/ipcc_lut.csv')
-try:
-    lut = pd.read_csv('../data/ipcc_lut.csv')
-except:
-    lut = pd.read_csv('data/ipcc_lut.csv')
+# The path to the current module's directory
+current_dir = Path(__file__).parent
+lut = pd.read_csv(current_dir / 'ipcc_lut.csv')
 country_to_iso3 = lut.set_index('country')['iso3'].to_dict()
 
 #%%

@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from . import defaults
+from SWEET_python import defaults
 #import defaults
 
 class SWEET:
