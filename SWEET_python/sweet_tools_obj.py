@@ -1,12 +1,12 @@
-from . import defaults
-from . import defaults_2019
+from SWEET_python import defaults
+from SWEET_python import defaults_2019
 #import defaults
 import pandas as pd
 import numpy as np
-from .model import SWEET
+from SWEET_python.model import SWEET
 #from model import SWEET
 import copy
-from . import city_manual_baselines
+from SWEET_python import city_manual_baselines
 #import city_manual_baselines
 from scipy.optimize import curve_fit
 #import matplotlib
