@@ -1,0 +1,5 @@
+The primary differences between the Python and Excel versions of the SWEET methane emissions model are:
+
+1) The Python model allows for composting and anaerobic digestion of paper and cardboard.
+2) The Python model landfills waste that is rejected by combustion/incineration facilities.
+3) The Python model uses 2019 IPCC defaults for compost and combustion/incineration when input data is not available.
