@@ -1,5 +1,5 @@
 # SWEET_python
-This repo contains code for a Python port of the methane emissions portions of the US Environmental Protection Agency's Solid Waste Emissions Estimation Tool (SWEET). The original Excel model is available at https://globalmethane.org/resources/details.aspx?resourceid=5176. A user manual is also available at that site. 
+This repo contains code for a Python port of the methane emissions portions of the US Environmental Protection Agency's Solid Waste Emissions Estimation Tool (SWEET). SWEET is a first-order decay model for estimating methane emissions from municipal waste, similar to the IPCC Waste Model from the 2006 report. This python port does not contain the portions of the SWEET model for calculating non-methane emissions. The original Excel model is available at https://globalmethane.org/resources/details.aspx?resourceid=5176. A user manual is also available at that site. 
 
 
 # Installation
@@ -29,3 +29,5 @@ The minimum information required to run the model is:
 2) Population or total waste generated per year. Default waste generation values are per capita, so city population is needed to calculate total waste generation if those data are not available.
 3) Population growth rate, both historic (before the current year) and future (after current year). This is used to determine how waste generation changes backwards and forwards in time. Growth rates are percent growth rate + 1, e.g. 5% growth is represented by 1.05. 
 4) Mean annual precipitation in mm. Precipitation is used to determine waste decay rates.
+
+The SWEET model is designed to operate at the city level, and allows multiple landfills per city. If you would like to model only a single landfill, that can be done by creating only a single Landfill instance, directing all waste to it with the fraction_of_waste attribute, and setting all the diversion values to 0—no waste is composted, anaerobically digested, combusted/incinerated, or recycled, it all goes to the landfill. Country, population or waste generation, population growth rate, and precipitation are still required. 
