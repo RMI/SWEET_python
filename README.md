@@ -9,7 +9,7 @@ After following these steps, SWEET_python can be imported:
 
 
 # Usage
-You will have to write your own code to import your data files. Examples are in SWEET_python/sweet_tools_obj.py--the load_from_database method illustrates the many different parameters that can be specified. For many parameters, default values are available. These are stored in the defaults_2019.py file, and the sweet_tools_obj.py file contains many examples of accessing them. The code for the model itself is in model.py. Models are generally run as part of a Landfill instance--the Landfill class is defined at the bottom of sweet_tools_obj.py
+You will have to write your own code to import your data files. Examples are in SWEET_python/sweet_tools_obj.py—the load_from_database method illustrates the many different parameters that can be specified. For many parameters, default values are available. These are stored in the defaults_2019.py file, and the sweet_tools_obj.py file contains many examples of accessing them. The code for the model itself is in model.py. Models are generally run as part of a Landfill instance—the Landfill class is defined at the bottom of sweet_tools_obj.py
 
 The standard way to run the model is shown by this code:
 
