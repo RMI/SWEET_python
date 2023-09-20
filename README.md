@@ -1,11 +1,12 @@
 # SWEET_python
-This repo contains code for a Python port of the methane emissions portions of the US Environmental Protection Agency's Solid Waste Emissions Estimation Tool (SWEET). SWEET is a first-order decay model for estimating methane emissions from municipal waste, similar to the IPCC Waste Model from the 2006 report. This python port does not contain the portions of the SWEET model for calculating non-methane emissions. The original Excel model is available at https://globalmethane.org/resources/details.aspx?resourceid=5176. A user manual is also available at that site. 
+This repo contains code for a Python port of the methane emissions portions of the US Environmental Protection Agency's Solid Waste Emissions Estimation Tool (SWEET). SWEET is a first-order decay model for estimating methane emissions from municipal waste, similar to the IPCC Waste Model from the 2006 report. This python port does not contain the portions SWEET for calculating non-methane emissions. The original Excel model is available at https://globalmethane.org/resources/details.aspx?resourceid=5176. A user manual is also available at that site. 
 
 
 # Installation
 After following these steps, SWEET_python can be imported:
-1) Clone this repo (in a terminal, write `git clone https://github.com/RMI/SWEET_python.git`)
-2) cd into the SWEET_python directory, then write `pip install .`
+1) Use an existing python environment or create one with conda or venv. e.g. `conda create -n "sweet"`
+2) Clone this repo (in a terminal, write `git clone https://github.com/RMI/SWEET_python.git`)
+3) cd into the SWEET_python directory, then write `pip install -e .` to install in editable mode, which allows editing the code. Updates to the code in the repo should be automatically reflected in the installed package. If they are not, reinstall it. 
 
 
 # Usage
