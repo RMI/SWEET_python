@@ -484,7 +484,7 @@ class City:
             landfill.estimate_emissions(baseline=True)
     
         self.organic_emissions_baseline = self.estimate_diversion_emissions(baseline=True)
-        self.total_emissions_baseline = self.sum_landfill_emissions(baseline=True)
+        self.landfill_emissions_baseline, self.diversion_emissions_baseline, self.total_emissions_baseline = self.sum_landfill_emissions(baseline=True)
 
     def load_andre_params(self, row):
         """
@@ -1624,21 +1624,30 @@ class City:
         #landfill_emissions = [x.emissions.map(self.convert_methane_m3_to_ton_co2e) for x in self.landfills]
         # Convert from m3 to tons CO2e
         landfill_emissions = [x.emissions.map(self.convert_methane_m3_to_ton_co2e) for x in self.non_zero_landfills]
-        landfill_emissions.append(organic_emissions.loc[:, list(self.components)])
 
         # Concatenate all emissions dataframes
         all_emissions = pd.concat(landfill_emissions, axis=0)
         
         # Group by the year index and sum the emissions for each year
-        summed_emissions = all_emissions.groupby(all_emissions.index).sum()
+        summed_landfill_emissions = all_emissions.groupby(all_emissions.index).sum()
         
         # Total needs to be updated to include emissions from diverted waste (from estimate_diversion_emissions)
+        summed_landfill_emissions.drop('total', axis=1, inplace=True)
+        summed_landfill_emissions['total'] = summed_landfill_emissions.sum(axis=1)
+
+        summed_landfill_emissions = summed_landfill_emissions/28 # Convert from co2e to ch4
+
+        # Repeat with addition of diverted waste emissions
+        landfill_emissions.append(organic_emissions.loc[:, list(self.components)])
+        all_emissions = pd.concat(landfill_emissions, axis=0)
+        summed_emissions = all_emissions.groupby(all_emissions.index).sum()
         summed_emissions.drop('total', axis=1, inplace=True)
         summed_emissions['total'] = summed_emissions.sum(axis=1)
+        summed_emissions /= 28
 
-        summed_emissions /= 28 # Convert from co2e to ch4
+        summed_diversion_emissions = organic_emissions.loc[:, list(self.components)] / 28
 
-        return summed_emissions
+        return summed_landfill_emissions, summed_diversion_emissions, summed_emissions
     
     # No longer used
     # Method to adjust diverted waste types in order to prevent more waste from being diverted than is generated.
@@ -2875,9 +2884,8 @@ class City:
         for landfill in self.non_zero_landfills:
             landfill.estimate_emissions(baseline=False)
 
-
         self.organic_emissions_new = self.estimate_diversion_emissions(baseline=False)
-        self.total_emissions_new = self.sum_landfill_emissions(baseline=False)
+        self.landfill_emissions_new, self.diversion_emissions_new, self.total_emissions_new = self.sum_landfill_emissions(baseline=False)
 
 class Landfill:
     """

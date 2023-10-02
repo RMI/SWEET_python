@@ -377,7 +377,7 @@ for country in region_lookup:
         iso3 = 'HND'
     elif country == 'Nicarauga':
         iso3 = 'NIC'
-    elif (country == 'Côte d’Ivoire') or (country == 'Ivory Coast'):
+    elif (country == "Côte d’Ivoire") or (country == 'Ivory Coast') or (country == "Côte d'Ivoire"):
         iso3 = 'CIV'
     elif country == 'Egypt, Arab Rep.':
         iso3 = 'EGY'
