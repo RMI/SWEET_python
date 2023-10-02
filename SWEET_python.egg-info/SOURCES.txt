@@ -1,7 +1,6 @@
 MANIFEST.in
 setup.py
 SWEET_python/__init__.py
-SWEET_python/city_level_data_0_0.csv
 SWEET_python/city_manual_baselines.py
 SWEET_python/config.py
 SWEET_python/country_code_lut.csv
