@@ -412,6 +412,35 @@ class City:
         
         # Population, remove the try except when no duplicates
         self.population = float(row['population'])
+        if self.name == 'Pago Pago':
+            self.population = 3656
+            self.year_of_data = 2010
+        elif self.name == 'Kano':
+            self.population = 2828861
+            self.year_of_data = 2006
+        elif self.name == 'Ramallah':
+            self.population = 38998
+            self.year_of_data = 2017
+        elif self.name == 'Soweto':
+            self.population = 1271628
+            self.year_of_data = 2011
+        elif self.name == 'Kadoma City':
+            self.population = 116300
+            self.year_of_data = 2022
+        elif self.name == 'Mbare':
+            self.population = 450000
+            self.year_of_data = 2020
+        elif self.name == 'Masvingo City':
+            self.population = 90286
+            self.year_of_data = 2022
+        elif self.name == 'Limbe':
+            self.population = 84223
+            self.year_of_data = 2005
+        elif self.name == 'Labe':
+            self.population = 200000
+            self.year_of_data = 2014
+
+
         population_1950 = row['Population_1950']
         population_2020 = row['Population_2020']
         population_2035 = row['Population_2035']
@@ -516,6 +545,7 @@ class City:
                              'composition_glass_percent',
                              'composition_other_percent',
                              'composition_rubber_leather_percent',
+                             'composition_textiles_percent'
                              ]]
     
         waste_fractions.rename(index={'composition_food_organic_waste_percent': 'food',
@@ -526,7 +556,8 @@ class City:
                                         'composition_metal_percent': 'metal',
                                         'composition_glass_percent': 'glass',
                                         'composition_other_percent': 'other',
-                                        'composition_rubber_leather_percent': 'rubber'
+                                        'composition_rubber_leather_percent': 'rubber',
+                                        'composition_textiles_percent': 'textiles'
                                         }, inplace=True)
         waste_fractions /= 100
         
@@ -538,7 +569,7 @@ class City:
                 waste_fractions = defaults_2019.waste_fraction_defaults.loc[self.region, :]
         else:
             waste_fractions.fillna(0, inplace=True)
-            waste_fractions['textiles'] = 0
+            #waste_fractions['textiles'] = 0
         
         if (waste_fractions.sum() < .98) or (waste_fractions.sum() > 1.02):
             #print('waste fractions do not sum to 1')
@@ -715,6 +746,12 @@ class City:
             }
         
         # Normalize landfills to 1
+        split_total = sum([x for x in self.split_fractions.values()])
+        if split_total == 0:
+            if self.region in defaults_2019.landfill_default_regions:
+                self.split_fractions = {'landfill_w_capture': 0.0, 'landfill_wo_capture': 1.0, 'dumpsite': 0.0}
+            else:
+                self.split_fractions = {'landfill_w_capture': 0.0, 'landfill_wo_capture': 0.0, 'dumpsite': 1.0}
         split_total = sum([x for x in self.split_fractions.values()])
         for site in self.split_fractions.keys():
             self.split_fractions[site] /= split_total
@@ -1744,36 +1781,50 @@ class City:
                 for waste in divs[div]:
                     div_component_fractions[div][waste] = divs[div][waste] / (self.waste_mass * fraction)
 
-        assert (sum(x for x in div_component_fractions[div].values()) < 1.01)
-        assert (sum(x for x in div_component_fractions[div].values()) > 0.98) or \
-            (sum(x for x in div_component_fractions[div].values()) == 0)
+        # Set to 0 for components that are near 0            
+        for div, fractions in div_component_fractions.items():
+            for waste, f in fractions.items():
+                if f < .01:
+                    div_component_fractions[div][waste] = 0
+
+        # Normalize to deal with the little fractions just removed
+        for div, fractions in div_component_fractions.items():
+            s = sum(fractions.values())
+            if s != 0:
+                for waste, f in fractions.items():
+                    div_component_fractions[div][waste] /= s
+        
+        for div in div_component_fractions:
+            assert (sum(x for x in div_component_fractions[div].values()) < 1.01)
+            assert (sum(x for x in div_component_fractions[div].values()) > 0.98) or \
+                (sum(x for x in div_component_fractions[div].values()) == 0)
         
         # Reduce them by non-compostable and unprocessable and etc rates
         self.unprocessable = {'food': .0192, 'green': .042522, 'wood': .07896, 'paper_cardboard': .12}
         self.non_compostable_not_targeted = {'food': .1, 'green': .05, 'wood': .05, 'paper_cardboard': .1}
-        self.non_compostable_not_targeted_total = sum([self.non_compostable_not_targeted[x] * \
-                                                div_component_fractions['compost'][x] for x in self.div_components['compost']])
         self.non_compostable_not_targeted_total = sum([
             self.non_compostable_not_targeted[x] * \
             div_component_fractions['compost'][x] for x in self.div_components['compost']
         ])
 
-        for waste in self.div_components['compost']:
-            divs['compost'][waste] = (
-                divs['compost'][waste]  * 
-                (1 - self.non_compostable_not_targeted_total) *
-                (1 - self.unprocessable[waste])
-                )
-        for waste in self.combustion_components:
-            divs['combustion'][waste] = (
-                divs['combustion'][waste]  * 
-                (1 - self.combustion_reject_rate)
-                )
-        for waste in self.recycling_components:
-            divs['recycling'][waste] = (
-                divs['recycling'][waste]  * 
-                self.recycling_reject_rates[waste]
-                )
+        divs = self.divs_from_component_fractions(self.div_fractions, div_component_fractions)
+
+        # for waste in self.div_components['compost']:
+        #     divs['compost'][waste] = (
+        #         divs['compost'][waste]  * 
+        #         (1 - self.non_compostable_not_targeted_total) *
+        #         (1 - self.unprocessable[waste])
+        #         )
+        # for waste in self.combustion_components:
+        #     divs['combustion'][waste] = (
+        #         divs['combustion'][waste]  * 
+        #         (1 - self.combustion_reject_rate)
+        #         )
+        # for waste in self.recycling_components:
+        #     divs['recycling'][waste] = (
+        #         divs['recycling'][waste]  * 
+        #         self.recycling_reject_rates[waste]
+        #         )
 
         return div_component_fractions, divs
     
