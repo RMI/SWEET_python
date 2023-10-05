@@ -253,7 +253,7 @@ class City:
         ])
         
         # More for other divs
-        self.combustion_reject_rate = 0.1
+        self.combustion_reject_rate = 0.0
         self.recycling_reject_rates = {
             'wood': .8, 
             'paper_cardboard': .775, 
@@ -907,7 +907,7 @@ class City:
             self.div_component_fractions = {}
             self.divs['compost'], self.div_component_fractions['compost'] = self.calc_compost_vol(self.div_fractions['compost'])
             self.divs['anaerobic'], self.div_component_fractions['anaerobic'] = self.calc_anaerobic_vol(self.div_fractions['anaerobic'])
-            self.divs['combustion'], self.div_component_fractions['combustion'] = self.calc_combustion_vol(self.div_fractions['combustion'])
+            self.divs['combustion'], self.div_component_fractions['combustion'] = self.calc_combustion_vol_excel(self.div_fractions['combustion'])
             self.divs['recycling'], self.div_component_fractions['recycling'] = self.calc_recycling_vol(self.div_fractions['recycling'])
 
             # Fill 0s for waste types not included in diversion types
@@ -1408,7 +1408,7 @@ class City:
         self.combustion_total = combustion_fraction * self.waste_mass
 
         # Rejection rate
-        self.combustion_reject_rate = 0.1 #I think sweet has an error, the rejected from combustion stuff just disappears
+        self.combustion_reject_rate = 0.0 #I think sweet has an error, the rejected from combustion stuff just disappears
         # Remember there's likely a SWEET error here, it just multiplies each waste fraction by combustion fraction, meaning
         # the total doesn't add up to the actual combustion fraction because some waste types are not combustible
         # if combustion_fraction != 0:
@@ -1461,40 +1461,46 @@ class City:
             self.waste_fractions, self.div_components) to compute the combustion volumes 
             and requires these attributes to be initialized prior to invocation.
         """
+
+        fraction_combustion_types = sum([self.waste_fractions[x] for x in self.div_components['combustion']])
+        combustion_fraction *= fraction_combustion_types
+        self.old_combustion_fraction = self.div_fractions['combustion']
+        self.div_fractions['combustion'] = combustion_fraction
+        print('old combustion fraction: ', self.old_combustion_fraction, 'new combustion fraction: ', combustion_fraction)
         self.combustion_total = combustion_fraction * self.waste_mass
 
         # Rejection rate
         self.combustion_reject_rate = 0.0 #I think sweet has an error, the rejected from combustion stuff just disappears
         # Remember there's likely a SWEET error here, it just multiplies each waste fraction by combustion fraction, meaning
         # the total doesn't add up to the actual combustion fraction because some waste types are not combustible
-        if combustion_fraction != 0:
-            # self.divs['combustion'] = {x: self.waste_fractions[x] * \
-            #                       combustion_fraction * \
-            #                       (1 - combustion_reject_rate) * \
-            #                       self.waste_mass for x in self.combustion_components}
-            combustion = {
-                x: self.waste_fractions[x] * \
-                combustion_fraction * \
-                (1 - self.combustion_reject_rate) * \
-                self.waste_mass for x in self.combustion_components
-            }
-        else:
-            self.combustion_waste_fractions = {x: 0 for x in self.combustion_components}
-            #self.divs['combustion'] = {x: 0 for x in self.combustion_components}
-            combustion = {x: 0 for x in self.combustion_components}
+        # if combustion_fraction != 0:
+        #     # self.divs['combustion'] = {x: self.waste_fractions[x] * \
+        #     #                       combustion_fraction * \
+        #     #                       (1 - combustion_reject_rate) * \
+        #     #                       self.waste_mass for x in self.combustion_components}
+        #     combustion = {
+        #         x: self.waste_fractions[x] * \
+        #         combustion_fraction * \
+        #         (1 - self.combustion_reject_rate) * \
+        #         self.waste_mass for x in self.combustion_components
+        #     }
+        # else:
+        #     self.combustion_waste_fractions = {x: 0 for x in self.combustion_components}
+        #     #self.divs['combustion'] = {x: 0 for x in self.combustion_components}
+        #     combustion = {x: 0 for x in self.combustion_components}
         
         # # Combustion waste fractions are proportional to waste fractions at generation, but not all waste types
         # # are combustible, so they need to be normalized by their sum in order to sum to 1
         # fraction_combustion_types = sum([self.waste_fractions[x] for x in self.div_components['combustion']])
-        # combustion_waste_fractions = {x: self.waste_fractions[x] / fraction_combustion_types for x in self.div_components['combustion']}
+        combustion_waste_fractions = {x: self.waste_fractions[x] / fraction_combustion_types for x in self.div_components['combustion']}
 
-        # # Masses of combusted waste types
-        # combustion = {x:
-        #     self.waste_mass * 
-        #     combustion_fraction * \
-        #     combustion_waste_fractions[x] * \
-        #     (1 - self.combustion_reject_rate) for x in self.div_components['combustion']
-        # }
+        # Masses of combusted waste types
+        combustion = {x:
+            self.waste_mass * 
+            combustion_fraction * \
+            combustion_waste_fractions[x] * \
+            (1 - self.combustion_reject_rate) for x in self.div_components['combustion']
+        }
 
         return combustion, combustion_waste_fractions
 
@@ -2060,7 +2066,7 @@ class City:
         divs['combustion'] = {} 
         combustion_total = self.div_fractions['combustion'] * self.waste_mass
         # Subtract the recycling from total
-        self.combustion_reject_rate = 0.1 #.1 I think sweet has an error, the rejected from combustion stuff just disappears
+        self.combustion_reject_rate = 0.0 #.1 I think sweet has an error, the rejected from combustion stuff just disappears
         # Food, green, wood are only in combustion, so the recovered must go here. Split proportionally.
         if self.div_fractions['combustion'] != 0:
             # As in recycling, everything is split proportionally
@@ -2998,8 +3004,8 @@ class Landfill:
         #if baseline:
         self.model = SWEET(landfill=self, city=self.city)
         # This is due to paper coardboard thing
-        #self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions_match_excel(baseline=baseline)
-        self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions(baseline=baseline)
+        self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions_match_excel(baseline=baseline)
+        #self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions(baseline=baseline)
         # else:
         #     self.model = SWEET(self, self.city, baseline=False)
         #     self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions(baseline=False)

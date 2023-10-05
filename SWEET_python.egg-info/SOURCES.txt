@@ -9,6 +9,7 @@ SWEET_python/defaults_2019.py
 SWEET_python/ipcc_lut.csv
 SWEET_python/model.py
 SWEET_python/sweet_tools_obj.py
+SWEET_python/sweet_tools_obj_excel.py
 SWEET_python/un_habitat_import.py
 SWEET_python.egg-info/PKG-INFO
 SWEET_python.egg-info/SOURCES.txt
