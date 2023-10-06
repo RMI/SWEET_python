@@ -1,8 +1,0 @@
-Metadata-Version: 2.1
-Name: SWEET-python
-Version: 0.1
-Requires-Dist: numpy
-Requires-Dist: pandas
-Requires-Dist: pycountry
-Requires-Dist: scipy
-Requires-Dist: matplotlib

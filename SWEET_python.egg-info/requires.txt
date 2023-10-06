@@ -1,5 +1,0 @@
-numpy
-pandas
-pycountry
-scipy
-matplotlib
