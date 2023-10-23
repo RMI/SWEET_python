@@ -135,8 +135,6 @@ waste_fractions_country.columns = ['food', 'green', 'paper_cardboard', 'wood', '
 waste_fractions_country['other'] += waste_fractions_country['nappies']
 waste_fractions_country = waste_fractions_country.drop('nappies', axis=1)
 
-
-
 region_lookup = {
     'China': 'Eastern Asia',
     'Japan': 'Eastern Asia',
@@ -1192,6 +1190,39 @@ fraction_unspecified_country = {
     'New Zealand': 0.15,
 }
 fraction_unspecified_country = {country_to_iso3[country]: value for country, value in fraction_unspecified_country.items()}
+
+#%%
+
+replace_city = {
+    'Hirat\xa0': 'Herat',
+    'Córdoba': 'Cordoba',
+    'Ciudada Autónoma De Buenos Aires (Caba).': 'Buenos Aires',
+    'Distrito Federal, Brasilia': 'Federal District',
+    'Phuentsholing\xa0': 'Phuentsholing',
+    'Santiago De Chile': 'Santiago',
+    'Bogotá': 'Bogota',
+    'San José': 'Sane Jose',
+    'Greater Hyderabad \xa0': 'Greater Hyderabad',
+    'Gwalior\xa0': 'Gwalior',
+    'Eldoret\xa0': 'Eldoret',
+    'México City': 'Mexico City',
+    'Panamá City': 'Panama City',
+    'Kraków': 'Krakow',
+    'Guimarães': 'Guimaraes',
+    'Asunción': 'Asuncion',
+    'Kigali\xa0': 'Kigali',
+    'Borås': 'Boras',
+    'Dushanbe\xa0': 'Dushanbe',
+    'Vava’u': 'Vavau',
+    'Bursa Mm (Metropolitan Municipality)': 'Bursa',
+    'Sanaá': 'Sanaa',
+    'Johannesburg\xa0': 'Johannesburg',
+    'BloemfonteinÂ ': 'Bloemfontein',
+    'Ndola\xa0': 'Ndola',
+    'Harare\xa0': 'Harare',
+    'Colón':'Colon',
+    'Dehiwala Mt. Lavinia Municipal Council': 'Dehiwala Mount Lavinia'
+}
 
 # #%%
 # for country, value in msw_per_capita_country.items():

@@ -505,37 +505,59 @@ class City:
         self.country = row['country_original']
         self.iso3 = row['iso3_original']
         self.region = defaults_2019.region_lookup[self.country]
-        self.year_of_data = row['year']
+        name_backtranslator = {value: key for key, value in defaults_2019.replace_city.items()}
+        if self.data_source != 'World Bank':
+            self.year_of_data_pop = row['year']
+        else:
+            if self.name in ['Pago Pago', 'Kano', 'Ramallah', 'Soweto', 'Kadoma City', 'Mbare', 'Masvingo City', 'Limbe', 'Labe']:
+                pass
+            else:
+                years = pd.read_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/What_a_Waste/city_level_codebook_0.csv')
+                if self.name in name_backtranslator:
+                    old_name = name_backtranslator[self.name]
+                else:
+                    old_name = self.name
+                try:
+                    self.year_of_data_pop = years[(years['measurement'] ==  'population_population_number_of_people') & (years['city_name'] == old_name)]['year'].values[0]
+                except:
+                    self.year_of_data_pop = 2016
+                try:
+                    self.year_of_data_msw = years[(years['measurement'] ==  'total_msw_total_msw_generated_tons_year') & (years['city_name'] == old_name)]['year'].values[0]
+                except:
+                    self.year_of_data_msw = 2016
         
         # Hardcode missing population values
         self.population = float(row['population'])
         if self.name == 'Pago Pago':
             self.population = 3656
-            self.year_of_data = 2010
+            self.year_of_data_pop = 2010
         elif self.name == 'Kano':
             self.population = 2828861
-            self.year_of_data = 2006
+            self.year_of_data_pop = 2006
         elif self.name == 'Ramallah':
             self.population = 38998
-            self.year_of_data = 2017
+            self.year_of_data_pop = 2017
         elif self.name == 'Soweto':
             self.population = 1271628
-            self.year_of_data = 2011
+            self.year_of_data_pop = 2011
         elif self.name == 'Kadoma City':
             self.population = 116300
-            self.year_of_data = 2022
+            self.year_of_data_pop = 2022
         elif self.name == 'Mbare':
             self.population = 450000
-            self.year_of_data = 2020
+            self.year_of_data_pop = 2020
         elif self.name == 'Masvingo City':
             self.population = 90286
-            self.year_of_data = 2022
+            self.year_of_data_pop = 2022
         elif self.name == 'Limbe':
             self.population = 84223
-            self.year_of_data = 2005
+            self.year_of_data_pop = 2005
         elif self.name == 'Labe':
             self.population = 200000
-            self.year_of_data = 2014
+            self.year_of_data_pop = 2014
+
+        if self.year_of_data_pop != self.year_of_data_pop:
+            self.year_of_data_pop = 2016
 
         # Determine population growth rates
         population_1950 = row['population_1950']
@@ -613,8 +635,10 @@ class City:
             # Use per capita default
             if self.iso3 in defaults_2019.msw_per_capita_country:
                 self.waste_per_capita = defaults_2019.msw_per_capita_country[self.iso3]
+                self.year_of_data_msw = 2019
             else:
                 self.waste_per_capita = defaults_2019.msw_per_capita_defaults[self.region]
+                self.year_of_data_msw = 2019
             self.waste_mass_load = self.waste_per_capita * self.population / 1000 * 365
         
         # Subtract mass that is informally collected
@@ -622,6 +646,16 @@ class City:
         #self.waste_mass = self.waste_mass_load * (1 - self.informal_fraction)
         self.waste_mass = self.waste_mass_load
         
+        # Adjust waste mass to account for difference in reporting years between msw and population
+        if self.data_source == 'World Bank':
+            year_difference = self.year_of_data_pop - self.year_of_data_msw
+            if self.year_of_data_msw < self.year_of_data_pop:
+                self.waste_mass *= (self.growth_rate_historic ** year_difference)
+                self.waste_per_capita = self.waste_mass * 1000 / self.population / 365
+            else:
+                self.waste_mass *= (self.growth_rate_future ** year_difference)
+                self.waste_per_capita = self.waste_mass * 1000 / self.population / 365
+
         # # Collection coverage_stats
         # # Don't use these for now, as it seems like WB already adjusted total msw to account for these. 
         # coverage_by_area = float(row['waste_collection_coverage_total_percent_of_geographic_area_percent_of_geographic_area']) / 100
@@ -964,14 +998,16 @@ class City:
 
             #else:
             # Adjust diversion waste type fractions to make sure more waste is not diverted than generated
-            self.changed_diversion, self.input_problems, self.div_component_fractions, self.divs = self.check_masses_v2(self.div_fractions, self.div_component_fractions)
+            #self.changed_diversion, self.input_problems, self.div_component_fractions, self.divs = self.check_masses_v2(self.div_fractions, self.div_component_fractions)
                 #self.changed_diversion, self.input_problems, self.div_component_fractions, self.divs = self.check_masses(self.div_fractions, self.divs)
 
         # If adjusting diversion waste types failed to prevent net negative masses (more diverted than generated),
         # terminate operation, data is invalid for model.
-        if self.input_problems:
-            print('input problems')
-            return
+        # if self.input_problems:
+        #     print('input problems')
+        #     return
+
+        self.divs = self.divs_from_component_fractions(self.div_fractions, self.div_component_fractions)
 
         self.net_masses_after_check = {}
         for waste in self.waste_masses.keys():
@@ -1466,7 +1502,7 @@ class City:
         combustion_fraction *= fraction_combustion_types
         self.old_combustion_fraction = self.div_fractions['combustion']
         self.div_fractions['combustion'] = combustion_fraction
-        print('old combustion fraction: ', self.old_combustion_fraction, 'new combustion fraction: ', combustion_fraction)
+        #print('old combustion fraction: ', self.old_combustion_fraction, 'new combustion fraction: ', combustion_fraction)
         self.combustion_total = combustion_fraction * self.waste_mass
 
         # Rejection rate
@@ -1939,7 +1975,7 @@ class City:
 
 
         # Load and reshape UN Habitat data
-        filepath_un = '../data/data_overview_2022.xlsx'
+        filepath_un = '../../data/data_overview_2022.xlsx'
         un_data_overview = pd.read_excel(filepath_un, sheet_name='Data overview', header=1).loc[:, 'Country':].T
         un_data_overview.columns = un_data_overview.iloc[0, :]
         un_data_overview = un_data_overview.iloc[1:-4, :]
@@ -2236,14 +2272,33 @@ class City:
             divs = self.divs_from_component_fractions(div_fractions, div_component_fractions)
             return False, False, div_component_fractions, divs
 
+        # Checks sections
+        # Sum of all diversions
+        if sum(div_fractions.values()) > 1:
+            raise CustomError("INVALID_PARAMETERS", f"Diversions sum to {sum(div_fractions.values())}, but they must sum to 1 or less.")
+        
+        compostables = self.waste_fractions['food'] + self.waste_fractions['green'] + self.waste_fractions['wood'] + self.waste_fractions['paper_cardboard']
+        if div_fractions['compost'] + div_fractions['anaerobic'] > compostables:
+            raise CustomError("INVALID_PARAMETERS", f"Only food, green, wood, and paper/cardboard can be composted or anaerobically digested. Those waste types sum to {compostables}, but input values of compost and anaerobic digestion sum to {div_fractions['compost'] + div_fractions['anaerobic']}.")
+
         # Make sure that, for each diversion, enough waste of the right types is generated to meet the
         # amount that is supposed to be diverted.
         for div in div_fractions:
             s = sum(mass for waste, mass in self.waste_masses.items() if waste in self.div_components[div])
             #print(s / self.waste_mass, div_fractions[div])
             if s / self.waste_mass < div_fractions[div]:
-                print(f'impossible due to {div}')
+                #print(f'impossible due to {div}')
+                components = self.div_components[div]
+                values = [self.waste_fractions[x] for x in components]
+                raise CustomError("INVALID_PARAMETERS", f"{div} too high. {div} applies to {components}, which are {values} of total waste--the sum of these is {sum(values)}, so only that much waste can be {div}, but input value was {div_fractions[div]}.")
         
+        non_combustables = self.waste_fractions['glass'] + self.waste_fractions['metal'] + self.waste_fractions['other']
+        if div_fractions['compost'] + div_fractions['anaerobic'] + div_fractions['combustion'] > (1 - non_combustables):
+            #print('impossible due to non combustables')
+            s = div_fractions['compost'] + div_fractions['anaerobic'] + div_fractions['combustion']
+            raise CustomError("INVALID_PARAMETERS", f"Glass, metal, and other account for {non_combustables: .3f} of waste, and they can only be recycled. {div_fractions['compost']} compost, {div_fractions['anaerobic']} anaerobic, and {div_fractions['combustion']} incineration were specified, summing to {s}, but only {1 - non_combustables} of waste can be diverted to these diversion types.")
+            #return True, True, None, None
+
         # The way this adjustment works is, if there are net negative waste types, start by removing combustion.
         # If waste types are still negative even without combustion, they are adjusted.
         # Finally, combustion is assumed to be whatever waste is left after the other diversions are determined.
@@ -2372,9 +2427,10 @@ class City:
                         to_distribute_to_sum = sum([div_fractions[x] for x in to_distribute_to])
                         
                         if to_distribute_to_sum == 0:
-                            print('aaagh')
+                            #print('aaagh')
                             #print(self.name)
-                            return True, True, None, None
+                            CustomError("INVALID_PARAMETERS", f"Combination of compost, anaerobic digestion, and recycling is too high")
+                            #return True, True, None, None
                             
                         for d in to_distribute_to:
                             to_be_removed_component = to_be_removed * (div_fractions[d] / to_distribute_to_sum) / div_fractions[d]
@@ -2384,7 +2440,8 @@ class City:
                                 print('grumble')
                                 #print(self.name)
                                 #to_distribute_to_sum -= self.div_fractions[d]
-                                return True, True, None, None
+                                CustomError("INVALID_PARAMETERS", f"Combination of compost, anaerobic digestion, and recycling is too high")
+                                #return True, True, None, None
                             #distributed = 0
                             for w in to_distribute_to_component:
                                 add_amount = to_be_removed_component * div_component_fractions_adjusted[d][w] / to_distribute_to_sum_component
@@ -2448,8 +2505,9 @@ class City:
             #if city.waste_masses[waste] < frac * city.waste_mass:
             if frac > (self.waste_fractions[waste] + 1e-5):
                 adjust_non_combustion = True
-                print(f'even without combustion it doesnt work')
-                return True, True, None, None
+                #print(f'even without combustion it doesnt work')
+                CustomError("INVALID_PARAMETERS", f"Combination of compost, anaerobic digestion, and recycling is too high")
+                #return True, True, None, None
 
         all_divs = sum(div_fractions.values())
 
@@ -2458,56 +2516,138 @@ class City:
         # Deal with waste types that are not combustable, as any leftovers can't be combusted like other types.
         # These types have to be recycled, so other recycling types are reduced to make room for them, so the total
         # recycled remains the same.
-        if div_fractions['recycling'] > 0:
-            non_combustables = [x for x in self.waste_fractions if x not in self.div_components['combustion']]
-            # Increase recycling of non-combustables to all_divs fraction
-            for waste in non_combustables:
-                if self.waste_fractions[waste] == 0:
-                    continue
-                new_val = self.waste_fractions[waste] * all_divs
-                difference = new_val - components_multiplied_through['recycling'][waste]
-                if difference < 0:
-                    continue
-                to_distribute_to = [x for x in self.div_components['recycling'] if x not in non_combustables]
-                to_distribute_to_fracs = [components_multiplied_through['recycling'][x] for x in to_distribute_to]
-                to_distribute_to_sum = sum(to_distribute_to_fracs)
-                if to_distribute_to_sum == 0:
-                    print('dunno what this means yet')
-                for w in to_distribute_to:
-                    components_multiplied_through['recycling'][w] -= difference * components_multiplied_through['recycling'][w] / to_distribute_to_sum
-                components_multiplied_through['recycling'][waste] = new_val
+        # if div_fractions['recycling'] > 0:
+        #     non_combustables = [x for x in self.waste_fractions if x not in self.div_components['combustion']]
+        #     non_combustables_sum = sum(self.waste_fractions[x] for x in non_combustables)
+        #     #assert non_combustables_sum * all_divs < div_fractions['recycling']
+        #     original_recycling = components_multiplied_through['recycling'].copy()
+        #     for waste in non_combustables:
+        #         if self.waste_fractions[waste] == 0:
+        #             continue
+        #         new_val = self.waste_fractions[waste] * all_divs
+        #         components_multiplied_through['recycling'][waste] = new_val
+            
+        #     diff = sum(components_multiplied_through['recycling'].values()) - div_fractions['recycling']
 
-            assert np.absolute(div_fractions['recycling'] - sum(components_multiplied_through['recycling'].values())) < 1e-3 
+        #     # Increase recycling of non-combustables to all_divs fraction
+        #     for waste in non_combustables:
+        #         if self.waste_fractions[waste] == 0:
+        #             continue
+        #         new_val = self.waste_fractions[waste] * all_divs
+        #         difference = new_val - components_multiplied_through['recycling'][waste]
+        #         if difference < 0:
+        #             continue
+        #         to_distribute_to = [x for x in self.div_components['recycling'] if x not in non_combustables]
+        #         to_distribute_to_fracs = [components_multiplied_through['recycling'][x] for x in to_distribute_to]
+        #         to_distribute_to_sum = sum(to_distribute_to_fracs)
+        #         if to_distribute_to_sum == 0:
+        #             print('dunno what this means yet')
+        #         for w in to_distribute_to:
+        #             print(components_multiplied_through['recycling'][w] - difference * components_multiplied_through['recycling'][w] / to_distribute_to_sum)
+        #             print(components_multiplied_through['recycling'][w])
+        #             print(difference * components_multiplied_through['recycling'][w] / to_distribute_to_sum)
+        #             components_multiplied_through['recycling'][w] -= difference * components_multiplied_through['recycling'][w] / to_distribute_to_sum
+        #         components_multiplied_through['recycling'][waste] = new_val
 
-        non_combustion = {}
-        combustion_all = {}
-        for waste in self.waste_fractions:
-            s = 0
-            for div in keys_of_interest:
-                if waste in components_multiplied_through[div]:
-                    s += components_multiplied_through[div][waste]
-            non_combustion[waste] = s
-            combustion_all[waste] = self.waste_fractions[waste] - s
+        #     assert np.absolute(div_fractions['recycling'] - sum(components_multiplied_through['recycling'].values())) < 1e-3 
 
-        for waste, frac in non_combustion.items():
-            #if city.waste_masses[waste] < frac * city.waste_mass:
-            if frac > (self.waste_fractions[waste] + 1e-5):
-                print(f'even without combustion it doesnt work')
-                return True, True, None, None
+        # non_combustion = {}
+        # combustion_all = {}
+        # for waste in self.waste_fractions:
+        #     s = 0
+        #     for div in keys_of_interest:
+        #         if waste in components_multiplied_through[div]:
+        #             s += components_multiplied_through[div][waste]
+        #     non_combustion[waste] = s
+        #     combustion_all[waste] = self.waste_fractions[waste] - s
+
+        # for waste, frac in non_combustion.items():
+        #     #if city.waste_masses[waste] < frac * city.waste_mass:
+        #     if frac > (self.waste_fractions[waste] + 1e-5):
+        #         print(f'even without combustion it doesnt work')
+        #         return True, True, None, None
 
         # Combustion isn't the whole remainder unless total diversion is 100%, it's a fraction, and of just the combustable remainder
         #non_combustion_fraction = sum(div_fractions[div] for div in keys_of_interest)
         remainder = sum(fraction for waste_type, fraction in combustion_all.items() if waste_type in self.div_components['combustion'])
         combustion_fraction_of_remainder = div_fractions['combustion'] / remainder
         if combustion_fraction_of_remainder > (1 + 1e-5):
-            print('this is a problem')
-            return True, True, None, None
+            #print('this is a problem')
+            #return True, True, None, None
+            non_combustables = [x for x in self.waste_fractions if x not in self.div_components['combustion']]
+            # Increase recycling of non-combustables to all_divs fraction
+            # for waste in non_combustables:
+            #     if self.waste_fractions[waste] == 0:
+            #         continue
+            #     new_val = self.waste_fractions[waste] * all_divs
+            #     difference = new_val - components_multiplied_through['recycling'][waste]
+            #     if difference < 0:
+            #         continue
+            #     to_distribute_to = [x for x in self.div_components['recycling'] if x not in non_combustables]
+            #     to_distribute_to_fracs = [components_multiplied_through['recycling'][x] for x in to_distribute_to]
+            #     to_distribute_to_sum = sum(to_distribute_to_fracs)
+            #     if to_distribute_to_sum == 0:
+            #         print('dunno what this means yet')
+            #     for w in to_distribute_to:
+            #         print(components_multiplied_through['recycling'][w] - difference * components_multiplied_through['recycling'][w] / to_distribute_to_sum)
+            #         print(components_multiplied_through['recycling'][w])
+            #         print(difference * components_multiplied_through['recycling'][w] / to_distribute_to_sum)
+            #         components_multiplied_through['recycling'][w] -= difference * components_multiplied_through['recycling'][w] / to_distribute_to_sum
+            #     components_multiplied_through['recycling'][waste] = new_val
 
+            for waste in non_combustables:
+                if self.waste_fractions[waste] == 0:
+                    continue
+                new_val = self.waste_fractions[waste] * all_divs
+                components_multiplied_through['recycling'][waste] = new_val
+            
+            available_div = sum(v for k, v in components_multiplied_through['recycling'].items() if k not in non_combustables)
+            available_div_target = div_fractions['recycling'] - sum(v for k, v in components_multiplied_through['recycling'].items() if k in non_combustables)
+            if available_div_target < 0:
+                too_much_frac = (sum(v for k, v in components_multiplied_through['recycling'].items() if k in non_combustables) - \
+                    div_fractions['recycling']) /\
+                    sum(v for k, v in components_multiplied_through['recycling'].items() if k in non_combustables)
+                for key, value in components_multiplied_through['recycling'].items():
+                    if key in non_combustables:
+                        components_multiplied_through['recycling'][key] = value * (1 - too_much_frac)
+                    else:
+                        components_multiplied_through['recycling'][key] = 0
+                assert np.abs(div_fractions['recycling'] - sum(v for v in components_multiplied_through['recycling'].values())) < 1e-5
+
+            else:
+                reduce_frac = (available_div - available_div_target) / available_div
+                for key, value in components_multiplied_through['recycling'].items():
+                    if key not in non_combustables:
+                        components_multiplied_through['recycling'][key] = value * (1 - reduce_frac)
+                assert np.abs(div_fractions['recycling'] - sum(v for v in components_multiplied_through['recycling'].values())) < 1e-5
+
+            non_combustion = {}
+            combustion_all = {}
+            for waste in self.waste_fractions:
+                s = 0
+                for div in keys_of_interest:
+                    if waste in components_multiplied_through[div]:
+                        s += components_multiplied_through[div][waste]
+                non_combustion[waste] = s
+                combustion_all[waste] = self.waste_fractions[waste] - s
+
+            remainder = sum(fraction for waste_type, fraction in combustion_all.items() if waste_type in self.div_components['combustion'])
+            combustion_fraction_of_remainder = div_fractions['combustion'] / remainder
+            assert combustion_fraction_of_remainder < (1 + 1e-5)
+            #print(combustion_fraction_of_remainder)
+            if combustion_fraction_of_remainder > 1:
+                combustion_fraction_of_remainder = 1
+        #else:
         # Combustion just takes what's left
         for waste in self.div_components['combustion']:
             components_multiplied_through['combustion'][waste] = combustion_fraction_of_remainder * combustion_all[waste]
 
-        assert np.absolute(div_fractions['combustion'] - sum(components_multiplied_through['combustion'].values())) < 1e-3
+        for d in div_fractions:
+            assert np.absolute(div_fractions[d] - sum(components_multiplied_through[d].values())) < 1e-3
+            for w in components_multiplied_through[d]:
+                if (components_multiplied_through[d][w] < 1e-5) and (components_multiplied_through[d][w] > -1e-5):
+                    components_multiplied_through[d][w] = 0
+                assert components_multiplied_through[d][w] >= 0
 
         # Calculate relative component fractions from the multiplied through
         div_component_fractions = {}
