@@ -118,7 +118,7 @@ class SWEET:
         for year in range(self.landfill.open_date, self.landfill.close_date):
             
             # t is the number of years since the first year of data
-            t = year - self.city.year_of_data
+            t = year - self.city.year_of_data_pop
             #print(t)
             #print(year)
             #t2 = year - self.landfill.open_date
@@ -144,7 +144,7 @@ class SWEET:
             # how those values change with time. Before the year of data collection, historic growth rates are used
             # to project back in time, and after the year of data collection, future growth rates are used to project
             # forward in time.
-            if year < self.city.year_of_data:
+            if year < self.city.year_of_data_pop:
                 growth_rate = self.city.growth_rate_historic
             else:
                 growth_rate = self.city.growth_rate_future
@@ -395,7 +395,7 @@ class SWEET:
         for year in range(self.landfill.open_date, self.landfill.close_date):
             
             # t is the number of years since the first year of data
-            t = year - self.city.year_of_data
+            t = year - self.city.year_of_data_pop
             #print(t)
             #print(year)
             #t2 = year - self.landfill.open_date
@@ -421,7 +421,7 @@ class SWEET:
             # how those values change with time. Before the year of data collection, historic growth rates are used
             # to project back in time, and after the year of data collection, future growth rates are used to project
             # forward in time.
-            if year < self.city.year_of_data:
+            if year < self.city.year_of_data_pop:
                 growth_rate = self.city.growth_rate_historic
             else:
                 growth_rate = self.city.growth_rate_future
