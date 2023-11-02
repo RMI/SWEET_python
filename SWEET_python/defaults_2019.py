@@ -413,7 +413,7 @@ msw_per_capita_defaults = {
     'North America' : 0.96,
     "Northern Africa" : 0.41,
     "Northern Europe" : 0.48,
-    "Rest of Oceania" : (1.18 + 1.35)/2,
+    "Rest of Oceania" : (1.18 + 1.35)/2, # Average of Melanesia and Polynesia IPCC defaults
     "South America" : 0.43,
     "South-Eastern Asia" : 0.46,
     "Southern Africa" : 0.33,

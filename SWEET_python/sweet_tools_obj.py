@@ -30,7 +30,7 @@ from SWEET_python.model import SWEET
 import copy
 from SWEET_python import city_manual_baselines
 #import city_manual_baselines
-from scipy.optimize import curve_fit
+#from scipy.optimize import curve_fit
 #import matplotlib
 import matplotlib.pyplot as plt
 #matplotlib.use('TkAgg')
@@ -506,26 +506,28 @@ class City:
         self.country = row['country_original']
         self.iso3 = row['iso3_original']
         self.region = defaults_2019.region_lookup[self.country]
-        name_backtranslator = {value: key for key, value in defaults_2019.replace_city.items()}
-        if self.data_source != 'World Bank':
-            self.year_of_data_pop = row['year']
-        else:
-            if self.name in ['Pago Pago', 'Kano', 'Ramallah', 'Soweto', 'Kadoma City', 'Mbare', 'Masvingo City', 'Limbe', 'Labe']:
-                pass
-            else:
-                years = pd.read_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/What_a_Waste/city_level_codebook_0.csv')
-                if self.name in name_backtranslator:
-                    old_name = name_backtranslator[self.name]
-                else:
-                    old_name = self.name
-                try:
-                    self.year_of_data_pop = years[(years['measurement'] ==  'population_population_number_of_people') & (years['city_name'] == old_name)]['year'].values[0]
-                except:
-                    self.year_of_data_pop = 2016
-                try:
-                    self.year_of_data_msw = years[(years['measurement'] ==  'total_msw_total_msw_generated_tons_year') & (years['city_name'] == old_name)]['year'].values[0]
-                except:
-                    self.year_of_data_msw = 2016
+        self.year_of_data_pop = row['population_year']
+        self.year_of_data_msw = row['msw_year']
+        # name_backtranslator = {value: key for key, value in defaults_2019.replace_city.items()}
+        # if self.data_source != 'World Bank':
+        #     self.year_of_data_pop = row['year']
+        # else:
+        #     if self.name in ['Pago Pago', 'Kano', 'Ramallah', 'Soweto', 'Kadoma City', 'Mbare', 'Masvingo City', 'Limbe', 'Labe']:
+        #         pass
+        #     else:
+        #         years = pd.read_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/What_a_Waste/city_level_codebook_0.csv')
+        #         if self.name in name_backtranslator:
+        #             old_name = name_backtranslator[self.name]
+        #         else:
+        #             old_name = self.name
+        #         try:
+        #             self.year_of_data_pop = years[(years['measurement'] ==  'population_population_number_of_people') & (years['city_name'] == old_name)]['year'].values[0]
+        #         except:
+        #             self.year_of_data_pop = 2016
+        #         try:
+        #             self.year_of_data_msw = years[(years['measurement'] ==  'total_msw_total_msw_generated_tons_year') & (years['city_name'] == old_name)]['year'].values[0]
+        #         except:
+        #             self.year_of_data_msw = 2016
         
         # Hardcode missing population values
         self.population = float(row['population'])
@@ -557,8 +559,8 @@ class City:
             self.population = 200000
             self.year_of_data_pop = 2014
 
-        if self.year_of_data_pop != self.year_of_data_pop:
-            self.year_of_data_pop = 2016
+        # if self.year_of_data_pop != self.year_of_data_pop:
+        #     self.year_of_data_pop = 2016
 
         # Determine population growth rates
         population_1950 = row['population_1950']
@@ -648,7 +650,8 @@ class City:
         self.waste_mass = self.waste_mass_load
         
         # Adjust waste mass to account for difference in reporting years between msw and population
-        if self.data_source == 'World Bank':
+        #if self.data_source == 'World Bank':
+        if self.year_of_data_msw != self.year_of_data_pop:
             year_difference = self.year_of_data_pop - self.year_of_data_msw
             if self.year_of_data_msw < self.year_of_data_pop:
                 self.waste_mass *= (self.growth_rate_historic ** year_difference)
@@ -693,11 +696,17 @@ class City:
                                         }, inplace=True)
         waste_fractions /= 100
         
+        # if self.region == 'Rest of Oceania':
+        #     print(self.name)
+        #     print(waste_fractions)
+
         # Add zeros where there are no values unless all values are nan, in which case use defaults
         if waste_fractions.isna().all():
             if self.iso3 in defaults_2019.waste_fractions_country:
                 waste_fractions = defaults_2019.waste_fractions_country.loc[self.iso3, :]
             else:
+                if self.region == 'Rest of Oceania':
+                    print(self.name)
                 waste_fractions = defaults_2019.waste_fraction_defaults.loc[self.region, :]
         else:
             waste_fractions.fillna(0, inplace=True)
@@ -708,6 +717,8 @@ class City:
             if self.iso3 in defaults_2019.waste_fractions_country:
                 waste_fractions = defaults_2019.waste_fractions_country.loc[self.iso3, :]
             else:
+                if self.region == 'Rest of Oceania':
+                    print(self.name)
                 waste_fractions = defaults_2019.waste_fraction_defaults.loc[self.region, :]
     
         self.waste_fractions = waste_fractions.to_dict()
