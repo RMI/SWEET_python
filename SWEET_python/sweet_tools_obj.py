@@ -320,7 +320,7 @@ class City:
         self.iso3 = pycountry.countries.search_fuzzy(self.country)[0].alpha_3
         self.region = defaults_2019.region_lookup_iso3[self.country]
         self.population = population
-        self.year_of_data = 2022
+        self.year_of_data_pop = 2022
         self.precip = precipitation
         self.precip_zone = defaults_2019.get_precipitation_zone(self.precip)
         
