@@ -503,7 +503,7 @@ class City:
         row = row[1]
         self.data_source = row['data_source']
         self.country = row['country_original']
-        self.iso3 = row['iso3_original']
+        self.iso3 = row['iso3']
         self.region = defaults_2019.region_lookup[self.country]
         self.year_of_data_pop = row['population_year']
         self.year_of_data_msw = row['msw_year']

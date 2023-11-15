@@ -504,7 +504,7 @@ class City:
         row = row[1]
         self.data_source = row['data_source']
         self.country = row['country_original']
-        self.iso3 = row['iso3_original']
+        self.iso3 = row['iso']
         self.region = defaults_2019.region_lookup[self.country]
         self.year_of_data_pop = row['population_year']
         self.year_of_data_msw = row['msw_year']
@@ -530,7 +530,7 @@ class City:
         #             self.year_of_data_msw = 2016
         
         # Hardcode missing population values
-        self.population = float(row['population'])
+        self.population = float(row['population_count'])
         if self.name == 'Pago Pago':
             self.population = 3656
             self.year_of_data_pop = 2010
@@ -563,11 +563,13 @@ class City:
         #     self.year_of_data_pop = 2016
 
         # Determine population growth rates
-        population_1950 = row['population_1950']
-        population_2020 = row['population_2020']
-        population_2035 = row['population_2035']
-        self.growth_rate_historic = ((population_2020 / population_1950) ** (1 / (2020 - 1950)))
-        self.growth_rate_future = ((population_2035 / population_2020) ** (1 / (2035 - 2020)))
+        # population_1950 = row['population_1950']
+        # population_2020 = row['population_2020']
+        # population_2035 = row['population_2035']
+        # self.growth_rate_historic = ((population_2020 / population_1950) ** (1 / (2020 - 1950)))
+        # self.growth_rate_future = ((population_2035 / population_2020) ** (1 / (2035 - 2020)))
+        self.growth_rate_historic = row['historic_growth_rate']
+        self.growth_rate_future = row['future_growth_rate']
 
         # # Define the exponential function
         # def exponential(x, a, b):
@@ -624,15 +626,15 @@ class City:
         # plt.show()
 
         # lat lon
-        self.lat = row['latitude_original']
-        self.lon = row['longitude_original']
+        self.lat = row['latitude']
+        self.lon = row['longitude']
 
         # Get waste total
         try:
-            self.waste_mass_load = float(row['waste_(tonnes_per_year)']) # unit is tons
+            self.waste_mass_load = float(row['waste_tonnes_per_year']) # unit is tons
             self.waste_per_capita = self.waste_mass_load * 1000 / self.population / 365 #unit is kg/person/day
         except:
-            self.waste_mass_load = float(row['waste_(tonnes_per_year)'].replace(',', ''))
+            self.waste_mass_load = float(row['waste_tonnes_per_year'].replace(',', ''))
             self.waste_per_capita = self.waste_mass_load * 1000 / self.population / 365
         if self.waste_mass_load != self.waste_mass_load:
             # Use per capita default
@@ -736,7 +738,7 @@ class City:
             self.mef_compost = 0
         
         # Precipitation
-        self.precip = float(row['total_precipitation(mm)_1970_2000'])
+        self.precip = float(row['mean_yearly_precip_2000_2021'])
         #precip_data = pd.read_excel('/Users/hugh/Downloads/Cities Waste Dataset_2010-2019_precip.xlsx')
         #self.precip = precip_data[precip_data['city_original'] == self.name]['total_precipitation(mm)_1970_2000'].values[0]
         self.precip_zone = defaults_2019.get_precipitation_zone(self.precip)
@@ -942,6 +944,14 @@ class City:
             #self.changed_diversion, self.input_problems, self.div_component_fractions, self.divs = self.check_masses_un()
             
             # Determine diversion waste type fractions
+            self.total_recovered_materials_with_rejects = float(row['total_recovered_materials_with_rejects'])
+            self.organic_waste_recovered = float(row['organic_waste_recovered'])
+            self.glass_recovered = float(row['glass_recovered'])
+            self.metal_recovered = float(row['metal_recovered'])
+            self.paper_or_cardboard = float(row['paper_or_cardboard'])
+            self.total_plastic_recovered = float(row['total_plastic_recovered'])
+            self.mixed_waste = float(row['mixed_waste'])
+            self.other_waste = float(row['other_waste'])
             self.div_component_fractions, self.divs = self.determine_component_fractions_un()
 
             # Calculate generated waste masses
@@ -1981,15 +1991,15 @@ class City:
 
 
         # Load and reshape UN Habitat data
-        filepath_un = '../data/data_overview_2022.xlsx'
-        un_data_overview = pd.read_excel(filepath_un, sheet_name='Data overview', header=1).loc[:, 'Country':].T
-        un_data_overview.columns = un_data_overview.iloc[0, :]
-        un_data_overview = un_data_overview.iloc[1:-4, :]
+        # filepath_un = '../data/data_overview_2022.xlsx'
+        # un_data_overview = pd.read_excel(filepath_un, sheet_name='Data overview', header=1).loc[:, 'Country':].T
+        # un_data_overview.columns = un_data_overview.iloc[0, :]
+        # un_data_overview = un_data_overview.iloc[1:-4, :]
 
-        if self.name == 'Dar Es Salaam':
-            row = un_data_overview.loc[un_data_overview['City'] == 'Dar es Salaam', :]
-        else:
-            row = un_data_overview.loc[un_data_overview['City'] == self.name, :]
+        # if self.name == 'Dar Es Salaam':
+        #     row = un_data_overview.loc[un_data_overview['City'] == 'Dar es Salaam', :]
+        # else:
+        #     row = un_data_overview.loc[un_data_overview['City'] == self.name, :]
         divs = {}
 
         # This just gets filled with zeros
@@ -2022,29 +2032,29 @@ class City:
                                 'rubber': .78, 'other': .87}
         
         # Recovery rate is a term from UN Habitat data that encompasses multiple diversion types
-        recovery_rate = (row['total recovered materials (t/d) with rejects'].values[0] * 365) / self.waste_mass
+        recovery_rate = (self.total_recovered_materials_with_rejects) / self.waste_mass
 
         if self.div_fractions['recycling'] != 0:
             # Determine waste types of recycling. Mixed waste is split proportionally among the different types.
             # Glass, metal, and other recovered are given directly, and are not in combustion, so they have to be recycling.
             divs['recycling']['wood'] = 0
-            divs['recycling']['glass'] = row['Glass recovered (t/d)'].values[0] * 365 + row['Mixed waste (t/d)'].values[0] * self.waste_fractions['glass'] * 365
-            divs['recycling']['metal'] = row['Metal recovered (t/d)'].values[0] * 365 + row['Mixed waste (t/d)'].values[0] * self.waste_fractions['metal'] * 365
-            divs['recycling']['other'] = row['Other waste (t/d)'].values[0] * 365  + row['Mixed waste (t/d)'].values[0] * self.waste_fractions['other'] * 365
+            divs['recycling']['glass'] = self.glass_recovered + self.mixed_waste * self.waste_fractions['glass']
+            divs['recycling']['metal'] = self.metal_recovered + self.mixed_waste * self.waste_fractions['metal']
+            divs['recycling']['other'] = self.other_waste  + self.mixed_waste * self.waste_fractions['other']
 
             # Waste types that can be combusted or recycled are split proportionally between combustion and recycling rates.
             divs['recycling']['paper_cardboard'] = \
-                (row['Paper or Cardboard (t/d)'].values[0] + row['Mixed waste (t/d)'].values[0] * self.waste_fractions['paper_cardboard']) * \
-                (self.div_fractions['recycling'] + self.div_fractions['compost']) / recovery_rate * 365                             
+                (self.paper_or_cardboard + self.mixed_waste * self.waste_fractions['paper_cardboard']) * \
+                (self.div_fractions['recycling'] + self.div_fractions['compost']) / recovery_rate                            
             divs['recycling']['plastic'] = \
-                (row['Total Plastic recovered (t/d)'].values[0] + row['Mixed waste (t/d)'].values[0] * self.waste_fractions['plastic']) * \
-                (self.div_fractions['recycling'] + self.div_fractions['compost']) / recovery_rate * 365                             
+                (self.total_plastic_recovered + self.mixed_waste * self.waste_fractions['plastic']) * \
+                (self.div_fractions['recycling'] + self.div_fractions['compost']) / recovery_rate                      
             divs['recycling']['textiles'] = \
-                (row['Mixed waste (t/d)'].values[0] * self.waste_fractions['textiles']) * \
-                (self.div_fractions['recycling'] + self.div_fractions['compost']) / recovery_rate * 365
+                (self.mixed_waste * self.waste_fractions['textiles']) * \
+                (self.div_fractions['recycling'] + self.div_fractions['compost']) / recovery_rate
             divs['recycling']['rubber'] = \
-                (row['Mixed waste (t/d)'].values[0] * self.waste_fractions['rubber']) * \
-                (self.div_fractions['recycling'] + self.div_fractions['compost']) / recovery_rate * 365
+                (self.mixed_waste * self.waste_fractions['rubber']) * \
+                (self.div_fractions['recycling'] + self.div_fractions['compost']) / recovery_rate
             
             # This increases recycling if the proportional assumption resulted in invalid values. 
             # Note: If there is no organic, some mixed waste isn't used
@@ -2064,11 +2074,11 @@ class City:
 
                 # Recycled waste types cannot be adjusted below these values
                 limits = {'wood': 0, 
-                        'glass': row['Glass recovered (t/d)'].values[0] * 365, 
-                        'metal': row['Metal recovered (t/d)'].values[0] * 365, 
-                        'other': row['Other waste (t/d)'].values[0] * 365, 
-                        'paper_cardboard': row['Paper or Cardboard (t/d)'].values[0], 
-                        'plastic': row['Total Plastic recovered (t/d)'].values[0], 
+                        'glass': self.glass_recovered, 
+                        'metal': self.metal_recovered, 
+                        'other': self.other_waste, 
+                        'paper_cardboard': 0, 
+                        'plastic': 0, 
                         'textiles': 0, 
                         'rubber': 0}
             
@@ -2103,7 +2113,10 @@ class City:
         #mixed_waste = row['Mixed waste (t/d)']
         if self.div_fractions['combustion'] < 0.01:
             self.div_fractions['combustion'] = 0
-            
+        
+        if not ('reductions' in locals()) or ('reductions' in globals()):
+            reductions = {x: 0 for x in self.div_components['recycling']}
+
         # Combustion
         divs['combustion'] = {} 
         combustion_total = self.div_fractions['combustion'] * self.waste_mass
@@ -2115,36 +2128,36 @@ class City:
             # Recovery for organic types (food, green, wood) are not reported, so we estimate these proportionally
             # from organic waste recovered.
             # Note: Organic waste can also be composted, so organic waste is split proportionally between compost and combustion
-            divs['combustion']['food'] = (row['Organic waste recovered (t/d)'].values[0] * 365 * \
+            divs['combustion']['food'] = (self.organic_waste_recovered * \
                                         (self.waste_fractions['food'] / \
                                         (self.waste_fractions['food'] + self.waste_fractions['green'] + self.waste_fractions['wood'])) + \
-                                        row['Mixed waste (t/d)'].values[0] * 365 * self.waste_fractions['food']) * \
+                                        self.mixed_waste * self.waste_fractions['food']) * \
                                         self.div_fractions['combustion'] / recovery_rate
-            divs['combustion']['green'] = (row['Organic waste recovered (t/d)'].values[0] * 365 * \
+            divs['combustion']['green'] = (self.organic_waste_recovered * \
                                         (self.waste_fractions['green'] / \
                                         (self.waste_fractions['food'] + self.waste_fractions['green'] + self.waste_fractions['wood'])) + \
-                                        row['Mixed waste (t/d)'].values[0] * 365 * self.waste_fractions['green']) * \
+                                        self.mixed_waste * self.waste_fractions['green']) * \
                                         self.div_fractions['combustion'] / recovery_rate
-            divs['combustion']['wood'] = (row['Organic waste recovered (t/d)'].values[0] * 365 * \
+            divs['combustion']['wood'] = (self.organic_waste_recovered * \
                                         (self.waste_fractions['wood'] / \
                                         (self.waste_fractions['food'] + self.waste_fractions['green'] + self.waste_fractions['wood'])) + \
-                                        row['Mixed waste (t/d)'].values[0] * 365 * self.waste_fractions['wood'])* \
+                                        self.mixed_waste * self.waste_fractions['wood'])* \
                                         self.div_fractions['combustion'] / recovery_rate
             divs['combustion']['paper_cardboard'] = \
-                (row['Paper or Cardboard (t/d)'].values[0] + row['Mixed waste (t/d)'].values[0] * self.waste_fractions['paper_cardboard']) * \
-                self.div_fractions['combustion'] / recovery_rate * 365 + \
+                (self.paper_or_cardboard + self.mixed_waste * self.waste_fractions['paper_cardboard']) * \
+                self.div_fractions['combustion'] / recovery_rate + \
                 reductions['paper_cardboard']                             
             divs['combustion']['plastic'] = \
-                (row['Total Plastic recovered (t/d)'].values[0] + row['Mixed waste (t/d)'].values[0] * self.waste_fractions['plastic']) * \
-                self.div_fractions['combustion'] / recovery_rate * 365 + \
+                (self.total_plastic_recovered + self.mixed_waste * self.waste_fractions['plastic']) * \
+                self.div_fractions['combustion'] / recovery_rate + \
                 reductions['plastic']                
             divs['combustion']['textiles'] = \
-                (row['Mixed waste (t/d)'].values[0] * self.waste_fractions['textiles']) * \
-                (self.div_fractions['combustion']) / recovery_rate * 365 + \
+                (self.mixed_waste * self.waste_fractions['textiles']) * \
+                (self.div_fractions['combustion']) / recovery_rate + \
                 reductions['textiles']                
             divs['combustion']['rubber'] = \
-                (row['Mixed waste (t/d)'].values[0] * self.waste_fractions['rubber']) * \
-                (self.div_fractions['combustion']) / recovery_rate * 365 + \
+                (self.mixed_waste * self.waste_fractions['rubber']) * \
+                (self.div_fractions['combustion']) / recovery_rate + \
                 reductions['rubber']
             
             # Adjusting if combustion waste fractions didn't add up to correct total
@@ -2156,6 +2169,10 @@ class City:
                     
                 for w in divs['combustion'].keys():
                     divs['combustion'][w] += adds[w]
+            elif sum([x for x in divs['combustion'].values()]) - combustion_total > 10:
+                percent_diff = (sum([x for x in divs['combustion'].values()]) - combustion_total) / sum([x for x in divs['combustion'].values()])
+                for w in divs['combustion'].keys():
+                    divs['combustion'][w] *= (1 - percent_diff)
                     
         else:
             divs['combustion'] = {x: 0 for x in self.div_components['combustion']}
