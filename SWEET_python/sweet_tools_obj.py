@@ -67,6 +67,7 @@ class City:
         
         # Get city information
         self.country = db.loc[self.name, 'Country'].values[0]
+        self.iso3 = db.loc[self.name, 'Country ISO3'].values[0]
         self.lat = db.loc[self.name, 'Latitude'].values[0]
         self.lon = db.loc[self.name, 'Longitude'].values[0]
         self.waste_mass = db.loc[self.name, 'Waste Generation Rate (tons/year)'].values[0]
