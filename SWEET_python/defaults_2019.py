@@ -1,18 +1,17 @@
-#%%
 
+#%%
 import pandas as pd
 import numpy as np
 import pycountry
 import os
 from pathlib import Path
-
 # The path to the current module's directory
 current_dir = Path(__file__).parent
-lut = pd.read_csv(current_dir / 'ipcc_lut.csv')
-country_to_iso3 = lut.set_index('country')['iso3'].to_dict()
-
+#lut = pd.read_csv(current_dir / 'ipcc_lut.csv')
+#country_to_iso3 = lut.set_index('country')['iso3'].to_dict()
+country_to_iso3 = pd.read_csv(current_dir / 'iso3.csv')
+country_to_iso3 = country_to_iso3.set_index('name')['iso3'].to_dict()
 #%%
-
 waste_fraction_defaults = {'Australia and New Zealand' : [0.259, 0.122, 0.065, 0.12, 0.029, 0.083, 0.018, 0.028, 0.0, 0.276, 1.0000001],
                             'Caribbean' : [0.469, 0.0000001, 0.024, 0.17, 0.051, 0.099, 0.05, 0.057, 0.019, 0.035, 0.9740001],
                             'Central America' : [0.627, 0, 0.003, 0.126, 0.022, 0.103, 0.027, 0.033, 0, 0.06, 1.001],
@@ -33,13 +32,11 @@ waste_fraction_defaults = {'Australia and New Zealand' : [0.259, 0.122, 0.065, 0
                             "Western Asia" : [0.422, 0.032, 0.008, 0.153, 0.03, 0.172, 0.025, 0.034, 0.003, 0.122, 1.001],
                             "Western Europe" : [0.332, 0.027, 0.023, 0.172, 0.059, 0.205, 0.015, 0.014, 0, 0.153, 1],
                             "Southern Asia" : [0.661, 0, 0, 0.092, 0.012, 0.07, 0.009, 0.015, 0.004, 0.139, 1.002]}
-
 waste_fraction_defaults = pd.DataFrame(waste_fraction_defaults).T
 waste_fraction_defaults.columns = ['food', 'green', 'wood', 'paper_cardboard', 'textiles', 'plastic', 'metal', 'glass', 'rubber', 'other', 'total']
 waste_fraction_defaults = waste_fraction_defaults.drop('total', axis=1)
 #waste_fraction_defaults.head()
 #waste_fraction_defaults = waste_fraction_defaults.T.to_dict()
-
 # Ah shit hungary is wrong. 
 waste_fractions_country = {
     "Kazakhstan": [21.5, 2.8, 26.5, 0.0, 7.0, 0.0, 0.0, 16.8, 1.5, 11.8, 11.9],
@@ -47,16 +44,16 @@ waste_fractions_country = {
     "China": [59.1, 0.0, 8.5, 1.6, 4.1, 0.0, 0.0, 13.0, 1.1, 4.1, 8.5],
     "Japan": [26.0, 0.0, 46.0, 0.0, 0.0, 0.0, 0.0, 9.0, 8.0, 7.0, 4.0],
     "Mongolia": [70.8, 0.0, 4.3, 0.0, 0.0, 0.0, 0.0, 3.8, 0.1, 3.7, 17.3],
-    "Republic of Korea": [5.2, 0.0, 22.6, 6.6, 0.0, 0.0, 0.0, 0.0, 1.7, 2.3, 61.7],
+    "South Korea": [5.2, 0.0, 22.6, 6.6, 0.0, 0.0, 0.0, 0.0, 1.7, 2.3, 61.7],
     "Cambodia": [65.0, 0.0, 4.0, 0.0, 0.0, 0.0, 0.0, 13.0, 1.0, 5.0, 12.0],
     "Indonesia": [74.0, 0.0, 10.0, 0.0, 2.0, 0.0, 0.0, 8.0, 2.0, 2.0, 2.0],
-    "Lao PDR": [54.3, 0.0, 3.3, 0.0, 0.0, 0.0, 0.0, 7.8, 3.8, 8.5, 22.3],
+    "Laos": [54.3, 0.0, 3.3, 0.0, 0.0, 0.0, 0.0, 7.8, 3.8, 8.5, 22.3],
     "Malaysia": [32.4, 0.0, 20.0, 0.0, 0.0, 0.0, 0.0, 9.8, 2.5, 3.3, 32.0],
     "Myanmar": [80.0, 0.0, 4.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 14.0],
     "Philippines": [41.6, 0.0, 19.5, 0.0, 0.0, 0.0, 0.0, 13.8, 4.8, 2.5, 17.8],
     "Singapore": [10.1, 4.1, 15.1, 6.8, 1.9, 0.0, 0.4, 10.5, 18.6, 0.9, 31.4],
     "Thailand": [48.6, 0.0, 14.6, 0.0, 0.0, 0.0, 0.0, 13.9, 3.6, 5.1, 14.2],
-    "Viet Nam": [42.7, 5.0, 10.7, 0.0, 0.0, 0.0, 0.0, 12.9, 1.1, 5.8, 21.9],
+    "Vietnam": [42.7, 5.0, 10.7, 0.0, 0.0, 0.0, 0.0, 12.9, 1.1, 5.8, 21.9],
     "Bangladesh": [54.9, 0.0, 12.6, 0.0, 4.7, 0.0, 1.5, 14.7, 1.6, 1.1, 8.8],
     "India": [53.0, 0.0, 6.4, 0.0, 0.0, 0.0, 0.0, 5.1, 0.2, 0.4, 35.0],
     "Nepal": [80.0, 0.0, 7.0, 0.0, 0.0, 0.0, 0.0, 2.5, 0.5, 3.0, 7.0],
@@ -67,7 +64,7 @@ waste_fractions_country = {
     "Oman": [8.2, 6.1, 19.4, 1.4, 14.3, 0.0, 0.0, 31.3, 2.6, 2.9, 13.8],
     "Saudi Arabia": [48.0, 0.0, 21.0, 1.0, 0.0, 0.0, 0.0, 13.0, 6.0, 4.0, 7.0],
     "Palestine": [56.6, 0.0, 7.3, 0.0, 0.0, 0.0, 0.0, 14.0, 2.4, 2.0, 17.7],
-    "Turkey": [48.7, 6.8, 8.1, 0.0, 2.9, 2.9, 0.0, 5.9, 1.4, 3.4, 19.9],
+    "Turkiye": [48.7, 6.8, 8.1, 0.0, 2.9, 2.9, 0.0, 5.9, 1.4, 3.4, 19.9],
     "United Arab Emirates": [35.4, 0.0, 24.3, 1.0, 3.2, 0.0, 1.7, 24.2, 2.4, 3.4, 4.4],
     "Libya": [36.3, 0.0, 15.3, 0.0, 11.5, 0.0, 0.0, 18.6, 6.7, 3.5, 8.0],
     "Tunisia": [64.4, 0.0, 8.9, 0.0, 0.0, 0.0, 0.0, 8.9, 2.0, 3.0, 12.9],
@@ -85,9 +82,9 @@ waste_fractions_country = {
     "Czechia": [35.0, 0.0, 16.0, 13.0, 8.0, 0.0, 0.0, 0.0, 0.0, 0.0, 28.0],
     "Hungary": [29.0, 0.0, 15.0, 0.0, 0.0, 0.0, 0.0, 17.0, 2.0, 2.0, 35.0],
     "Poland": [35.9, 0.3, 14.7, 0.6, 3.7, 0.0, 0.0, 0.0, 0.0, 0.0, 44.8],
-    "Republic of Moldova": [29.2, 0.0, 10.1, 0.0, 1.6, 0.0, 0.0, 12.8, 1.5, 5.7, 39.0],
+    "Moldova": [29.2, 0.0, 10.1, 0.0, 1.6, 0.0, 0.0, 12.8, 1.5, 5.7, 39.0],
     "Romania": [43.5, 5.3, 10.3, 1.7, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 39.2],
-    "Russian Federation": [30.2, 0, 42.5, 1.5, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 21.8],
+    "Russia": [30.2, 0, 42.5, 1.5, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 21.8],
     "Ukraine": [33.1, 3.8, 14.6, 1.7, 4.0, 1.1, 1.7, 6.9, 2.0, 6.9, 24.2],
     "Denmark": [41.0, 4.1, 23.2, 0.0, 0.0, 0.0, 0.0, 9.2, 3.3, 2.9, 16.3],
     "Estonia": [26.0, 12.0, 20.0, 3.0, 2.0, 0.0, 0.0, 9.0, 4.0, 6.0, 18.0],
@@ -117,30 +114,26 @@ waste_fractions_country = {
     "Argentina": [38.8, 10.0, 13.7, 0.0, 5.0, 5.7, 1.9, 14.6, 1.8, 3.1, 5.3],
     "Peru": [70.0, 0.0, 6.0, 0.0, 0.0, 0.0, 0.0, 9.0, 2.0, 2.0, 11.0],
     "Canada": [18.8, 5.6, 32.3, 0.0, 0.0, 0.0, 0.0, 13.1, 3.4, 3.1, 23.7],
-    "United States of America": [21.6, 7.9, 14.3, 8.1, 7.7, 0.0, 3.1, 18.5, 9.4, 5.2, 4.2],
+    "United States": [21.6, 7.9, 14.3, 8.1, 7.7, 0.0, 3.1, 18.5, 9.4, 5.2, 4.2],
     "Australia": [35.0, 16.5, 13.0, 1.0, 0.0, 4.0, 0.0, 16.7, 3.6, 5.6, 4.6],
     "New Zealand": [16.8, 7.9, 10.9, 11.9, 5.9, 3.0, 0.0, 0.0, 0.0, 0.0, 43.6]
 }
-
 # #%%
-
 # for country, fractions in waste_fractions_country.items():
 #     assert len(fractions) == 11
 #     assert country in lut['country'].values, country
-
 # #%%
 waste_fractions_country = {country_to_iso3[country]: value for country, value in waste_fractions_country.items()}
 waste_fractions_country = pd.DataFrame(waste_fractions_country).T
 waste_fractions_country.columns = ['food', 'green', 'paper_cardboard', 'wood', 'textiles', 'nappies', 'rubber', 'plastics', 'metal', 'glass', 'other']
 waste_fractions_country['other'] += waste_fractions_country['nappies']
 waste_fractions_country = waste_fractions_country.drop('nappies', axis=1)
-
 region_lookup = {
     'China': 'Eastern Asia',
     'Japan': 'Eastern Asia',
-    'Republic of Korea': 'Eastern Asia',
+    'South Korea': 'Eastern Asia',
     'Mongolia': 'Central Asia',
-    'Democratic People\'s Republic of Korea': 'Eastern Asia',
+    'North Korea': 'Eastern Asia',
     'Bangladesh': 'Southern Asia',
     'India': 'Southern Asia',
     'Nepal': 'Southern Asia',
@@ -149,26 +142,26 @@ region_lookup = {
     'Brunei Darussalam': 'South-Eastern Asia',
     'Cambodia': 'South-Eastern Asia',
     'Indonesia': 'South-Eastern Asia',
-    'Lao People\'s Democratic Republic': 'South-Eastern Asia',
+    'Laos': 'South-Eastern Asia',
     'Malaysia': 'South-Eastern Asia',
     'Myanmar': 'South-Eastern Asia',
     'Philippines': 'South-Eastern Asia',
     'Singapore': 'South-Eastern Asia',
     'Thailand': 'South-Eastern Asia',
-    'Vietnam ': 'South-Eastern Asia',
     'Afghanistan': 'Central Asia',
     'Kazakhstan': 'Central Asia',
     'Tajikistan': 'Central Asia',
     'Turkmenistan': 'Central Asia',
     'Kyrgyzstan': 'Central Asia',
     'Uzbekistan': 'Central Asia',
+    'Turkiye': 'Western Asia',
     'Armenia': 'Western Asia',
     'Georgia': 'Western Asia',
     'Azerbaijan': 'Western Asia',
     'Saudi Arabia': 'Western Asia',
     'Iran': 'Southern Asia',
     'Iraq': 'Western Asia',
-    'Syrian Arab Republic': 'Western Asia',
+    'Syria': 'Western Asia',
     'Lebanon': 'Western Asia',
     'Israel': 'Western Asia',
     'Kuwait': 'Western Asia',
@@ -194,11 +187,9 @@ region_lookup = {
     'Kenya': 'Eastern Africa',
     'Rwanda': 'Eastern Africa',
     'Burundi': 'Eastern Africa',
-    'Tanzaia': 'Eastern Africa',
-    'Mauritanina': 'Western Africa',
     'Senegal': 'Western Africa',
     'The Gambia': 'Western Africa',
-    'Guinne-Bissau': 'Western Africa',
+    'Guinea-Bissau': 'Western Africa',
     'Guinea': 'Western Africa',
     'Sierra Leone': 'Western Africa',
     'Liberia': 'Western Africa',
@@ -213,8 +204,7 @@ region_lookup = {
     'Chad': 'Middle Africa',
     'Central African Republic': 'Middle Africa',
     'Cameroon': 'Middle Africa',
-    'Republic of Congo': 'Middle Africa',
-    'Democratic Republic of Congo': 'Middle Africa',
+    'Congo': 'Middle Africa',
     'Angola': 'Middle Africa',
     'Zambia': 'Middle Africa',
     'Gabon': 'Middle Africa',
@@ -229,7 +219,7 @@ region_lookup = {
     'Eswatini': 'Southern Africa',
     'Comoros': 'Eastern Africa',
     'Bulgaria': 'Eastern Europe',
-    'Croatioa': 'Southern Europe',
+    'Croatia': 'Southern Europe',
     'Serbia': 'Southern Europe',
     'Montenegro': 'Southern Europe',
     'Kosovo': 'Southern Europe',
@@ -239,7 +229,7 @@ region_lookup = {
     'Slovakia': 'Eastern Europe',
     'Slovenia': 'Southern Europe',
     'Romania': 'Eastern Europe',
-    'Russian Federation': 'Eastern Europe',
+    'Russia': 'Eastern Europe',
     'Ukraine': 'Eastern Europe',
     'Belarus': 'Eastern Europe',
     'Latvia': 'Eastern Europe',
@@ -247,7 +237,7 @@ region_lookup = {
     'Estonia': 'Eastern Europe',
     'Poland': 'Eastern Europe',
     'Hungary': 'Eastern Europe',
-    'Republic of Moldova': 'Eastern Europe',
+    'Moldova': 'Eastern Europe',
     'Denmark': 'Northern Europe',
     'Finland': 'Northern Europe',
     'Sweden': 'Northern Europe',
@@ -259,7 +249,6 @@ region_lookup = {
     'Malta': 'Southern Europe',
     'Spain': 'Southern Europe',
     'Portugal': 'Southern Europe',
-    'Turkey': 'Western Asia',
     'Austria': 'Western Europe',
     'Belgium': 'Western Europe',
     'Netherlands': 'Western Europe',
@@ -269,14 +258,12 @@ region_lookup = {
     'Luxembourg': 'Western Europe',
     'Switzerland': 'Western Europe',
     'United Kingdom': 'Western Europe',
-    'Bahamas': 'Caribbean',
+    'The Bahamas': 'Caribbean',
     'Cuba': 'Caribbean',
     'Dominican Republic': 'Caribbean',
-    'St. Lucia': 'Caribbean',
+    'Saint Lucia': 'Caribbean',
     'Costa Rica': 'Central America',
     'Guatemala': 'Central America',
-    'Hondruas': 'Central America',
-    'Nicarauga': 'Central America',
     'Belize': 'Central America',
     'Panama': 'Central America',
     'El Salvador': 'Central America',
@@ -292,115 +279,110 @@ region_lookup = {
     'Venezuela': 'South America',
     'Canada': 'North America',
     'Mexico': 'Central America',
-    'United States of America': 'North America',
+    'United States': 'North America',
     'American Samoa': 'Rest of Oceania',
     'Australia': 'Australia and New Zealand',
     'New Zealand': 'Australia and New Zealand',
     'Fiji': 'Rest of Oceania',
     'Papua New Guinea': 'Rest of Oceania',
     'Bhutan': 'Southern Asia',
-    'Côte d’Ivoire': 'Western Africa',
-    'Ivory Coast': 'Western Africa',
-    'Congo, Dem. Rep.': 'Middle Africa',
-    'Congo, Rep.': 'Middle Africa',
-    'Czech Republic': 'Eastern Europe',
-    'Egypt, Arab Rep.': 'Northern Africa',
-    'Micronesia, Fed. Sts.': 'Rest of Oceania',
-    'Gambia, The': 'Western Africa',
+    'Egypt': 'Northern Africa',
     'Equatorial Guinea': 'Middle Africa',
     'Honduras': 'Central America',
     'Croatia': 'Southern Europe',
     'Haiti': 'Caribbean',
     'Isle of Man': 'Western Europe',
-    'Iran, Islamic Rep.': 'Southern Asia',
-    'Kyrgyz Republic': 'Central Asia',
+    'Iran': 'Southern Asia',
+    'Kyrgyzstan': 'Central Asia',
     'Kiribati': 'Rest of Oceania',
-    'Korea, Rep.': 'Eastern Asia',
-    'Lao PDR': 'South-Eastern Asia',
     'Moldova': 'Eastern Europe',
     'Maldives': 'Southern Asia',
     'Marshall Islands': 'Rest of Oceania',
-    'Macedonia, FYR': 'Southern Europe',
+    'North Macedonia': 'Southern Europe',
     'Northern Mariana Islands': 'Rest of Oceania',
     'Mauritania': 'Western Africa',
     'Nicaragua': 'Central America',
     'Palau': 'Rest of Oceania',
-    'West Bank and Gaza': 'Western Asia',
+    'Palestine': 'Western Asia',
     'Solomon Islands': 'Rest of Oceania',
-    'Slovak Republic': 'Eastern Europe',
+    'Slovakia': 'Eastern Europe',
     'Timor-Leste': 'South-Eastern Asia',
     'Tonga': 'Rest of Oceania',
     'Tuvalu': 'Rest of Oceania',
     'Tanzania': 'Eastern Africa',
     'United States': 'North America',
-    'Venezuela, RB': 'South America',
+    'Venezuela': 'South America',
     'Vietnam': 'South-Eastern Asia',
     'Vanuatu': 'Rest of Oceania',
     'Samoa': 'Rest of Oceania',
-    'Yemen, Rep.': 'Western Asia',
-    'Democratic Republic of the Congo': 'Middle Africa',
-    'DRC': 'Middle Africa',
-    'Micronesia': 'Rest of Oceania',
-    'Gambia': 'Western Africa',
-    'Macedonia': 'Southern Europe',
-    'Mongolia ': 'Central Asia',
-    'Viet Nam': 'South-Eastern Asia',
-    "Côte d'Ivoire": 'Western Africa',
+    'Yemen': 'Western Asia',
     'Congo, The Democratic Republic of the': 'Middle Africa',
-    'Congo': 'Middle Africa',
-    'Micronesia, Federated States of': 'Rest of Oceania',
-    'Iran, Islamic Republic of': 'Southern Asia',
-    'South Korea': 'Eastern Asia',
-    'North Macedonia': 'Southern Europe',
-    'Gaza Strip': 'Western Asia',
+    'Micronesia': 'Rest of Oceania',
+    'Guernsey': 'Western Europe',
+    'Luxembourg': 'Western Europe',
+    'Jersey': 'Western Europe',
+    'Taiwan': 'Eastern Asia',
+    'Hong Kong': 'Eastern Asia',
+    'Macau': 'Eastern Asia',
+    'Aruba': 'Caribbean',
+    'Curacao': 'Caribbean',
+    'Anguilla': 'Caribbean',
+    'Aland Islands': 'Northern Europe',
+    'Andorra': 'Southern Europe',
+    'French Southern and Antarctic Lands': 'Southern Africa',
+    'Saint Barthelemy': 'Caribbean',
+    'Cook Islands': 'Rest of Oceania',
+    'Cabo Verde': 'Western Africa',
+    'Christmas Island': 'Rest of Oceania',
+    'Monaco': 'Western Europe',
+    'Montserrat': 'Caribbean',
+    'Malta': 'Southern Europe',
+    'Niue': 'Rest of Oceania',
+    'South Georgia and the South Sandwich Islands': 'South America',
+    'Saint Martin (French part)': 'Caribbean',
+    'Sint Maarten (Dutch part)': 'Caribbean',
+    'Svalbard and Jan Mayen Islands': 'Northern Europe',
+    'Tokelau': 'Rest of Oceania',
+    'Vatican City': 'Southern Europe',
+    'Antigua and Barbuda': 'Caribbean',
+    'Bouvet Island': 'Rest of Oceania',
+    'Cocos (Keeling) Islands': 'Rest of Oceania',
+    'Falkland Islands': 'South America',
+    'Faroe Islands': 'Northern Europe',
+    'Guadeloupe': 'Caribbean',
+    'French Guiana': 'South America',
+    'Guam': 'Rest of Oceania',
+    'Heard Island and McDonald Islands': 'Rest of Oceania',
+    'British Indian Ocean Territory': 'Southern Asia',
+    'Saint Kitts and Nevis': 'Caribbean',
+    'Liechtenstein': 'Western Europe',
+    'Nauru': 'Rest of Oceania',
+    'Martinique': 'Caribbean',
+    'Pitcairn Islands': 'Rest of Oceania',
+    'Puerto Rico': 'Caribbean',
+    'Mayotte': 'Eastern Africa',
+    'New Caledonia': 'Rest of Oceania',
+    'Norfolk Island': 'Rest of Oceania',
+    'Reunion': 'Eastern Africa',
+    'San Marino': 'Southern Europe',
+    'Saint Pierre and Miquelon': 'North America',
+    'Saint Vincent and the Grenadines': 'Caribbean',
+    'Sao Tome and Principe': 'Middle Africa',
+    'Turks and Caicos Islands': 'Caribbean',
+    'Trinidad and Tobago': 'Caribbean',
+    'Virgin Islands, British': 'Caribbean',
+    'Virgin Islands, U.S.': 'Caribbean',
+    'Wallis and Futuna': 'Rest of Oceania',
+    'French Polynesia': 'Rest of Oceania',
+    'Saint Helena, Ascension and Tristan da Cunha': 'Southern Africa',
+    'US Minor Islands': 'Rest of Oceania',
+    'Bonaire, Sint Eustatius and Saba': 'Caribbean',
+    'Antigua and Barbuda': 'Caribbean'
 }
-
 region_lookup_iso3 = {}
 for country in region_lookup:
-    if country == 'Tanzaia':
-        iso3 = 'TZA'
-    elif country == 'Mauritanina':
-        iso3 = 'MRT'
-    elif country == 'Guinne-Bissau':
-        iso3 = 'GNB'
-    elif (country == 'Republic of Congo') or (country == 'Congo, Rep.'):
-        iso3 = 'COG'
-    elif (country == 'Democratic Republic of Congo') or (country == 'Congo, Dem. Rep.') or (country == 'Democratic Republic of the Congo') or (country == 'DRC'):
-        iso3 = 'COD'
-    elif country == 'Croatioa':
-        iso3 = 'HRV'
-    elif country == 'St. Lucia':
-        iso3 = 'LCA'
-    elif country == 'Hondruas':
-        iso3 = 'HND'
-    elif country == 'Nicarauga':
-        iso3 = 'NIC'
-    elif (country == "Côte d’Ivoire") or (country == 'Ivory Coast') or (country == "Côte d'Ivoire"):
-        iso3 = 'CIV'
-    elif country == 'Egypt, Arab Rep.':
-        iso3 = 'EGY'
-    elif country == 'Micronesia, Fed. Sts.':
-        iso3 = 'FSM'
-    elif country == 'Gambia, The':
-        iso3 = 'GMB'
-    elif country == 'Iran, Islamic Rep.':
-        iso3 = 'IRN'
-    elif country == 'Korea, Rep.':
-        iso3 = 'KOR'
-    elif country == 'Lao PDR':
-        iso3 = 'LAO'
-    elif country == 'Macedonia, FYR':
-        iso3 = 'MKD'
-    elif (country == 'West Bank and Gaza') or (country == 'Gaza Strip'):
-        iso3 = 'PSE'
-    elif country == 'Venezuela, RB':
-        iso3 = 'VEN'
-    elif country == 'Yemen, Rep.':
-        iso3 = 'YEM'
-    else:
-        iso3 = pycountry.countries.search_fuzzy(country)[0].alpha_3
+    iso3 = country_to_iso3[country]
     region_lookup_iso3[iso3] = region_lookup[country]
-
 msw_per_capita_defaults = {
     'Australia and New Zealand' : 0.6,
     'Caribbean' : 0.78,
@@ -424,22 +406,21 @@ msw_per_capita_defaults = {
     "Western Europe" : 0.59
 }
 msw_per_capita_defaults = {key: (value / 365) * 1000 for key, value in msw_per_capita_defaults.items()} # convert from tons/year to kg/day
-
 msw_per_capita_country = {
     'Tajikistan': 0.32,
     'Turkmenistan': 0.36,
     'China': 0.37,
     'Japan': 0.35,
     'Mongolia': 0.24,
-    'Republic of Korea': 0.35,
+    'South Korea': 0.35,
     'Brunei Darussalam': 0.32,
-    'Lao PDR': 0.26,
+    'Laos': 0.26,
     'Malaysia': 0.55,
     'Myanmar': 0.16,
     'Philippines': 0.18,
     'Singapore': 1.28,
     'Thailand': 0.64,
-    'Viet Nam': 0.53,
+    'Vietnam': 0.53,
     'Bangladesh': 0.18,
     'Bhutan': 0.53,
     'India': 0.12,
@@ -460,8 +441,8 @@ msw_per_capita_country = {
     'Qatar': 1.25,
     'Saudi Arabia': 0.47,
     'Palestine': 0.38,
-    'Syrian Arab Republic': 0.50,
-    'Turkey': 0.41,
+    'Syria': 0.50,
+    'Turkiye': 0.41,
     'United Arab Emirates': 0.61,
     'Algeria': 0.44,
     'Egypt': 0.5,
@@ -489,19 +470,19 @@ msw_per_capita_country = {
     'Central African Republic': 0.18,
     'Chad': 0.18,
     'Congo': 0.18,
-    'Democratic Republic of the Congo': 0.18,
+    'Congo, The Democratic Republic of the': 0.18,
     'Gabon': 0.16,
     'Sao Tome and Principe': 0.18,
     'Botswana': 0.38,
     'Lesotho': 0.18,
     'Namibia': 0.18,
     'South Africa': 0.73,
-    'Swaziland': 0.19,
+    'Eswatini': 0.19,
     'Benin': 0.20,
     'Burkina Faso': 0.19,
-    'Cape Verde': 0.18,
+    'Cabo Verde': 0.18,
     'Cote d\'Ivoire': 0.18,
-    'Gambia': 0.19,
+    'The Gambia': 0.19,
     'Ghana': 0.03,
     'Mali': 0.24,
     'Mauritania': 0.18,
@@ -516,7 +497,7 @@ msw_per_capita_country = {
     'Hungary': 0.40,
     'Poland': 0.32,
     'Romania': 0.31,
-    'Russian Federation': 0.34,
+    'Russia': 0.34,
     'Slovakia': 0.32,
     'Denmark': 0.76,
     'Estonia': 0.31,
@@ -538,7 +519,7 @@ msw_per_capita_country = {
     'Serbia': 0.36,
     'Slovenia': 0.49,
     'Spain': 0.51,
-    'Macedonia': 0.35,
+    'North Macedonia': 0.35,
     'Austria': 0.56,
     'Belgium': 0.46,
     'France': 0.53,
@@ -548,7 +529,7 @@ msw_per_capita_country = {
     'Switzerland': 0.71,
     'Anguilla': 1.10,
     'Antigua and Barbuda': 1.39,
-    'Bahamas': 1.19,
+    'The Bahamas': 1.19,
     'Barbados': 1.73,
     'Cuba': 0.3,
     'Dominica': 0.32,
@@ -584,7 +565,7 @@ msw_per_capita_country = {
     'Venezuela': 0.42,
     'Bermuda': 1.3,
     'Canada': 0.85,
-    'United States of America': 0.74,
+    'United States': 0.74,
     'Australia': 0.61,
     'New Zealand': 0.58,
     'Fiji': 0.77,
@@ -594,23 +575,18 @@ msw_per_capita_country = {
 }
 msw_per_capita_country = {key: (value / 365) * 1000 for key, value in msw_per_capita_country.items()} # convert from tons/year to kg/day
 msw_per_capita_country = {country_to_iso3[country]: value for country, value in msw_per_capita_country.items()}
-
 msw_per_capita_city = {
     'Hong Kong' : 0.93,
     'Macao' : 0.62
 }
 msw_per_capita_city = {key: (value / 365) * 1000 for key, value in msw_per_capita_city.items()} # convert from tons/year to kg/day
-
-
 k_defaults = {'Dry':            {'food': .1,  'diapers': .1,  'green': .05, 'paper_cardboard': .02,  'textiles': .02,  'wood': .01,  'rubber': .01},
               'Moderately Dry': {'food': .18, 'diapers': .18, 'green': .09, 'paper_cardboard': .036, 'textiles': .036, 'wood': .018, 'rubber': .018},
               'Moderately Wet': {'food': .26, 'diapers': .26, 'green': .12, 'paper_cardboard': .048, 'textiles': .048, 'wood': .024, 'rubber': .024},
               'Wet':            {'food': .34, 'diapers': .34, 'green': .15, 'paper_cardboard': .06,  'textiles': .06,  'wood': .03,  'rubber': .03},
               'Very Wet':       {'food': .4,  'diapers': .4,  'green': .17, 'paper_cardboard': .07,  'textiles': .07,  'wood': .035, 'rubber': .035}
              }
-
 #k_defaults = pd.DataFrame(k_defaults).T
-
 # Function to get precipitation zone from annual rainfall
 def get_precipitation_zone(rainfall):
     # Unit is mm
@@ -627,25 +603,19 @@ def get_precipitation_zone(rainfall):
     
 L_0 = {'food': 70, 'diapers': 112, 'green': 93, 'paper_cardboard': 186, 
        'textiles': 112, 'wood': 200, 'rubber': 100}
-
 oxidation_factor = {'with_lfg':{'landfill': 0.22, 'controlled_dumpsite': 0.1, 
                                 'dumpsite': 0, 'remediated_to_landfill': 0.18}, 
                     'without_lfg':{'landfill': 0.1, 'controlled_dumpsite': 0.05, 
                                    'dumpsite': 0, 'remediated_to_landfill': 0.1}}
-
 #mef_compost = 0.005876238822222 # Unit is Mg CO2e/Mg of organic waste, wtf
 mef_anaerobic = 0.26/1000*1.1023 # Unit is Mg CH4/Mg organic waste...wtf 
 ch4_to_co2e = 28
-
 gas_capture_efficiency = {'landfill': 0.6, 'controlled_dumpsite': 0.45, 'dumpsite': 0}
-
 landfill_default_regions = set(['Eastern Asia', 'Eastern Europe', 'North America', 'Northern Europe', 'Southern Europe', 'Western Europe'])
-
 # These numbers are kind of weird. I think...
 # Does this mean...waste that isn't diverted? But also is landfilled, as opposed to untracked?
 # These are from IPCC, regions are slightly weird....SWEET has Central and Southern Asia, IPCC has south central and western...using south central for western here. 
 # Africa is a single average and rest of oceania is from aus/nz
-
 fraction_open_dumped = {
     'Australia and New Zealand' : 0.0,
     'Caribbean' : 0.03,
@@ -663,7 +633,6 @@ fraction_open_dumped = {
     "Western Asia" : 0.11,
     "Western Europe" : 0.0,
 }
-
 fraction_landfilled = {
     'Australia and New Zealand' : 0.69,
     'Caribbean' : 0.78,
@@ -681,7 +650,6 @@ fraction_landfilled = {
     "Western Asia" : 0.68,
     "Western Europe" : 0.08,
 }
-
 fraction_incinerated = {
     'Australia and New Zealand' : 0.04,
     'Caribbean' : 0.0,
@@ -703,7 +671,6 @@ fraction_incinerated = {
     "Western Europe" : 0.40,
     "Southern Asia" : np.nan
 }
-
 fraction_composted = {
     'Australia and New Zealand' : 0.0,
     'Caribbean' : 0.01,
@@ -726,7 +693,6 @@ fraction_composted = {
     "Western Europe" : 0.21,
     "Southern Asia" : np.nan
 }
-
 # Includes recycling...sometimes, seems like junk. Also, don't try adding this stuff to 100. 
 fraction_unspecified = {
     'Australia and New Zealand' : 0.27,
@@ -750,10 +716,9 @@ fraction_unspecified = {
     "Western Europe" : 0.31,
     "Southern Asia" : np.nan
 }
-
 fraction_open_dumped_country = {
     'Japan': 0.0,
-    'Republic of Korea': 0.0,
+    'South Korea': 0.0,
     'Singapore': 0.0,
     'Armenia': 0.0,
     'Cyprus': 0.0,
@@ -762,8 +727,8 @@ fraction_open_dumped_country = {
     'Kuwait': 0.0,
     'Lebanon': 0.37,
     'Palestine': 0.0,
-    'Syrian Arab Republic': 0.6,
-    'Turkey': 0.0,
+    'Syria': 0.6,
+    'Turkiye': 0.0,
     'Algeria': 0.97,
     'Morocco': 0.95,
     'Tunisia': 0.45,
@@ -798,7 +763,7 @@ fraction_open_dumped_country = {
     'Serbia': 0.0,
     'Slovenia': 0.0,
     'Spain': 0.0,
-    'Macedonia': 0.0,
+    'North Macedonia': 0.0,
     'Austria': 0.0,
     'Belgium': 0.0,
     'France': 0.0,
@@ -833,15 +798,14 @@ fraction_open_dumped_country = {
     'Venezuela': 0.59,
     'Bermuda': 0.0,
     'Canada': 0.0,
-    'United States of America': 0.0,
+    'United States': 0.0,
     'Australia': 0.0,
     'New Zealand': 0.0,
 }
 fraction_open_dumped_country = {country_to_iso3[country]: value for country, value in fraction_open_dumped_country.items()}
-
 fraction_landfilled_country = {
     'Japan': 0.01,
-    'Republic of Korea': 0.18,
+    'South Korea': 0.18,
     'Singapore': 0.03,
     'Armenia': 1.0,
     'Cyprus': 0.86,
@@ -850,8 +814,8 @@ fraction_landfilled_country = {
     'Kuwait': 0.75,
     'Lebanon': 0.46,
     'Palestine': 0.29,
-    'Syrian Arab Republic': 0.23,
-    'Turkey': 0.84,
+    'Syria': 0.23,
+    'Turkiye': 0.84,
     'Algeria': 0.0,
     'Morocco': 0.01,
     'Tunisia': 0.5,
@@ -886,7 +850,7 @@ fraction_landfilled_country = {
     'Serbia': 0.71,
     'Slovenia': 0.57,
     'Spain': 0.62,
-    'Macedonia': 1.0,
+    'North Macedonia': 1.0,
     'Austria': 0.03,
     'Belgium': 0.02,
     'France': 0.31,
@@ -921,15 +885,14 @@ fraction_landfilled_country = {
     'Venezuela': 0.0,
     'Bermuda': 0.12,
     'Canada': 0.0,
-    'United States of America': 0.54,
+    'United States': 0.54,
     'Australia': 0.52,
     'New Zealand': 0.85,
 }
 fraction_landfilled_country = {country_to_iso3[country]: value for country, value in fraction_landfilled_country.items()}
-
 fraction_incinerated_country = {
     'Japan': 0.76,
-    'Republic of Korea': 0.22,
+    'South Korea': 0.22,
     'Singapore': 0.4,
     'Armenia': 0.0,
     'Cyprus': 0.0,
@@ -938,8 +901,8 @@ fraction_incinerated_country = {
     'Kuwait': 0.0,
     'Lebanon': 0.0,
     'Palestine': 0.69,
-    'Syrian Arab Republic': 0.0,
-    'Turkey': 0.0,
+    'Syria': 0.0,
+    'Turkiye': 0.0,
     'Algeria': 0.0,
     'Morocco': 0.0,
     'Tunisia': 0.0,
@@ -974,7 +937,7 @@ fraction_incinerated_country = {
     'Serbia': 0.0,
     'Slovenia': 0.01,
     'Spain': 0.09,
-    'Macedonia': 0.0,
+    'North Macedonia': 0.0,
     'Austria': 0.35,
     'Belgium': 0.4,
     'France': 0.34,
@@ -1009,15 +972,14 @@ fraction_incinerated_country = {
     'Venezuela': 0.0,
     'Bermuda': 0.68,
     'Canada': 0.0,
-    'United States of America': 0.12,
+    'United States': 0.12,
     'Australia': 0.08,
     'New Zealand': 0.0,
 }
 fraction_incinerated_country = {country_to_iso3[country]: value for country, value in fraction_incinerated_country.items()}
-
 fraction_composted_country = {
     'Japan': 0.0,
-    'Republic of Korea': 0.0,
+    'South Korea': 0.0,
     'Singapore': 0.0,
     'Armenia': 0.0,
     'Cyprus': 0.0,
@@ -1026,8 +988,8 @@ fraction_composted_country = {
     'Kuwait': 0.0,
     'Lebanon': 0.08,
     'Palestine': 0.0,
-    'Syrian Arab Republic': 0.04,
-    'Turkey': 0.01,
+    'Syria': 0.04,
+    'Turkiye': 0.01,
     'Algeria': 0.01,
     'Morocco': 0.0,
     'Tunisia': 0.0,
@@ -1062,7 +1024,7 @@ fraction_composted_country = {
     'Serbia': 0.0,
     'Slovenia': 0.02,
     'Spain': 0.12,
-    'Macedonia': 0.0,
+    'North Macedonia': 0.0,
     'Austria': 0.32,
     'Belgium': 0.21,
     'France': 0.17,
@@ -1097,15 +1059,14 @@ fraction_composted_country = {
     'Venezuela': 0.0,
     'Bermuda': 0.18,
     'Canada': 0.12,
-    'United States of America': 0.08,
+    'United States': 0.08,
     'Australia': 0.0,
     'New Zealand': 0.0,
 }
 fraction_composted_country = {country_to_iso3[country]: value for country, value in fraction_composted_country.items()}
-
 fraction_unspecified_country = {
     'Japan': 0.22,
-    'Republic of Korea': 0.61,
+    'South Korea': 0.61,
     'Singapore': 0.57,
     'Armenia': 0.0,
     'Cyprus': 0.14,
@@ -1114,8 +1075,8 @@ fraction_unspecified_country = {
     'Kuwait': 0.25,
     'Lebanon': 0.09,
     'Palestine': 0.02,
-    'Syrian Arab Republic': 0.13,
-    'Turkey': 0.16,
+    'Syria': 0.13,
+    'Turkiye': 0.16,
     'Algeria': 0.02,
     'Morocco': 0.04,
     'Tunisia': 0.05,
@@ -1150,7 +1111,7 @@ fraction_unspecified_country = {
     'Serbia': 0.29,
     'Slovenia': 0.4,
     'Spain': 0.18,
-    'Macedonia': 0.0,
+    'North Macedonia': 0.0,
     'Austria': 0.3,
     'Belgium': 0.37,
     'France': 0.18,
@@ -1185,62 +1146,12 @@ fraction_unspecified_country = {
     'Venezuela': 0.41,
     'Bermuda': 0.02,
     'Canada': 0.88,
-    'United States of America': 0.26,
+    'United States': 0.26,
     'Australia': 0.4,
     'New Zealand': 0.15,
 }
 fraction_unspecified_country = {country_to_iso3[country]: value for country, value in fraction_unspecified_country.items()}
-
 #%%
+#for key in dicts check if in the csv
+#for name in iso3 check if in the region lookup
 
-replace_city = {
-    'Hirat\xa0': 'Herat',
-    'Córdoba': 'Cordoba',
-    'Ciudada Autónoma De Buenos Aires (Caba).': 'Buenos Aires',
-    'Distrito Federal, Brasilia': 'Federal District',
-    'Phuentsholing\xa0': 'Phuentsholing',
-    'Santiago De Chile': 'Santiago',
-    'Bogotá': 'Bogota',
-    'San José': 'Sane Jose',
-    'Greater Hyderabad \xa0': 'Greater Hyderabad',
-    'Gwalior\xa0': 'Gwalior',
-    'Eldoret\xa0': 'Eldoret',
-    'México City': 'Mexico City',
-    'Panamá City': 'Panama City',
-    'Kraków': 'Krakow',
-    'Guimarães': 'Guimaraes',
-    'Asunción': 'Asuncion',
-    'Kigali\xa0': 'Kigali',
-    'Borås': 'Boras',
-    'Dushanbe\xa0': 'Dushanbe',
-    'Vava’u': 'Vavau',
-    'Bursa Mm (Metropolitan Municipality)': 'Bursa',
-    'Sanaá': 'Sanaa',
-    'Johannesburg\xa0': 'Johannesburg',
-    'BloemfonteinÂ ': 'Bloemfontein',
-    'Ndola\xa0': 'Ndola',
-    'Harare\xa0': 'Harare',
-    'Colón':'Colon',
-    'Dehiwala Mt. Lavinia Municipal Council': 'Dehiwala Mount Lavinia'
-}
-
-# #%%
-# for country, value in msw_per_capita_country.items():
-#     assert country in lut['country'].values, country
-
-# for country, value in fraction_open_dumped_country.items():
-#     assert country in lut['country'].values, country
-
-# for country, value in fraction_landfilled_country.items():
-#     assert country in lut['country'].values, country
-
-# for country, value in fraction_incinerated_country.items():
-#     assert country in lut['country'].values, country
-
-# for country, value in fraction_composted_country.items():
-#     assert country in lut['country'].values, country
-
-# for country, value in fraction_unspecified_country.items():
-#     assert country in lut['country'].values, country
-    
-# # %%

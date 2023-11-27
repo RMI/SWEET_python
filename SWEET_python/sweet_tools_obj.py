@@ -2451,9 +2451,9 @@ class City:
                         to_distribute_to_sum = sum([div_fractions[x] for x in to_distribute_to])
                         
                         if to_distribute_to_sum == 0:
-                            #print('aaagh')
-                            #print(self.name)
-                            CustomError("INVALID_PARAMETERS", f"Combination of compost, anaerobic digestion, and recycling is too high")
+                            #print('ERROR SKIP')
+                            raise CustomError("INVALID_PARAMETERS", f"Combination of compost, anaerobic digestion, and recycling is too high")
+                            #print('ERROR SKIP')
                             #return True, True, None, None
                             
                         for d in to_distribute_to:
@@ -2464,7 +2464,7 @@ class City:
                                 print('grumble')
                                 #print(self.name)
                                 #to_distribute_to_sum -= self.div_fractions[d]
-                                CustomError("INVALID_PARAMETERS", f"Combination of compost, anaerobic digestion, and recycling is too high")
+                                raise CustomError("INVALID_PARAMETERS", f"Combination of compost, anaerobic digestion, and recycling is too high")
                                 #return True, True, None, None
                             #distributed = 0
                             for w in to_distribute_to_component:
@@ -2474,7 +2474,7 @@ class City:
                                     distribute[d][w].append(add_amount)
                                 #distributed += add_amount
                             
-                        remove[d] += to_be_removed
+                        remove[div] += to_be_removed
                         #print('removed', to_be_removed, 'fixing', waste, 'div didnt work is', div, 'going to', d)
                 
                     # Implement all the additions and subtractions
@@ -2530,7 +2530,7 @@ class City:
             if frac > (self.waste_fractions[waste] + 1e-5):
                 adjust_non_combustion = True
                 #print(f'even without combustion it doesnt work')
-                CustomError("INVALID_PARAMETERS", f"Combination of compost, anaerobic digestion, and recycling is too high")
+                raise CustomError("INVALID_PARAMETERS", f"Combination of compost, anaerobic digestion, and recycling is too high")
                 #return True, True, None, None
 
         all_divs = sum(div_fractions.values())
