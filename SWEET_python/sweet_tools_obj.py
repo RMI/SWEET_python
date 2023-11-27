@@ -2474,8 +2474,8 @@ class City:
                                     distribute[d][w].append(add_amount)
                                 #distributed += add_amount
                             
-                        remove[div] += to_be_removed
-                        #print('removed', to_be_removed, 'fixing', waste, 'div didnt work is', div, 'going to', d)
+                            remove[d] += to_be_removed
+                            #print('removed', to_be_removed, 'fixing', waste, 'div didnt work is', div, 'going to', d)
                 
                     # Implement all the additions and subtractions
                     for div in distribute:
