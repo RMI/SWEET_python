@@ -662,14 +662,14 @@ fraction_incinerated = {
     "Northern Africa" : 0.0,
     "Northern Europe" : 0.20,
     "South America" : 0.0,
-    "Central Asia" : np.nan,
-    "South-Eastern Asia" : np.nan,
-    "Southern Africa" : np.nan,
+    "Central Asia" : 0.0, #np.nan,
+    "South-Eastern Asia" : 0.0, #np.nan,
+    "Southern Africa" : 0.0, #np.nan,
     "Southern Europe" : 0.04,
     "Western Africa" : 0.0,
     "Western Asia" : 0.08,
     "Western Europe" : 0.40,
-    "Southern Asia" : np.nan
+    "Southern Asia" : 0.0, #np.nan
 }
 fraction_composted = {
     'Australia and New Zealand' : 0.0,
@@ -684,14 +684,14 @@ fraction_composted = {
     "Northern Europe" : 0.09,
     "Rest of Oceania" : 0.0,
     "South America" : 0.0,
-    "Central Asia" : np.nan,
-    "South-Eastern Asia" : np.nan,
-    "Southern Africa" : np.nan,
+    "Central Asia" : 0.0, #np.nan
+    "South-Eastern Asia" : 0.0, #np.nan
+    "Southern Africa" : 0.0, #np.nan
     "Southern Europe" : 0.03,
     "Western Africa" : 0.0,
     "Western Asia" : 0.01,
     "Western Europe" : 0.21,
-    "Southern Asia" : np.nan
+    "Southern Asia" : 0.0, #np.nan
 }
 # Includes recycling...sometimes, seems like junk. Also, don't try adding this stuff to 100. 
 fraction_unspecified = {
@@ -705,16 +705,16 @@ fraction_unspecified = {
     "North America" : 0.38,
     "Northern Africa" : 0.04,
     "Northern Europe" : 0.24,
-    "Rest of Oceania" : np.nan,
+    "Rest of Oceania" : 0.0, #np.nan
     "South America" : 0.18,
-    "Central Asia" : np.nan,
-    "South-Eastern Asia" : np.nan,
-    "Southern Africa" : np.nan,
+    "Central Asia" : 0.0, #np.nan
+    "South-Eastern Asia" : 0.0, #np.nan
+    "Southern Africa" : 0.0, #np.nan
     "Southern Europe" : 0.17,
     "Western Africa" : 0.36,
     "Western Asia" : 0.12,
     "Western Europe" : 0.31,
-    "Southern Asia" : np.nan
+    "Southern Asia" : 0.0, #np.nan
 }
 fraction_open_dumped_country = {
     'Japan': 0.0,
@@ -801,6 +801,7 @@ fraction_open_dumped_country = {
     'United States': 0.0,
     'Australia': 0.0,
     'New Zealand': 0.0,
+    'Nigeria': 1.0,
 }
 fraction_open_dumped_country = {country_to_iso3[country]: value for country, value in fraction_open_dumped_country.items()}
 fraction_landfilled_country = {
@@ -888,6 +889,7 @@ fraction_landfilled_country = {
     'United States': 0.54,
     'Australia': 0.52,
     'New Zealand': 0.85,
+    'Nigeria': 0.0,
 }
 fraction_landfilled_country = {country_to_iso3[country]: value for country, value in fraction_landfilled_country.items()}
 fraction_incinerated_country = {
