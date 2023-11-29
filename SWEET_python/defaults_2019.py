@@ -801,6 +801,7 @@ fraction_open_dumped_country = {
     'United States': 0.0,
     'Australia': 0.0,
     'New Zealand': 0.0,
+    'Nigeria': 1.0,
 }
 fraction_open_dumped_country = {country_to_iso3[country]: value for country, value in fraction_open_dumped_country.items()}
 fraction_landfilled_country = {
@@ -888,6 +889,7 @@ fraction_landfilled_country = {
     'United States': 0.54,
     'Australia': 0.52,
     'New Zealand': 0.85,
+    'Nigeria': 0.0,
 }
 fraction_landfilled_country = {country_to_iso3[country]: value for country, value in fraction_landfilled_country.items()}
 fraction_incinerated_country = {

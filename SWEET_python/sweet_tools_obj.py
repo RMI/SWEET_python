@@ -913,6 +913,8 @@ class City:
             if np.isnan(getattr(self, attr)):
                 setattr(self, attr, 0.0)
 
+        # if self.iso3 == 'NGA':
+        #     self.split_fractions = {'landfill_w_capture': 0.0, 'landfill_wo_capture': 0.0, 'dumpsite': 1.0}
         # Instantiate landfills
         self.landfill_w_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=self.split_fractions['landfill_w_capture'], gas_capture=True)
         self.landfill_wo_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=self.split_fractions['landfill_wo_capture'], gas_capture=False)
