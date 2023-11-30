@@ -377,7 +377,20 @@ region_lookup = {
     'Saint Helena, Ascension and Tristan da Cunha': 'Southern Africa',
     'US Minor Islands': 'Rest of Oceania',
     'Bonaire, Sint Eustatius and Saba': 'Caribbean',
-    'Antigua and Barbuda': 'Caribbean'
+    'Antigua and Barbuda': 'Caribbean',
+    'Grenada': 'Caribbean',
+    'Barbados': 'Caribbean',
+    'Jamaica': 'Caribbean',
+    'Suriname': 'South America',
+    'Dominica': 'Caribbean',
+    'Seychelles': 'Eastern Africa',
+    'Cayman Islands': 'Caribbean',
+    'Guyana': 'South America',
+    'Bermuda': 'North America',
+    'Greenland': 'North America',
+    'Gibraltar': 'Southern Europe',
+    'Mauritius': 'Eastern Africa',
+    'Antarctica': 'South America',
 }
 region_lookup_iso3 = {}
 for country in region_lookup:
@@ -571,13 +584,16 @@ msw_per_capita_country = {
     'Fiji': 0.77,
     'Solomon Islands': 1.57,
     'Vanuatu': 1.2,
-    'Tonga': 1.35
+    'Tonga': 1.35,
+    'Hong Kong': 0.93,
+    'Macao': 0.62,
 }
+
 msw_per_capita_country = {key: (value / 365) * 1000 for key, value in msw_per_capita_country.items()} # convert from tons/year to kg/day
 msw_per_capita_country = {country_to_iso3[country]: value for country, value in msw_per_capita_country.items()}
 msw_per_capita_city = {
-    'Hong Kong' : 0.93,
-    'Macao' : 0.62
+    'Hong Kong': 0.93,
+    'Macao': 0.62
 }
 msw_per_capita_city = {key: (value / 365) * 1000 for key, value in msw_per_capita_city.items()} # convert from tons/year to kg/day
 k_defaults = {'Dry':            {'food': .1,  'diapers': .1,  'green': .05, 'paper_cardboard': .02,  'textiles': .02,  'wood': .01,  'rubber': .01},
@@ -1153,7 +1169,47 @@ fraction_unspecified_country = {
     'New Zealand': 0.15,
 }
 fraction_unspecified_country = {country_to_iso3[country]: value for country, value in fraction_unspecified_country.items()}
+
 #%%
 #for key in dicts check if in the csv
 #for name in iso3 check if in the region lookup
 
+# countries = set(pd.read_csv(current_dir / 'iso3.csv')['name'].to_list())
+# isos = set(pd.read_csv(current_dir / 'iso3.csv')['iso3'].to_list())
+# for c in region_lookup:
+#     if c not in countries:
+#         print(c)
+# for c in countries:
+#     if c not in region_lookup:
+#         print(c)
+
+# for c in waste_fractions_country.index:
+#     if c not in isos:
+#         print(c)
+
+# for c in fraction_open_dumped_country:
+#     if c not in isos:
+#         print(c)
+
+# for c in fraction_landfilled_country:
+#     if c not in isos:
+#         print(c)
+
+# for c in fraction_incinerated_country:
+#     if c not in isos:
+#         print(c)
+
+# for c in fraction_composted_country:
+#     if c not in isos:
+#         print(c)
+
+# for c in fraction_unspecified_country:
+#     if c not in isos:
+#         print(c)
+
+# for c in msw_per_capita_country:
+#     if c not in isos:
+#         print(c)
+
+
+# %%
