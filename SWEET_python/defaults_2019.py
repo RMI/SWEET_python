@@ -386,7 +386,7 @@ region_lookup = {
     'Seychelles': 'Eastern Africa',
     'Cayman Islands': 'Caribbean',
     'Guyana': 'South America',
-    'Bermuda': 'North America',
+    'Bermuda': 'Caribbean',
     'Greenland': 'North America',
     'Gibraltar': 'Southern Europe',
     'Mauritius': 'Eastern Africa',
