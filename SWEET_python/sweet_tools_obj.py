@@ -1381,7 +1381,7 @@ class City:
                                                     compost_waste_fractions[x] for x in self.div_components['compost']])
             compost = {}
             # Determine mass of composted waste types
-            if new:
+            if new and sum(self.div_component_fractions['compost'].values()) != 0 :
                 for waste in self.div_components['compost']:
                     compost[waste] = (
                         compost_total * 
