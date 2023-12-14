@@ -1330,7 +1330,7 @@ class City:
         self.new_div_component_fractions = copy.deepcopy(self.div_component_fractions)
     
     # Calculate compost waste types fractions. 
-    def calc_compost_vol(self, compost_fraction):
+    def calc_compost_vol(self, compost_fraction, new=False):
         """
         Calculates masses and fractions of composted waste types.
 
@@ -1381,13 +1381,23 @@ class City:
                                                     compost_waste_fractions[x] for x in self.div_components['compost']])
             compost = {}
             # Determine mass of composted waste types
-            for waste in self.div_components['compost']:
-                compost[waste] = (
-                    compost_total * 
-                    (1 - self.non_compostable_not_targeted_total) *
-                    compost_waste_fractions[waste] *
-                    (1 - self.unprocessable[waste])
-                    )
+            if new:
+                for waste in self.div_components['compost']:
+                    compost[waste] = (
+                        compost_total * 
+                        (1 - self.non_compostable_not_targeted_total) *
+                        self.div_component_fractions['compost'][waste] *
+                        (1 - self.unprocessable[waste])
+                        )
+                compost_waste_fractions = self.div_component_fractions['compost']
+            else:
+                for waste in self.div_components['compost']:
+                    compost[waste] = (
+                        compost_total * 
+                        (1 - self.non_compostable_not_targeted_total) *
+                        compost_waste_fractions[waste] *
+                        (1 - self.unprocessable[waste])
+                        )
 
         else:
             compost = {x: 0 for x in self.div_components['compost']}
@@ -1404,7 +1414,7 @@ class City:
         
         return compost, compost_waste_fractions
     
-    def calc_anaerobic_vol(self, anaerobic_fraction):
+    def calc_anaerobic_vol(self, anaerobic_fraction, new=False):
         """
         Calculates the masses and fractions of waste types diverted to anaerobic digestion. 
 
@@ -1434,7 +1444,11 @@ class City:
             #self.divs['anaerobic'] = {x: anaerobic_total * anaerobic_waste_fractions[x] for x in self.anaerobic_components}
             
             # Determine masses of digested waste types
-            anaerobic = {x: anaerobic_total * anaerobic_waste_fractions[x] for x in self.div_components['anaerobic']}
+            if new:
+                anaerobic = {x: anaerobic_total * self.div_component_fractions['anaerobic'][x] for x in self.div_components['anaerobic']}
+                anaerobic_waste_fractions = self.div_component_fractions['anaerobic']
+            else:
+                anaerobic = {x: anaerobic_total * anaerobic_waste_fractions[x] for x in self.div_components['anaerobic']}
         else:
             #self.divs['anaerobic'] = {x: 0 for x in self.anaerobic_components}
             anaerobic = {x: 0 for x in self.div_components['anaerobic']}
@@ -1447,7 +1461,7 @@ class City:
 
         return anaerobic, anaerobic_waste_fractions
     
-    def calc_combustion_vol(self, combustion_fraction):
+    def calc_combustion_vol(self, combustion_fraction, new=False):
         """
         Calculates the masses and fractions of combusted waste types.
 
@@ -1494,12 +1508,21 @@ class City:
         combustion_waste_fractions = {x: self.waste_fractions[x] / fraction_combustion_types for x in self.div_components['combustion']}
 
         # Masses of combusted waste types
-        combustion = {x:
-            self.waste_mass * 
-            combustion_fraction * \
-            combustion_waste_fractions[x] * \
-            (1 - self.combustion_reject_rate) for x in self.div_components['combustion']
-        }
+        if new:
+            combustion = {x:
+                self.waste_mass * 
+                combustion_fraction * \
+                self.div_component_fractions['combustion'][x] * \
+                (1 - self.combustion_reject_rate) for x in self.div_components['combustion']
+            }
+            combustion_waste_fractions = self.div_component_fractions['combustion']
+        else:
+            combustion = {x:
+                self.waste_mass * 
+                combustion_fraction * \
+                combustion_waste_fractions[x] * \
+                (1 - self.combustion_reject_rate) for x in self.div_components['combustion']
+            }
 
         return combustion, combustion_waste_fractions
     
@@ -1557,9 +1580,9 @@ class City:
         #     (1 - self.combustion_reject_rate) for x in self.div_components['combustion']
         # }
 
-        return combustion, combustion_waste_fractions
+        return combustion #, combustion_waste_fractions
 
-    def calc_recycling_vol(self, recycling_fraction):
+    def calc_recycling_vol(self, recycling_fraction, new=False):
         """
         Calculates fractions and masses of recycled waste types. 
         
@@ -1598,13 +1621,22 @@ class City:
             #                   self.waste_mass for x in self.recycling_components}
 
             # Masses of recycled waste types
-            recycling = {
-                x: self.waste_fractions[x] / \
-                fraction_recyclable_types * \
-                recycling_fraction * \
-                (recycling_reject_rates[x]) * \
-                self.waste_mass for x in self.div_components['recycling']
-            }
+            if new:
+                recycling = {
+                    x: self.div_component_fractions['recycling'][x] * \
+                    recycling_fraction * \
+                    (recycling_reject_rates[x]) * \
+                    self.waste_mass for x in self.div_components['recycling']
+                }
+                recycling_waste_fractions = self.div_component_fractions['recycling']
+            else:
+                recycling = {
+                    x: self.waste_fractions[x] / \
+                    fraction_recyclable_types * \
+                    recycling_fraction * \
+                    (recycling_reject_rates[x]) * \
+                    self.waste_mass for x in self.div_components['recycling']
+                }
             #recycling_vol_total = sum([recycling_vol[x] for x in recycling_vol.keys()])
         else:
             #self.divs['recycling'] = {x: 0 for x in self.recycling_components}
@@ -3056,10 +3088,10 @@ class City:
         # Recalculate diversion
         self.new_divs = {}
         self.new_div_component_fractions = {}
-        self.new_divs['compost'], self.new_div_component_fractions['compost'] = self.calc_compost_vol(self.new_div_fractions['compost'])
-        self.new_divs['anaerobic'], self.new_div_component_fractions['anaerobic'] = self.calc_anaerobic_vol(self.new_div_fractions['anaerobic'])
-        self.new_divs['combustion'], self.new_div_component_fractions['combustion'] = self.calc_combustion_vol(self.new_div_fractions['combustion'])
-        self.new_divs['recycling'], self.new_div_component_fractions['recycling'] = self.calc_recycling_vol(self.new_div_fractions['recycling'])
+        self.new_divs['compost'], self.new_div_component_fractions['compost'] = self.calc_compost_vol(self.new_div_fractions['compost'], new=True)
+        self.new_divs['anaerobic'], self.new_div_component_fractions['anaerobic'] = self.calc_anaerobic_vol(self.new_div_fractions['anaerobic'], new=True)
+        self.new_divs['combustion'], self.new_div_component_fractions['combustion'] = self.calc_combustion_vol(self.new_div_fractions['combustion'], new=True)
+        self.new_divs['recycling'], self.new_div_component_fractions['recycling'] = self.calc_recycling_vol(self.new_div_fractions['recycling'], new=True)
 
         # Add zeros for remaining diversion components
         for waste in self.waste_fractions:
