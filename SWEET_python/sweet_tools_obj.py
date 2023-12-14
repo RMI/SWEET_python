@@ -1381,7 +1381,7 @@ class City:
                                                     compost_waste_fractions[x] for x in self.div_components['compost']])
             compost = {}
             # Determine mass of composted waste types
-            if new and sum(self.div_component_fractions['compost'].values()) != 0 :
+            if new and sum(self.div_component_fractions['compost'].values()) != 0:
                 for waste in self.div_components['compost']:
                     compost[waste] = (
                         compost_total * 
@@ -1444,7 +1444,7 @@ class City:
             #self.divs['anaerobic'] = {x: anaerobic_total * anaerobic_waste_fractions[x] for x in self.anaerobic_components}
             
             # Determine masses of digested waste types
-            if new:
+            if new and sum(self.div_component_fractions['anaerobic'].values()) != 0:
                 anaerobic = {x: anaerobic_total * self.div_component_fractions['anaerobic'][x] for x in self.div_components['anaerobic']}
                 anaerobic_waste_fractions = self.div_component_fractions['anaerobic']
             else:
@@ -1508,7 +1508,7 @@ class City:
         combustion_waste_fractions = {x: self.waste_fractions[x] / fraction_combustion_types for x in self.div_components['combustion']}
 
         # Masses of combusted waste types
-        if new:
+        if new and sum(self.div_component_fractions['combustion'].values()) != 0:
             combustion = {x:
                 self.waste_mass * 
                 combustion_fraction * \
@@ -1621,7 +1621,7 @@ class City:
             #                   self.waste_mass for x in self.recycling_components}
 
             # Masses of recycled waste types
-            if new:
+            if new and sum(self.div_component_fractions['recycling'].values()) != 0:
                 recycling = {
                     x: self.div_component_fractions['recycling'][x] * \
                     recycling_fraction * \
