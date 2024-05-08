@@ -35,6 +35,7 @@ from SWEET_python import city_manual_baselines
 import matplotlib.pyplot as plt
 #matplotlib.use('TkAgg')
 import pycountry
+import math
 
 # This file contains classes for calculating the methane emissions of cities from municipal solid waste.
 # The City class contains information about a city, including its population, waste generation rate,
@@ -3153,6 +3154,205 @@ class City:
 
         self.organic_emissions_new = self.estimate_diversion_emissions(baseline=False)
         self.landfill_emissions_new, self.diversion_emissions_new, self.total_emissions_new = self.sum_landfill_emissions(baseline=False)
+
+    def singapore_k(self):
+        # Implementation of Singapore k value method
+
+        # Start with kc, which accounts for waste composition
+
+        # nb is non-biodegradable, bs is slow, bf is fast biodegradable
+        nb = self.waste_fractions['metal'] + self.waste_fractions['glass'] + self.waste_fractions['plastic'] + self.waste_fractions['other'] + self.waste_fractions['rubber']
+        bs = self.waste_fractions['wood'] + self.waste_fractions['paper_cardboard'] + self.waste_fractions['textiles']
+        bf = self.waste_fractions['food'] + self.waste_fractions['green']
+
+        # Lookup array order is bs, bf, nb. Multiply by 8
+        lookup_array = np.zeros((8, 8, 8))
+
+        lookup_array[0, 0, 7] = 0.3 # lower left corner
+        lookup_array[0, 0, 6] = 0.3 # this is all the bottom row
+        lookup_array[1, 0, 6] = 0.3
+        lookup_array[1, 0, 5] = 0.3
+        lookup_array[2, 0, 5] = 0.5
+        lookup_array[2, 0, 4] = 0.5
+        lookup_array[3, 0, 4] = 0.5
+        lookup_array[3, 0, 3] = 0.5
+        lookup_array[4, 0, 3] = 0.5
+        lookup_array[4, 0, 2] = 0.5
+        lookup_array[5, 0, 2] = 0.5
+        lookup_array[5, 0, 1] = 0.5
+        lookup_array[6, 0, 1] = 0.1
+        lookup_array[6, 0, 0] = 0.1
+        lookup_array[7, 0, 0] = 0.1 # lower right corner
+
+        lookup_array[0, 1, 6] = 0.3 # second row from bottom
+        lookup_array[0, 1, 5] = 0.3
+        lookup_array[1, 1, 5] = 0.3
+        lookup_array[1, 1, 4] = 0.3
+        lookup_array[2, 1, 4] = 0.5
+        lookup_array[2, 1, 3] = 0.5
+        lookup_array[3, 1, 3] = 0.5
+        lookup_array[3, 1, 2] = 0.5
+        lookup_array[4, 1, 2] = 0.5
+        lookup_array[4, 1, 1] = 0.5
+        lookup_array[5, 1, 1] = 0.1
+        lookup_array[5, 1, 0] = 0.1
+        lookup_array[6, 1, 0] = 0.1
+
+        lookup_array[0, 2, 5] = 0.3
+        lookup_array[0, 2, 4] = 0.3
+        lookup_array[1, 2, 4] = 0.3
+        lookup_array[1, 2, 3] = 0.3
+        lookup_array[2, 2, 3] = 0.7
+        lookup_array[2, 2, 2] = 0.7
+        lookup_array[3, 2, 2] = 0.7
+        lookup_array[3, 2, 1] = 0.7
+        lookup_array[4, 2, 1] = 0.1
+        lookup_array[4, 2, 0] = 0.1
+        lookup_array[5, 2, 0] = 0.1
+
+        lookup_array[0, 3, 4] = 0.3
+        lookup_array[0, 3, 3] = 0.3
+        lookup_array[1, 3, 3] = 0.3
+        lookup_array[1, 3, 2] = 0.3
+        lookup_array[2, 3, 2] = 0.7
+        lookup_array[2, 3, 1] = 0.7
+        lookup_array[3, 3, 1] = 0.7
+        lookup_array[3, 3, 0] = 0.7
+        lookup_array[4, 3, 0] = 0.1
+
+        lookup_array[0, 4, 3] = 0.3
+        lookup_array[0, 4, 2] = 0.3
+        lookup_array[1, 4, 2] = 0.3
+        lookup_array[1, 4, 1] = 0.5
+        lookup_array[2, 4, 1] = 0.5
+        lookup_array[2, 4, 0] = 0.5
+        lookup_array[3, 4, 0] = 0.5
+
+        lookup_array[0, 5, 2] = 0.7
+        lookup_array[0, 5, 1] = 0.7
+        lookup_array[1, 5, 1] = 0.7
+        lookup_array[1, 5, 0] = 0.7
+        lookup_array[2, 5, 0] = 0.5
+
+        lookup_array[0, 6, 1] = 0.5
+        lookup_array[0, 6, 0] = 0.5
+        lookup_array[1, 6, 0] = 0.5
+
+        lookup_array[0, 7, 0] = 0.5
+
+        nb_idx = int(nb * 8)
+        bs_idx = int(bs * 8)
+        bf_idx = int(bf * 8)
+
+        if nb_idx == 8:
+            nb_idx = 7
+        if bs_idx == 8:
+            bs_idx = 7
+        if bf_idx == 8:
+            bf_idx = 7
+
+        kc = lookup_array[bs_idx, bf_idx, nb_idx]
+        if kc == 0:
+            print('Invalid value for k')
+
+        # ft, accounts for temperature
+
+        tmin = 0
+        tmax = 55
+        topt = 35
+        t = self.temp + 10 # landfill is warmer than ambient
+
+        num = (t - tmax) * (t - tmin) ** 2
+        denom = (topt - tmin) * \
+            ((topt - tmin) * \
+            (t - topt) - \
+            (topt - tmax) * \
+            (topt + tmin - 2 * t))
+        
+        if denom != 0:
+            tf = num / denom
+        else:
+            print('Invalid value for temperature factor')
+
+        # fm, accounts for moisture
+        # read more on this to make sure it handles dumpsites correctly. 
+
+        if self.precip < 500:
+            fm = 0.1
+        elif self.precip >= 500 and self.precip < 1000:
+            fm = 0.3
+        elif self.precip >= 1000 and self.precip < 1500:
+            fm = 0.5
+        elif self.precip >= 1500 and self.precip < 2000:
+            fm = 0.8
+        elif self.precip >= 2000:
+            fm = 1
+
+        # if (nb >= 0) & (nb <= 0.25):
+        #     if (bs >= 0) & (bs <= 0.25):
+        #         if (bf >= 0) & (bf <= 0.25):
+        #             return 0.1
+        #         elif (bf > 0.25) & (bf <= 0.5):
+        #             return 0.2
+        #         elif (bf > 0.5) & (bf <= 0.75):
+        #             return 0.3
+        #         elif (bf > 0.75) & (bf <= 1):
+        #             return 0.4
+        #         else:
+        #             print('Invalid value for fast biodegradable fraction')
+        #     elif (bs > 0.25) & (bs <= 0.5):
+        #         if (bf >= 0) & (bf <= 0.25):
+        #             return 0.1
+        #         elif (bf > 0.25) & (bf <= 0.5):
+        #             return 0.2
+        #         elif (bf > 0.5) & (bf <= 0.75):
+        #             return 0.3
+        #         elif (bf > 0.75) & (bf <= 1):
+        #             return 0.4
+        #         else:
+        #             print('Invalid value for fast biodegradable fraction')
+        #     elif (bs > 0.5) & (bs <= 0.75):
+                
+        #     elif (bs > 0.75) & (bs <= 1):
+
+        #     else:
+        #         print('Invalid value for slow biodegradable fraction')
+        # elif (nb > 0.25) & (nb <= 0.5):
+        #     if (bs >= 0) & (bs <= 0.25):
+
+        #     elif (bs > 0.25) & (bs <= 0.5):
+
+        #     elif (bs > 0.5) & (bs <= 0.75):
+
+        #     elif (bs > 0.75) & (bs <= 1):
+
+        #     else:
+        #         print('Invalid value for slow biodegradable fraction')
+        # elif (nb > 0.5) & (nb <= 0.75):
+        #     if (bs >= 0) & (bs <= 0.25):
+
+        #     elif (bs > 0.25) & (bs <= 0.5):
+
+        #     elif (bs > 0.5) & (bs <= 0.75):
+
+        #     elif (bs > 0.75) & (bs <= 1):
+
+        #     else:
+        #         print('Invalid value for slow biodegradable fraction')
+        # elif (nb > 0.75) & (nb <= 1):
+        #     if (bs >= 0) & (bs <= 0.25):
+
+        #     elif (bs > 0.25) & (bs <= 0.5):
+
+        #     elif (bs > 0.5) & (bs <= 0.75):
+
+        #     elif (bs > 0.75) & (bs <= 1):
+
+        #     else:
+        #         print('Invalid value for slow biodegradable fraction')
+        # else:
+        #     print('Invalid value for non-biodegradable fraction')
+
 
 class CustomError(Exception):
     def __init__(self, code, message):
