@@ -46,12 +46,9 @@ class Landfill:
         Args:
             baseline (bool, optional): If True, estimates baseline emissions. If False, uses new values. Defaults to True.
 
-        Returns:
-            tuple: Contains waste_mass, emissions, ch4, and captured values.
         """
         self.model = SWEET(landfill=self, city=self.city, scenario=self.scenario)
         self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions()
-        return self.waste_mass, self.emissions, self.ch4, self.captured
 
 class CityParameters(BaseModel):
     waste_fractions: WasteFractions
@@ -67,9 +64,7 @@ class CityParameters(BaseModel):
     gas_capture_efficiency: float
     mef_compost: float
     waste_mass: float
-    landfill_w_capture: Landfill # These should be gotten rid of, replaced with just a list of landfills
-    landfill_wo_capture: Landfill
-    dumpsite: Landfill
+    landfills: List[Landfill]
     non_zero_landfills: List[Landfill]
     non_compostable_not_targeted_total: float
     waste_masses: Optional[WasteMasses] = None
@@ -77,6 +72,11 @@ class CityParameters(BaseModel):
     div_masses: Optional[Dict[str, Dict[str, float]]] = None
     year_of_data_pop: Optional[int] = None
     scenario: Optional[int] = 0
+    implement_year: Optional[int] = None
+    organic_emissions: Optional[float] = None
+    landfill_emissions: Optional[float] = None
+    diversion_emissions: Optional[float] = None
+    total_emissions: Optional[float] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -97,7 +97,7 @@ class City:
         """
         self.name = name
         self.baseline_parameters = None
-        self.alternative_parameters = {}
+        self.scenario_parameters = {}
         self.components = {'food', 'green', 'wood', 'paper_cardboard', 'textiles'}
         self.div_components = {
             'compost': {'food', 'green', 'wood', 'paper_cardboard'},
@@ -215,6 +215,7 @@ class City:
         landfill_wo_capture = Landfill(self, 1960, 2073, 'landfill', 1, landfill_index=1, fraction_of_waste=split_fractions.landfill_wo_capture, gas_capture=False)
         dumpsite = Landfill(self, 1960, 2073, 'dumpsite', 0.4, landfill_index=2,fraction_of_waste=split_fractions.dumpsite, gas_capture=False)
 
+        landfills = [landfill_w_capture, landfill_wo_capture, dumpsite]
         non_zero_landfills = [x for x in [landfill_w_capture, landfill_wo_capture, dumpsite] if x.fraction_of_waste > 0]
 
         year_of_data_pop = city_data['Year of Data Collection'].values[0]
@@ -233,9 +234,7 @@ class City:
             gas_capture_efficiency=gas_capture_efficiency,
             mef_compost=mef_compost,
             waste_mass=waste_mass,
-            landfill_w_capture=landfill_w_capture,
-            landfill_wo_capture=landfill_wo_capture,
-            dumpsite=dumpsite,
+            landfills=landfills,
             non_zero_landfills=non_zero_landfills,
             non_compostable_not_targeted_total=non_compostable_not_targeted_total,
             year_of_data_pop=year_of_data_pop,
@@ -245,7 +244,7 @@ class City:
         if scenario == 0:
             self.baseline_parameters = city_parameters
         else:
-            self.alternative_parameters[scenario] = city_parameters
+            self.scenario_parameters[scenario-1] = city_parameters
 
         # Update other calculated attributes
         self._calculate_waste_masses()
@@ -378,11 +377,11 @@ class City:
         self.split_fractions = SplitFractions(**{site: frac / split_total for site, frac in self.split_fractions.dict().items()})
 
         # Instantiate landfill class for each landfill type
-        self.landfill_w_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=self.split_fractions.landfill_w_capture, gas_capture=True, scenario=0)
-        self.landfill_wo_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=self.split_fractions.landfill_wo_capture, gas_capture=False, scenario=0)
-        self.dumpsite = Landfill(self, 1960, 2073, 'dumpsite', 0.4, fraction_of_waste=self.split_fractions.dumpsite, gas_capture=False, scenario=0)
+        landfill_w_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=self.split_fractions.landfill_w_capture, gas_capture=True, scenario=0)
+        landfill_wo_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=self.split_fractions.landfill_wo_capture, gas_capture=False, scenario=0)
+        dumpsite = Landfill(self, 1960, 2073, 'dumpsite', 0.4, fraction_of_waste=self.split_fractions.dumpsite, gas_capture=False, scenario=0)
 
-        non_zero_landfills = [x for x in [self.landfill_w_capture, self.landfill_wo_capture, self.dumpsite] if x.fraction_of_waste > 0]
+        non_zero_landfills = [x for x in [landfill_w_capture, landfill_wo_capture, dumpsite] if x.fraction_of_waste > 0]
 
         # Diversion fractions
         self.div_fractions = DiversionFractions(
@@ -538,7 +537,7 @@ class City:
         self.recycling_total = recycling_total
         return recycling, recycling_waste_fractions
     
-    def estimate_diversion_emissions(self, scenario: int = 0) -> pd.DataFrame:
+    def estimate_diversion_emissions(self) -> pd.DataFrame:
         """
         Estimates emissions from composted and anaerobically digested waste.
 
@@ -548,21 +547,27 @@ class City:
         Returns:
             pd.DataFrame: DataFrame with combined emissions from composted and anaerobically digested waste.
         """
-        qs_dict = {}
 
-        for div in ['compost', 'anaerobic']:
+        num_scenarios = len(self.scenario_parameters) + 1
+
+        for scenario in range(num_scenarios):
+            qs_dict = {}
+            for div in ['compost', 'anaerobic']:
+                if scenario == 0:
+                    if div == 'compost':
+                        qs_dict['compost'] = getattr(self.baseline_parameters.div_masses, 'compost') * self.baseline_parameters.mef_compost
+                    elif div == 'anaerobic':
+                        qs_dict['anaerobic'] = getattr(self.baseline_parameters.div_masses, 'anaerobic') * defaults_2019.mef_anaerobic * defaults_2019.ch4_to_co2e
+                else:
+                    if div == 'compost':
+                        qs_dict['compost'] = self.divs_new['compost'] * self.baseline_parameters.mef_compost
+                    elif div == 'anaerobic':
+                        qs_dict['anaerobic'] = self.divs_new['anaerobic'] * defaults_2019.mef_anaerobic * defaults_2019.ch4_to_co2e
+
             if scenario == 0:
-                if div == 'compost':
-                    qs_dict['compost'] = getattr(self.baseline_parameters.div_masses, 'compost') * self.baseline_parameters.mef_compost
-                elif div == 'anaerobic':
-                    qs_dict['anaerobic'] = getattr(self.baseline_parameters.div_masses, 'anaerobic') * defaults_2019.mef_anaerobic * defaults_2019.ch4_to_co2e
+                self.baseline_parameters.organic_emissions = qs_dict['compost'].add(qs_dict['anaerobic'], fill_value=0)
             else:
-                if div == 'compost':
-                    qs_dict['compost'] = self.divs_new['compost'] * self.baseline_parameters.mef_compost
-                elif div == 'anaerobic':
-                    qs_dict['anaerobic'] = self.divs_new['anaerobic'] * defaults_2019.mef_anaerobic * defaults_2019.ch4_to_co2e
-
-        return qs_dict['compost'].add(qs_dict['anaerobic'], fill_value=0)
+                self.scenario_parameters[scenario-1].organic_emissions = qs_dict['compost'].add(qs_dict['anaerobic'], fill_value=0)
 
     def sum_landfill_emissions(self, scenario: int = 0) -> tuple:
         """
@@ -575,28 +580,47 @@ class City:
             tuple: Contains DataFrames for summed emissions from landfills, diverted waste, and combined emissions.
         """
 
-        if scenario == 0:
-            organic_emissions = self.estimate_diversion_emissions(scenario=0)
-        else:
-            organic_emissions = self.estimate_diversion_emissions(scenario=scenario)
+        num_scenarios = len(self.scenario_parameters) + 1
 
-        landfill_emissions = [x.estimate_emissions() for x in self.baseline_parameters.non_zero_landfills]
-        landfill_emissions = [emission.map(self.convert_methane_m3_to_ton_co2e) for emission in landfill_emissions]
+        for scenario in range(num_scenarios):
+            if scenario == 0:
+                organic_emissions = self.baseline_parameters.organic_emissions
+                landfill_emissions = [x.emissions.map(self.convert_methane_m3_to_ton_co2e) for x in self.baseline_parameters.non_zero_landfills]
+            else:
+                organic_emissions = self.scenario_parameters[scenario-1].organic_emissions
+                landfill_emissions = [x.emissions.map(self.convert_methane_m3_to_ton_co2e) for x in self.scenario_parameters[scenario-1].non_zero_landfills]
 
-        all_emissions = pd.concat(landfill_emissions, axis=0)
-        summed_landfill_emissions = all_emissions.groupby(all_emissions.index).sum()
-        summed_landfill_emissions /= 28
-        summed_landfill_emissions['total'] = summed_landfill_emissions.sum(axis=1)
+            # Concatenate all emissions dataframes
+            all_emissions = pd.concat(landfill_emissions, axis=0)
+            
+            # Group by the year index and sum the emissions for each year
+            summed_landfill_emissions = all_emissions.groupby(all_emissions.index).sum()
 
-        all_emissions = pd.concat([all_emissions, organic_emissions], axis=0)
-        summed_emissions = all_emissions.groupby(all_emissions.index).sum()
-        summed_emissions['total'] = summed_emissions.sum(axis=1)
-        summed_emissions /= 28
+            summed_landfill_emissions = summed_landfill_emissions / 28 # Convert from co2e to ch4
 
-        summed_diversion_emissions = organic_emissions / 28
-        summed_diversion_emissions['total'] = summed_diversion_emissions.sum(axis=1)
+            # Update total
+            summed_landfill_emissions.drop('total', axis=1, inplace=True)
+            summed_landfill_emissions['total'] = summed_landfill_emissions.sum(axis=1)
 
-        return summed_landfill_emissions, summed_diversion_emissions, summed_emissions
+            # Repeat with addition of diverted waste emissions. This can probably be made more efficient!
+            #landfill_emissions.append(organic_emissions.loc[:, list(self.components)])
+            all_emissions = pd.concat([all_emissions, organic_emissions.loc[:, list(self.components)]], axis=0)
+            summed_emissions = all_emissions.groupby(all_emissions.index).sum()
+            summed_emissions.drop('total', axis=1, inplace=True)
+            summed_emissions['total'] = summed_emissions.sum(axis=1)
+            summed_emissions /= 28
+
+            summed_diversion_emissions = organic_emissions.loc[:, list(self.components)] / 28
+            summed_diversion_emissions['total'] = summed_diversion_emissions.sum(axis=1)
+
+            if scenario == 0:
+                self.baseline_parameters.landfill_emissions = summed_landfill_emissions
+                self.baseline_parameters.diversion_emissions = summed_diversion_emissions
+                self.baseline_parameters.total_emissions = summed_emissions
+            else:
+                self.scenario_parameters[scenario-1].landfill_emissions = summed_landfill_emissions
+                self.scenario_parameters[scenario-1].diversion_emissions = summed_diversion_emissions
+                self.scenario_parameters[scenario-1].total_emissions = summed_emissions
 
     def _check_masses_v2(self, div_fractions: DiversionFractions, div_component_fractions: DivComponentFractions) -> tuple:
         """
@@ -773,7 +797,7 @@ class City:
             for waste in self.baseline_parameters.waste_fractions.dict():
                 s = sum(components_multiplied_through[div].get(waste, 0) for div in keys_of_interest)
                 non_combustion[waste] = s
-                combustion_all[waste] = self.baseline_parameters.waste_fractions.dict()[waste] - s
+                combustion_all[waste] = self.baseline_parameters.waste_fractions.model_dump()[waste] - s
 
             remainder = sum(fraction for waste_type, fraction in combustion_all.items() if waste_type in self.div_components['combustion'])
             combustion_fraction_of_remainder = div_fractions.combustion / remainder
@@ -816,7 +840,7 @@ class City:
         """
         divs = {}
         
-        for div, fractions in div_component_fractions.dict().items():
+        for div, fractions in div_component_fractions.model_dump().items():
             if div == 'compost':
                 divs[div] = {
                     waste: (
@@ -855,7 +879,7 @@ class City:
                 }
             else:
                 divs[div] = {
-                    waste: self.baseline_parameters.waste_mass * div_fractions.dict()[div] * fractions[waste]
+                    waste: self.baseline_parameters.waste_mass * div_fractions.model_dump()[div] * fractions[waste]
                     for waste in fractions
                 }
 
@@ -944,7 +968,7 @@ class City:
         volume_m3 = mass_kg / density_kg_per_m3
         return volume_m3
     
-    def implement_dst_changes(self, new_div_fractions: DiversionFractions, new_landfill_pct: float, new_gas_split: float, implement_year: int) -> None:
+    def implement_dst_changes(self, request: CityParameters) -> None:
         """
         Implements alternative scenario parameters
         Adjusts various attributes based on the given parameters and recalculates landfill emissions under the new strategy.
@@ -958,35 +982,21 @@ class City:
         Returns:
             None. This method modifies internal attributes of the object in place.
         """
-        self.dst_implement_year = implement_year
-        self.new_div_fractions = new_div_fractions
 
-        # Recalculate diversion
-        self.new_divs = {}
-        self.new_div_component_fractions = DivComponentFractions(
-            compost=self.calc_compost_vol(self.new_div_fractions.compost, new=True)[1],
-            anaerobic=self.calc_anaerobic_vol(self.new_div_fractions.anaerobic, new=True)[1],
-            combustion=self.calc_combustion_vol(self.new_div_fractions.combustion, new=True)[1],
-            recycling=self.calc_recycling_vol(self.new_div_fractions.recycling, new=True)[1]
-        )
-        self.new_divs = {
-            'compost': self.calc_compost_vol(self.new_div_fractions.compost, new=True)[0],
-            'anaerobic': self.calc_anaerobic_vol(self.new_div_fractions.anaerobic, new=True)[0],
-            'combustion': self.calc_combustion_vol(self.new_div_fractions.combustion, new=True)[0],
-            'recycling': self.calc_recycling_vol(self.new_div_fractions.recycling, new=True)[0]
-        }
-
-        for waste in self.baseline_parameters.waste_fractions.dict():
-            for div in self.new_divs:
-                if waste not in self.new_divs[div]:
-                    self.new_divs[div][waste] = 0
+        self.scenario_parameters[request.scenario-1].div_fractions = request.div_fractions
+        self.scenario_parameters[request.scenario-1].split_fractions = request.split_fractions
+        self.scenario_parameters[request.scenario-1].landfills[0].fraction_of_waste = request.split_fractions.landfill_w_capture
+        self.scenario_parameters[request.scenario-1].landfills[1].fraction_of_waste = request.split_fractions.landfill_wo_capture
+        self.scenario_parameters[request.scenario-1].landfills[2].fraction_of_waste = request.split_fractions.dumpsite
+        self.scenario_parameters[request.scenario-1].non_zero_landfills = [x for x in [request.split_fractions.landfill_w_capture, request.split_fractions.landfill_wo_capture, request.split_fractions.dumpsite] if x > 0]
+        self.scenario_parameters[request.scenario-1].implement_year = request.implement_year
 
         self.changed_diversion, self.input_problems, self.new_div_component_fractions, self.new_divs = self._check_masses_v2(self.new_div_fractions, self.new_div_component_fractions)
         if self.input_problems:
             print(f'Invalid new value')
             return
 
-        net = self.calculate_net_masses(self.new_divs)
+        net = self._calculate_net_masses(scenario=request.scenario)
         for mass in net.values():
             if mass < 0:
                 print(f'Invalid new value')
@@ -1007,9 +1017,9 @@ class City:
         self.non_zero_landfills = [lf for lf in self.landfills if lf.fraction_of_waste != 0 or lf.fraction_of_waste_new != 0]
 
         for landfill in self.non_zero_landfills:
-            landfill.estimate_emissions(baseline=False)
+            landfill.estimate_emissions()
 
-        self.organic_emissions_new = self.estimate_diversion_emissions(baseline=False)
+        self.organic_emissions_new = self.estimate_diversion_emissions()
         self.landfill_emissions_new, self.diversion_emissions_new, self.total_emissions_new = self.sum_landfill_emissions(baseline=False)
 
     def _singapore_k(self) -> None:

@@ -63,7 +63,7 @@ class SWEET:
         self.landfill = landfill
         self.city = city
         self.scenario = scenario
-        self.parameters = self.city.baseline_parameters if scenario == 0 else self.city.scenario_parameters[scenario]
+        self.parameters = self.city.baseline_parameters if scenario == 0 else self.city.scenario_parameters[scenario-1]
 
     def estimate_emissions(self):
         """

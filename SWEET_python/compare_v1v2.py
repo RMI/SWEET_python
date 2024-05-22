@@ -21,23 +21,25 @@ cities = db_file['City'].unique()
 
 # Run the new code
 for city_name in cities:
-    city = CityNew(city_name)
-    city.load_from_csv(db_file)
-    cities_to_run_new[city.name] = city
-    for landfill in city.baseline_parameters.non_zero_landfills:
+    city_new = CityNew(city_name)
+    city_new.load_from_csv(db_file)
+    for landfill in city_new.baseline_parameters.non_zero_landfills:
         landfill.estimate_emissions()
-    city.organic_emissions_baseline = city.estimate_diversion_emissions(scenario=city.baseline_parameters.scenario)
-    city.landfill_emissions_baseline, city.diversion_emissions_baseline, city.total_emissions_baseline = city.sum_landfill_emissions()
+    city_new.organic_emissions_baseline = city_new.estimate_diversion_emissions(scenario=city_new.baseline_parameters.scenario)
+    city_new.landfill_emissions_baseline, city_new.diversion_emissions_baseline, city_new.total_emissions_baseline = city_new.sum_landfill_emissions()
+    cities_to_run_new[city_new.name] = city_new
+    #break
 
 # Run the old code
 for city_name in cities:
-    city = CityOld(city_name)
-    city.load_from_database(db_file)
-    cities_to_run_old[city.name] = city
-    for landfill in city.non_zero_landfills:
+    city_old = CityOld(city_name)
+    city_old.load_from_database(db_file)
+    for landfill in city_old.non_zero_landfills:
         landfill.estimate_emissions(baseline=True)
-    city.organic_emissions_baseline = city.estimate_diversion_emissions(baseline=True)
-    city.landfill_emissions_baseline, city.diversion_emissions_baseline, city.total_emissions_baseline = city.sum_landfill_emissions(baseline=True)
+    city_old.organic_emissions_baseline = city_old.estimate_diversion_emissions(baseline=True)
+    city_old.landfill_emissions_baseline, city_old.diversion_emissions_baseline, city_old.total_emissions_baseline = city_old.sum_landfill_emissions(baseline=True)
+    cities_to_run_old[city_old.name] = city_old
+    #break
 
 #%%
 
@@ -46,8 +48,8 @@ for city_name in cities:
     city_new = cities_to_run_new[city_name]
     city_old = cities_to_run_old[city_name]
 
-    new_emissions = city_new.total_emissions_baseline['total']
-    old_emissions = city_old.total_emissions_baseline['total']
+    new_emissions = city_new.total_emissions_baseline['total'].loc[2025]
+    old_emissions = city_old.total_emissions_baseline['total'].loc[2025]
     
     difference = np.abs(new_emissions - old_emissions)
     percentage_difference = difference / old_emissions * 100
@@ -56,8 +58,8 @@ for city_name in cities:
         print(f"Discrepancy found in {city_name}:")
         print(f"New emissions: {new_emissions}")
         print(f"Old emissions: {old_emissions}")
-        print(f"Percentage difference: {percentage_difference}%")
-    else:
-        print(f"{city_name}: Emissions match within 1%")
+        print(f"Percentage difference: {percentage_difference}")
+    #else:
+        #print(f"{city_name}: Emissions match within 1%")
 
-#%%
+# %%
