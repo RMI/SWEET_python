@@ -52,18 +52,19 @@ Unit: m3 CH4/year
 '''
 
 class SWEET:
-    def __init__(self, landfill, city, scenario=0):
+    def __init__(self, landfill, scenario=0, **city_params):
         """
         Initializes a SWEET instance.
 
         Args:
             landfill (Landfill): An instance containing landfill-specific parameters.
-            city (City): An instance containing city-specific parameters and methods.
+            scenario (int): The scenario identifier.
+            city_params (dict): Additional city-specific parameters.
         """
         self.landfill = landfill
-        self.city = city
         self.scenario = scenario
-        self.parameters = self.city.baseline_parameters if scenario == 0 else self.city.scenario_parameters[scenario-1]
+        for key, value in city_params.items():
+            setattr(self, key, value)
 
     def estimate_emissions(self):
         """
@@ -83,15 +84,15 @@ class SWEET:
         self.captured = {}
         self.ch4_produced = {}
 
-        if self.parameters.div_masses is None:
+        if self.div_masses is None:
             doing_div_masses = True
             div_masses = {key: {} for key in ["compost", "anaerobic", "combustion", "recycling"]}
         else:
             doing_div_masses = False
-            div_masses = self.parameters.div_masses.model_dump()
+            div_masses = self.div_masses.model_dump()
 
         for year in range(self.landfill.open_date, self.landfill.close_date):
-            t = year - self.parameters.year_of_data_pop
+            t = year - self.year_of_data_pop
             self.qs[year] = {}
             self.ms[year] = {}
             self.ch4_produced[year] = {}
@@ -101,27 +102,27 @@ class SWEET:
                     div_masses[key][year] = {}
 
             caps = []
-            growth_rate = self.parameters.growth_rate_historic if year < self.parameters.year_of_data_pop else self.parameters.growth_rate_future
+            growth_rate = self.growth_rate_historic if year < self.year_of_data_pop else self.growth_rate_future
 
             if self.scenario == 0:
-                divs = self.parameters.divs
+                divs = self.divs
                 fraction_of_waste = self.landfill.fraction_of_waste
             else:
-                if year >= self.parameters.dst_implement_year:
-                    divs = self.city.scenario_parameters[self.scenario].divs
+                if year >= self.dst_implement_year:
+                    divs = self.scenario_parameters[self.scenario].divs
                     fraction_of_waste = self.landfill.fraction_of_waste[self.landfill.landfill_index] # Need to figure out how to handle multiple fraction of waste values. make a df indexed by year? Or bring back new
                 else:
-                    divs = self.city.baseline_parameters.divs
+                    divs = self.divs
                     fraction_of_waste = self.landfill.fraction_of_waste
 
             for waste in self.city.components:
                 self.ms[year][waste] = (
-                    self.parameters.waste_mass * getattr(self.parameters.waste_fractions, waste) -
+                    self.waste_mass * getattr(self.waste_fractions, waste) -
                     sum(getattr(getattr(divs, key), waste) for key in ["compost", "anaerobic", "combustion", "recycling"])) * \
                     fraction_of_waste * (growth_rate ** t)
 
                 if doing_div_masses:
-                    for key in self.parameters.divs.model_fields:
+                    for key in self.divs.model_fields:
                         div_masses[key][year][waste] = getattr(getattr(divs, key), waste) * (growth_rate ** t)
 
                 ch4_produced = []
@@ -129,10 +130,10 @@ class SWEET:
                 for y in range(self.landfill.open_date, year):
                     years_back = year - y
                     ch4_produce = (
-                        getattr(self.parameters.ks, waste) *
+                        getattr(self.ks, waste) *
                         defaults_2019.L_0[waste] *
                         self.ms[y][waste] *
-                        np.exp(-getattr(self.parameters.ks, waste) * (years_back - 0.5)) *
+                        np.exp(-getattr(self.ks, waste) * (years_back - 0.5)) *
                         self.landfill.mcf
                     )
                     ch4_produced.append(ch4_produce)
@@ -163,8 +164,8 @@ class SWEET:
             )
 
             if self.scenario == 0:
-                self.city.baseline_parameters.div_masses = div_masses_annual
+                self.div_masses = div_masses_annual
             else:
-                self.city.scenario_parameters[self.scenario].div_masses = div_masses_annual
+                self.scenario_parameters[self.scenario].div_masses = div_masses_annual
 
         return self.m_df, self.q_df, self.ch4_df, self.captured

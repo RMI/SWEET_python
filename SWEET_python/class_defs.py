@@ -52,6 +52,14 @@ class DivMassesAnnual(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
+    def to_dict(self):
+        return {
+            'compost': self.compost.to_dict(orient='records'),
+            'anaerobic': self.anaerobic.to_dict(orient='records'),
+            'combustion': self.combustion.to_dict(orient='records'),
+            'recycling': self.recycling.to_dict(orient='records')
+        }
+
 class SplitFractions(BaseModel):
     landfill_w_capture: float
     landfill_wo_capture: float
@@ -63,4 +71,4 @@ class DecompositionRates(BaseModel):
     wood: float
     paper_cardboard: float
     textiles: float
-    
+
