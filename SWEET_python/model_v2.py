@@ -27,8 +27,7 @@ Version: 0.1
 
 import pandas as pd
 import numpy as np
-from SWEET_python import defaults_2019
-from SWEET_python.class_defs import DivMassesAnnual
+import defaults_2019
 
 # Based on EPA's SWEET excel model for calculating methane emissions from municipal solid waste 
 # (https://globalmethane.org/resources/details.aspx?resourceid=5176)
@@ -84,12 +83,12 @@ class SWEET:
         self.captured = {}
         self.ch4_produced = {}
 
-        if self.div_masses is None:
-            doing_div_masses = True
-            div_masses = {key: {} for key in ["compost", "anaerobic", "combustion", "recycling"]}
-        else:
-            doing_div_masses = False
-            div_masses = self.div_masses.model_dump()
+        # if self.div_masses is None:
+        #     doing_div_masses = True
+        #     div_masses = {key: {} for key in ["compost", "anaerobic", "combustion", "recycling"]}
+        # else:
+        #     doing_div_masses = False
+        #     div_masses = self.div_masses.model_dump()
 
         for year in range(self.landfill.open_date, self.landfill.close_date):
             t = year - self.year_of_data_pop
@@ -97,33 +96,33 @@ class SWEET:
             self.ms[year] = {}
             self.ch4_produced[year] = {}
 
-            if doing_div_masses:
-                for key in ["compost", "anaerobic", "combustion", "recycling"]:
-                    div_masses[key][year] = {}
+            # if doing_div_masses:
+            #     for key in ["compost", "anaerobic", "combustion", "recycling"]:
+            #         div_masses[key][year] = {}
 
             caps = []
             growth_rate = self.growth_rate_historic if year < self.year_of_data_pop else self.growth_rate_future
 
-            if self.scenario == 0:
-                divs = self.divs
-                fraction_of_waste = self.landfill.fraction_of_waste
-            else:
-                if year >= self.dst_implement_year:
-                    divs = self.scenario_parameters[self.scenario].divs
-                    fraction_of_waste = self.landfill.fraction_of_waste[self.landfill.landfill_index] # Need to figure out how to handle multiple fraction of waste values. make a df indexed by year? Or bring back new
-                else:
-                    divs = self.divs
-                    fraction_of_waste = self.landfill.fraction_of_waste
+            # if self.scenario == 0:
+            #     divs = self.divs
+            #     fraction_of_waste = self.landfill.fraction_of_waste
+            # else:
+            #     if year >= self.dst_implement_year:
+            #         divs = self.scenario_parameters[self.scenario].divs
+            #         fraction_of_waste = self.landfill.fraction_of_waste[self.landfill.landfill_index] # Need to figure out how to handle multiple fraction of waste values. make a df indexed by year? Or bring back new
+            #     else:
+            #         divs = self.divs
+            #         fraction_of_waste = self.landfill.fraction_of_waste
 
             for waste in self.city.components:
-                self.ms[year][waste] = (
-                    self.waste_mass * getattr(self.waste_fractions, waste) -
-                    sum(getattr(getattr(divs, key), waste) for key in ["compost", "anaerobic", "combustion", "recycling"])) * \
-                    fraction_of_waste * (growth_rate ** t)
+                # self.ms[year][waste] = (
+                #     self.waste_mass * getattr(self.waste_fractions, waste) -
+                #     sum(getattr(getattr(divs, key), waste) for key in ["compost", "anaerobic", "combustion", "recycling"])) * \
+                #     fraction_of_waste * (growth_rate ** t)
 
-                if doing_div_masses:
-                    for key in self.divs.model_fields:
-                        div_masses[key][year][waste] = getattr(getattr(divs, key), waste) * (growth_rate ** t)
+                # if doing_div_masses:
+                #     for key in self.divs.model_fields:
+                #         div_masses[key][year][waste] = getattr(getattr(divs, key), waste) * (growth_rate ** t)
 
                 ch4_produced = []
                 ch4 = []
@@ -132,7 +131,7 @@ class SWEET:
                     ch4_produce = (
                         getattr(self.ks, waste) *
                         defaults_2019.L_0[waste] *
-                        self.ms[y][waste] *
+                        self.waste_mass_df.at[y, waste] *
                         np.exp(-getattr(self.ks, waste) * (years_back - 0.5)) *
                         self.landfill.mcf
                     )
@@ -152,20 +151,20 @@ class SWEET:
         self.m_df = pd.DataFrame(self.ms).T
         self.ch4_df = pd.DataFrame(self.ch4_produced).T
 
-        if doing_div_masses:
-            for key in ["compost", "anaerobic", "combustion", "recycling"]:
-                div_masses[key] = pd.DataFrame(div_masses[key]).T
+        # if doing_div_masses:
+        #     for key in ["compost", "anaerobic", "combustion", "recycling"]:
+        #         div_masses[key] = pd.DataFrame(div_masses[key]).T
 
-            div_masses_annual = DivMassesAnnual(
-                compost=div_masses['compost'],
-                anaerobic=div_masses['anaerobic'],
-                combustion=div_masses['combustion'],
-                recycling=div_masses['recycling']
-            )
+        #     div_masses_annual = DivMassesAnnual(
+        #         compost=div_masses['compost'],
+        #         anaerobic=div_masses['anaerobic'],
+        #         combustion=div_masses['combustion'],
+        #         recycling=div_masses['recycling']
+        #     )
 
-            if self.scenario == 0:
-                self.div_masses = div_masses_annual
-            else:
-                self.scenario_parameters[self.scenario].div_masses = div_masses_annual
+        #     if self.scenario == 0:
+        #         self.div_masses = div_masses_annual
+        #     else:
+        #         self.scenario_parameters[self.scenario].div_masses = div_masses_annual
 
         return self.m_df, self.q_df, self.ch4_df, self.captured

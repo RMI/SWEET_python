@@ -2,118 +2,12 @@ from pydantic import BaseModel, validator
 from typing import List, Dict, Union, Any, Set, Optional
 import pandas as pd
 import numpy as np
-from SWEET_python import defaults_2019
-from SWEET_python.model_v2 import SWEET
+import defaults_2019
 import pycountry # What am i using this for...seems dumb
 from SWEET_python.class_defs import *
 import inspect
-
-class Landfill:
-    def __init__(self, 
-                 city_name: str,
-                 components: set, 
-                 div_components: dict, 
-                 waste_types: set, 
-                 unprocessable: dict, 
-                 non_compostable_not_targeted: dict, 
-                 combustion_reject_rate: float, 
-                 recycling_reject_rates: dict, 
-                 open_date: int, 
-                 close_date: int, 
-                 site_type: str, 
-                 mcf: float, 
-                 landfill_index: int = 0, 
-                 fraction_of_waste: float = 1, 
-                 gas_capture: bool = False, 
-                 scenario: int = 0,
-                 **city_params):
-        """
-        Initializes a Landfill object.
-
-        Args:
-            name (str): Name of the city.
-            components (set): Components of the city.
-            div_components (dict): Diversion components of the city.
-            waste_types (set): Waste types in the city.
-            unprocessable (dict): Unprocessable waste fractions.
-            non_compostable_not_targeted (dict): Non-compostable not targeted fractions.
-            combustion_reject_rate (float): Combustion reject rate.
-            recycling_reject_rates (dict): Recycling reject rates.
-            open_date (int): Opening date of the landfill.
-            close_date (int): Closing date of the landfill.
-            site_type (str): Type of the landfill site.
-            mcf (float): Methane correction factor.
-            fraction_of_waste (float, optional): Fraction of the waste for the landfill. Defaults to 1.
-            gas_capture (bool, optional): Indicates if gas capture system is present. Defaults to False.
-        """
-        self.city_name = city_name
-        self.components = components
-        self.div_components = div_components
-        self.waste_types = waste_types
-        self.unprocessable = unprocessable
-        self.non_compostable_not_targeted = non_compostable_not_targeted
-        self.combustion_reject_rate = combustion_reject_rate
-        self.recycling_reject_rates = recycling_reject_rates
-
-        self.open_date = open_date
-        self.close_date = close_date
-        self.site_type = site_type
-        self.mcf = mcf
-        self.fraction_of_waste = fraction_of_waste
-        self.gas_capture = gas_capture
-        self.landfill_index = landfill_index
-        self.scenario = scenario
-        
-        for key, value in city_params.items():
-            setattr(self, key, value)
-
-        if self.gas_capture:
-            self.gas_capture_efficiency = defaults_2019.gas_capture_efficiency[site_type]
-            self.oxidation_factor = defaults_2019.oxidation_factor['with_lfg'][site_type]
-        else:
-            self.gas_capture_efficiency = 0
-            self.oxidation_factor = defaults_2019.oxidation_factor['without_lfg'][site_type]
-
-        self.waste_mass = None
-        self.emissions = None
-        self.ch4 = None
-        self.captured = None
-
-    def estimate_emissions(self) -> tuple:
-        """
-        Estimate emissions using an instance of the SWEET class.
-
-        Args:
-            baseline (bool, optional): If True, estimates baseline emissions. If False, uses new values. Defaults to True.
-        """
-        self.model = SWEET(**self.__dict__)
-        self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions()
-
-    def _convert_df_to_dict(self, df: pd.DataFrame) -> Dict[str, Any]:
-        return df.to_dict(orient='records') if df is not None else None
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            'name': self.name,
-            'open_date': self.open_date,
-            'close_date': self.close_date,
-            'site_type': self.site_type,
-            'mcf': self.mcf,
-            'fraction_of_waste': self.fraction_of_waste,
-            'gas_capture': self.gas_capture,
-            'landfill_index': self.landfill_index,
-            'scenario': self.scenario,
-            'gas_capture_efficiency': self.gas_capture_efficiency,
-            'oxidation_factor': self.oxidation_factor,
-            'waste_mass': self._convert_df_to_dict(self.waste_mass),
-            'emissions': self._convert_df_to_dict(self.emissions),
-            'ch4': self._convert_df_to_dict(self.ch4),
-            'captured': self.captured,
-            **{k: v for k, v in self.__dict__.items() if k not in ['open_date', 'close_date', 'site_type', 'mcf', 'fraction_of_waste', 'gas_capture', 'landfill_index', 'scenario', 'gas_capture_efficiency', 'oxidation_factor', 'waste_mass', 'emissions', 'ch4', 'captured']}
-        }
-
-# THE PROBLEM WITH CURRENT APPROACH IS THAT I NEED BOTH BASELINE AND SCENARIO PARAMETERS IN MODEL CODE.
-# SOLUTION...MAKE DATAFRAMES. MAKE DIVS A PER YEAR THING, SO I CAN ACCESS THE RIGHT VERSION OF EVERYTHING AT ONCE.
+import copy
+from landfill import Landfill
 
 class CityParameters(BaseModel):
     waste_fractions: WasteFractions
@@ -129,12 +23,11 @@ class CityParameters(BaseModel):
     gas_capture_efficiency: float
     mef_compost: float
     waste_mass: float
-    landfills: List[Landfill]
-    non_zero_landfills: List[Landfill]
+    landfills: Optional[List[Landfill]] = None
+    non_zero_landfills: Optional[List[Landfill]] = None
     non_compostable_not_targeted_total: float
     waste_masses: Optional[WasteMasses] = None
     divs: Optional[DivMasses] = None
-    div_masses: Optional[DivMassesAnnual] = None
     year_of_data_pop: Optional[int] = None
     scenario: Optional[int] = 0
     implement_year: Optional[int] = None
@@ -152,6 +45,8 @@ class CityParameters(BaseModel):
     recycling_reject_rates: Optional[dict] = None
     adjusted_diversion_constituents: bool = False
     input_problems: bool = False
+    divs_df: Optional[pd.DataFrame] = None
+    waste_generated_df: Optional[pd.DataFrame] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -193,14 +88,14 @@ class CustomError(Exception):
         super().__init__(self.message)
 
 class City:
-    def __init__(self, name: str):
+    def __init__(self, city_name: str):
         """
         Initializes a new City instance.
 
         Args:
             name (str): The name of the city.
         """
-        self.name = name
+        self.city_name = city_name
         self.baseline_parameters = None
         self.scenario_parameters = {}
         self.components = {'food', 'green', 'wood', 'paper_cardboard', 'textiles'}
@@ -236,7 +131,7 @@ class City:
         Returns:
             None
         """
-        city_data = db.loc[self.name]
+        city_data = db.loc[self.city_name]
 
         waste_fractions = WasteFractions(
             food=city_data['Waste Components: Food (%)'].values[0] / 100,
@@ -336,7 +231,7 @@ class City:
             non_compostable_not_targeted_total=non_compostable_not_targeted_total,
             year_of_data_pop=year_of_data_pop,
             scenario=scenario,
-            name=self.name,
+            city_name=self.city_name,
             components=self.components,
             div_components=self.div_components,
             waste_types=self.waste_types,
@@ -347,11 +242,18 @@ class City:
         )
 
         # Filter out the 'landfills' and 'non_zero_landfills' attributes from CityParameters
-        city_params = {k: v for k, v in city_parameters.__dict__.items() if k not in ['landfills', 'non_zero_landfills']}
+        #city_params = {k: v for k, v in city_parameters.__dict__.items() if k not in ['landfills', 'non_zero_landfills']}
+        #city_params = copy.deepcopy(city_parameters.__dict__)
 
-        landfill_w_capture = Landfill(**city_params, open_date=1960, close_date=2073, site_type='landfill', mcf=1, landfill_index=0, fraction_of_waste=split_fractions.landfill_w_capture, gas_capture=True)
-        landfill_wo_capture = Landfill(**city_params, open_date=1960, close_date=2073, site_type='landfill', mcf=1, landfill_index=1, fraction_of_waste=split_fractions.landfill_wo_capture, gas_capture=False)
-        dumpsite = Landfill(**city_params, open_date=1960, close_date=2073, site_type='dumpsite', mcf=0.4, landfill_index=2, fraction_of_waste=split_fractions.dumpsite, gas_capture=False)
+        # Create city-level dataframes
+        start_year = 1960
+        end_year = 2073 
+        self.waste_generated_df = WasteGeneratedDF.create(city_parameters.waste_mass, city_parameters.waste_fractions, start_year, end_year, city_parameters.year_of_data_pop, city_parameters.growth_rate_historic, city_parameters.growth_rate_future).df
+        self.divs_df = DivsDF.create(city_parameters.divs, start_year, end_year, city_parameters.year_of_data_pop, city_parameters.growth_rate_historic, city_parameters.growth_rate_future)
+
+        landfill_w_capture = Landfill(city_name = self.city_name, open_date=1960, close_date=2073, site_type='landfill', mcf=1, landfill_index=0, fraction_of_waste=split_fractions.landfill_w_capture, gas_capture=True)
+        landfill_wo_capture = Landfill(open_date=1960, close_date=2073, site_type='landfill', mcf=1, landfill_index=1, fraction_of_waste=split_fractions.landfill_wo_capture, gas_capture=False)
+        dumpsite = Landfill(open_date=1960, close_date=2073, site_type='dumpsite', mcf=0.4, landfill_index=2, fraction_of_waste=split_fractions.dumpsite, gas_capture=False)
 
         landfills = [landfill_w_capture, landfill_wo_capture, dumpsite]
         non_zero_landfills = [x for x in [landfill_w_capture, landfill_wo_capture, dumpsite] if x.fraction_of_waste > 0]
@@ -359,15 +261,17 @@ class City:
         city_parameters.landfills = landfills
         city_parameters.non_zero_landfills = non_zero_landfills
 
-        if scenario == 0:
-            self.baseline_parameters = city_parameters
-        else:
-            self.scenario_parameters[scenario - 1] = city_parameters
+        # if scenario == 0:
+        #     self.baseline_parameters = city_parameters
+        # else:
+        #     self.scenario_parameters[scenario - 1] = city_parameters
 
         # Update other calculated attributes
         self._calculate_waste_masses()
         self._calculate_diverted_masses()
         self._calculate_net_masses()
+
+        self.baseline_parameters = city_parameters
 
     def _calculate_waste_masses(self) -> None:
         waste_masses = {waste: frac * self.baseline_parameters.waste_mass for waste, frac in self.baseline_parameters.waste_fractions.model_dump().items()}
@@ -671,14 +575,10 @@ class City:
         else:
             parameters = self.scenario_parameters[scenario - 1]
 
-        qs_dict = {}
-        for div in ['compost', 'anaerobic']:
-            if div == 'compost':
-                qs_dict['compost'] = getattr(parameters.div_masses, 'compost') * parameters.mef_compost
-            elif div == 'anaerobic':
-                qs_dict['anaerobic'] = getattr(parameters.div_masses, 'anaerobic') * defaults_2019.mef_anaerobic * defaults_2019.ch4_to_co2e
+        compost_emissions = self.divs_df['compost'] * parameters.mef_compost
+        anaerobic_emissions = self.divs_df['anaerobic'] * defaults_2019.mef_anaerobic * defaults_2019.ch4_to_co2e
 
-        parameters.organic_emissions = qs_dict['compost'].add(qs_dict['anaerobic'], fill_value=0)
+        parameters.organic_emissions = compost_emissions.add(anaerobic_emissions, fill_value=0)
 
     def sum_landfill_emissions(self, scenario: int) -> None:
         """
