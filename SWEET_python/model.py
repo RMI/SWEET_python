@@ -84,6 +84,9 @@ class SWEET:
                     fraction_of_waste = self.landfill.fraction_of_waste
 
             for waste in self.city.components:
+                if (year >= 2009) and (year < 2018):
+                    self.ms[year][waste] = 0
+
                 self.ms[year][waste] = (
                     self.city.waste_mass * 
                     self.city.waste_fractions[waste] - 

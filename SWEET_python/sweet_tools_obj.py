@@ -113,9 +113,9 @@ class City:
         self.div_components['recycling'] = set(['wood', 'paper_cardboard', 'textiles', 'plastic', 'rubber', 'metal', 'glass', 'other'])
 
         self.gas_capture_efficiency = db.loc[self.name, 'Methane Capture Efficiency (%)'].values[0] / 100
-        self.landfill_w_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=self.split_fractions['landfill_w_capture'], gas_capture=True)
-        self.landfill_wo_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=self.split_fractions['landfill_wo_capture'], gas_capture=False)
-        self.dumpsite = Landfill(self, 1960, 2073, 'dumpsite', 0.4, fraction_of_waste=self.split_fractions['dumpsite'], gas_capture=False)
+        self.landfill_w_capture = Landfill(self, 1978, 2020, 'landfill', 1, fraction_of_waste=self.split_fractions['landfill_w_capture'], gas_capture=True)
+        self.landfill_wo_capture = Landfill(self, 1978, 2020, 'landfill', 1, fraction_of_waste=self.split_fractions['landfill_wo_capture'], gas_capture=False)
+        self.dumpsite = Landfill(self, 1978, 2020, 'dumpsite', 0.4, fraction_of_waste=self.split_fractions['dumpsite'], gas_capture=False)
         
         self.landfills = [self.landfill_w_capture, self.landfill_wo_capture, self.dumpsite]
         self.non_zero_landfills = [x for x in self.landfills if x.fraction_of_waste > 0]
@@ -404,19 +404,19 @@ class City:
         
         #idx = row[0]
         row = row[1]
-        self.data_source = row['Data Source']
+        self.data_source = row['data_source']
         self.country = row['country_original']
-        self.iso3 = row['iso3_original']
+        self.iso3 = row['iso']
         self.region = defaults_2019.region_lookup[self.country]
-        self.year_of_data = row['Year']
+        self.year_of_data = row['population_year']
         
         # Population, remove the try except when no duplicates
-        self.population = float(row['population'])
-        population_1950 = row['Population_1950']
-        population_2020 = row['Population_2020']
-        population_2035 = row['Population_2035']
-        self.growth_rate_historic = ((population_2020 / population_1950) ** (1 / (2020 - 1950)))
-        self.growth_rate_future = ((population_2035 / population_2020) ** (1 / (2035 - 2020)))
+        self.population = float(row['population_count'])
+        # population_1950 = row['Population_1950']
+        # population_2020 = row['Population_2020']
+        # population_2035 = row['Population_2035']
+        self.growth_rate_historic =  1 #((population_2020 / population_1950) ** (1 / (2020 - 1950)))
+        self.growth_rate_future = 1 #((population_2035 / population_2020) ** (1 / (2035 - 2020)))
 
         # # Define the exponential function
         # def exponential(x, a, b):
@@ -473,15 +473,15 @@ class City:
         # plt.show()
 
         # lat lon
-        self.lat = row['latitude_original']
-        self.lon = row['longitude_original']
+        self.lat = row['latitude']
+        self.lon = row['longitude']
 
         # Get waste total
         try:
-            self.waste_mass_load = float(row['waste (tonnes per year)']) # unit is tons
+            self.waste_mass_load = float(row['waste_tonnes_per_year']) # unit is tons
             self.waste_per_capita = self.waste_mass_load * 1000 / self.population / 365 #unit is kg/person/day
         except:
-            self.waste_mass_load = float(row['waste (tonnes per year)'].replace(',', ''))
+            self.waste_mass_load = float(row['waste_tonnes_per_year'].replace(',', ''))
             self.waste_per_capita = self.waste_mass_load * 1000 / self.population / 365
         if self.waste_mass_load != self.waste_mass_load:
             # Use per capita default
@@ -560,7 +560,7 @@ class City:
             self.mef_compost = 0
         
         # Precipitation
-        self.precip = float(row['total_precipitation(mm)_1970-2000'])
+        self.precip = float(row['mean_yearly_precip_2000_2021'])
         self.precip_zone = defaults_2019.get_precipitation_zone(self.precip)
     
         # depth
