@@ -166,15 +166,23 @@ class SWEET:
             # Calculate how much waste is generated in a given year, and subtract how much is diverted. What remains
             # is added to the landfill.
             for waste in self.city.components:
-                self.ms[year][waste] = (
-                    self.city.waste_mass * 
-                    self.city.waste_fractions[waste] - 
-                    divs['compost'][waste] - 
-                    divs['anaerobic'][waste] - 
-                    divs['combustion'][waste] - 
-                    divs['recycling'][waste]) * \
-                    fraction_of_waste * \
-                    (growth_rate ** t)
+
+                if (year >= 2009) and (year < 2018):
+                    self.ms[year][waste] = 0
+
+                elif year > 2020:
+                    self.ms[year][waste] = 0
+
+                else:
+                    self.ms[year][waste] = (
+                        self.city.waste_mass * 
+                        self.city.waste_fractions[waste] - 
+                        divs['compost'][waste] - 
+                        divs['anaerobic'][waste] - 
+                        divs['combustion'][waste] - 
+                        divs['recycling'][waste]) * \
+                        fraction_of_waste * \
+                        (growth_rate ** t)
                 
                 if doing_div_masses:
                     self.city.div_masses['compost'][year][waste] = divs['compost'][waste] * (growth_rate ** t)
