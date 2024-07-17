@@ -1382,23 +1382,23 @@ class City:
                                                     compost_waste_fractions[x] for x in self.div_components['compost']])
             compost = {}
             # Determine mass of composted waste types
-            if new and sum(self.div_component_fractions['compost'].values()) != 0:
-                for waste in self.div_components['compost']:
-                    compost[waste] = (
-                        compost_total * 
-                        (1 - self.non_compostable_not_targeted_total) *
-                        self.div_component_fractions['compost'][waste] *
-                        (1 - self.unprocessable[waste])
-                        )
-                compost_waste_fractions = self.div_component_fractions['compost']
-            else:
-                for waste in self.div_components['compost']:
-                    compost[waste] = (
-                        compost_total * 
-                        (1 - self.non_compostable_not_targeted_total) *
-                        compost_waste_fractions[waste] *
-                        (1 - self.unprocessable[waste])
-                        )
+            # if new and sum(self.div_component_fractions['compost'].values()) != 0:
+            #     for waste in self.div_components['compost']:
+            #         compost[waste] = (
+            #             compost_total * 
+            #             (1 - self.non_compostable_not_targeted_total) *
+            #             self.div_component_fractions['compost'][waste] *
+            #             (1 - self.unprocessable[waste])
+            #             )
+            #     compost_waste_fractions = self.div_component_fractions['compost']
+            # else:
+            for waste in self.div_components['compost']:
+                compost[waste] = (
+                    compost_total * 
+                    (1 - self.non_compostable_not_targeted_total) *
+                    compost_waste_fractions[waste] *
+                    (1 - self.unprocessable[waste])
+                    )
 
         else:
             compost = {x: 0 for x in self.div_components['compost']}
@@ -1445,11 +1445,11 @@ class City:
             #self.divs['anaerobic'] = {x: anaerobic_total * anaerobic_waste_fractions[x] for x in self.anaerobic_components}
             
             # Determine masses of digested waste types
-            if new and sum(self.div_component_fractions['anaerobic'].values()) != 0:
-                anaerobic = {x: anaerobic_total * self.div_component_fractions['anaerobic'][x] for x in self.div_components['anaerobic']}
-                anaerobic_waste_fractions = self.div_component_fractions['anaerobic']
-            else:
-                anaerobic = {x: anaerobic_total * anaerobic_waste_fractions[x] for x in self.div_components['anaerobic']}
+            # if new and sum(self.div_component_fractions['anaerobic'].values()) != 0:
+            #     anaerobic = {x: anaerobic_total * self.div_component_fractions['anaerobic'][x] for x in self.div_components['anaerobic']}
+            #     anaerobic_waste_fractions = self.div_component_fractions['anaerobic']
+            # else:
+            anaerobic = {x: anaerobic_total * anaerobic_waste_fractions[x] for x in self.div_components['anaerobic']}
         else:
             #self.divs['anaerobic'] = {x: 0 for x in self.anaerobic_components}
             anaerobic = {x: 0 for x in self.div_components['anaerobic']}
@@ -1509,21 +1509,21 @@ class City:
         combustion_waste_fractions = {x: self.waste_fractions[x] / fraction_combustion_types for x in self.div_components['combustion']}
 
         # Masses of combusted waste types
-        if new and sum(self.div_component_fractions['combustion'].values()) != 0:
-            combustion = {x:
-                self.waste_mass * 
-                combustion_fraction * \
-                self.div_component_fractions['combustion'][x] * \
-                (1 - self.combustion_reject_rate) for x in self.div_components['combustion']
-            }
-            combustion_waste_fractions = self.div_component_fractions['combustion']
-        else:
-            combustion = {x:
-                self.waste_mass * 
-                combustion_fraction * \
-                combustion_waste_fractions[x] * \
-                (1 - self.combustion_reject_rate) for x in self.div_components['combustion']
-            }
+        # if new and sum(self.div_component_fractions['combustion'].values()) != 0:
+        #     combustion = {x:
+        #         self.waste_mass * 
+        #         combustion_fraction * \
+        #         self.div_component_fractions['combustion'][x] * \
+        #         (1 - self.combustion_reject_rate) for x in self.div_components['combustion']
+        #     }
+        #     combustion_waste_fractions = self.div_component_fractions['combustion']
+        # else:
+        combustion = {x:
+            self.waste_mass * 
+            combustion_fraction * \
+            combustion_waste_fractions[x] * \
+            (1 - self.combustion_reject_rate) for x in self.div_components['combustion']
+        }
 
         return combustion, combustion_waste_fractions
     
@@ -1622,22 +1622,22 @@ class City:
             #                   self.waste_mass for x in self.recycling_components}
 
             # Masses of recycled waste types
-            if new and sum(self.div_component_fractions['recycling'].values()) != 0:
-                recycling = {
-                    x: self.div_component_fractions['recycling'][x] * \
-                    recycling_fraction * \
-                    (recycling_reject_rates[x]) * \
-                    self.waste_mass for x in self.div_components['recycling']
-                }
-                recycling_waste_fractions = self.div_component_fractions['recycling']
-            else:
-                recycling = {
-                    x: self.waste_fractions[x] / \
-                    fraction_recyclable_types * \
-                    recycling_fraction * \
-                    (recycling_reject_rates[x]) * \
-                    self.waste_mass for x in self.div_components['recycling']
-                }
+            # if new and sum(self.div_component_fractions['recycling'].values()) != 0:
+            #     recycling = {
+            #         x: self.div_component_fractions['recycling'][x] * \
+            #         recycling_fraction * \
+            #         (recycling_reject_rates[x]) * \
+            #         self.waste_mass for x in self.div_components['recycling']
+            #     }
+            #     recycling_waste_fractions = self.div_component_fractions['recycling']
+            # else:
+            recycling = {
+                x: self.waste_fractions[x] / \
+                fraction_recyclable_types * \
+                recycling_fraction * \
+                (recycling_reject_rates[x]) * \
+                self.waste_mass for x in self.div_components['recycling']
+            }
             #recycling_vol_total = sum([recycling_vol[x] for x in recycling_vol.keys()])
         else:
             #self.divs['recycling'] = {x: 0 for x in self.recycling_components}
@@ -3149,8 +3149,9 @@ class City:
         # Run the model
         # for landfill in self.landfills:
         #     landfill.estimate_emissions(baseline=False)
-        for landfill in self.non_zero_landfills:
+        for i, landfill in enumerate(self.non_zero_landfills):
             landfill.estimate_emissions(baseline=False)
+            landfill.waste_mass.to_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/scratch_paper/old' + str(i) + '.csv')
 
         self.organic_emissions_new = self.estimate_diversion_emissions(baseline=False)
         self.landfill_emissions_new, self.diversion_emissions_new, self.total_emissions_new = self.sum_landfill_emissions(baseline=False)
@@ -3412,6 +3413,7 @@ class Landfill:
         # This is due to paper coardboard thing
         #self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions_match_excel(baseline=baseline)
         self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions(baseline=baseline)
+        #self.waste_mass.to_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/scratch_paper/old.csv')
         # else:
         #     self.model = SWEET(self, self.city, baseline=False)
         #     self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions(baseline=False)

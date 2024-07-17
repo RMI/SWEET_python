@@ -50,121 +50,188 @@ ages. This amount is reduced by the amount of methane captured at the landfill.
 Unit: m3 CH4/year
 '''
 
-class SWEET:
-    def __init__(self, landfill, scenario=0, **city_params):
-        """
-        Initializes a SWEET instance.
+# class SWEET:
+#     def __init__(self, city_instance_attrs: dict, city_params_dict: dict, landfill_instance_attrs: dict):
+#         """
+#         Initializes a SWEET instance.
 
-        Args:
-            landfill (Landfill): An instance containing landfill-specific parameters.
-            scenario (int): The scenario identifier.
-            city_params (dict): Additional city-specific parameters.
-        """
-        self.landfill = landfill
-        self.scenario = scenario
-        for key, value in city_params.items():
-            setattr(self, key, value)
+#         Args:
+#             landfill (Landfill): An instance containing landfill-specific parameters.
+#             scenario (int): The scenario identifier.
+#             city_params (dict): Additional city-specific parameters.
+#         """
+
+#         self.landfill_instance_attrs = landfill_instance_attrs
+#         self.city_instance_attrs = city_instance_attrs
+#         self.city_params_dict = city_params_dict
+
+#     def estimate_emissions(self):
+#         """
+#         Estimates methane emissions based on the SWEET model. It considers the amount and type of waste generated 
+#         annually, how much of that waste is diverted to different facilities, and how waste biodegrades over time 
+#         to produce methane. The results are aggregated annually.
+
+#         Returns:
+#             tuple: Four pandas DataFrames, respectively containing:
+#                 0. Landfilled waste masses for each year and type.
+#                 1. Net methane emissions for each year.
+#                 2. Methane produced (before capture) for each year and waste type.
+#                 3. Amount of methane captured at the landfill for each year.
+#         """
+#         self.qs = {}
+#         self.ms = {}
+#         self.captured = {}
+#         self.ch4_produced = {}
+
+#         # if self.div_masses is None:
+#         #     doing_div_masses = True
+#         #     div_masses = {key: {} for key in ["compost", "anaerobic", "combustion", "recycling"]}
+#         # else:
+#         #     doing_div_masses = False
+#         #     div_masses = self.div_masses.model_dump()
+
+#         for year in range(self.landfill_instance_attrs['open_date'], self.landfill_instance_attrs['close_date']):
+#             t = year - self.city_params_dict['year_of_data_pop']
+#             self.qs[year] = {}
+#             self.ms[year] = {}
+#             self.ch4_produced[year] = {}
+
+#             # if doing_div_masses:
+#             #     for key in ["compost", "anaerobic", "combustion", "recycling"]:
+#             #         div_masses[key][year] = {}
+
+#             caps = []
+#             growth_rate = self.city_params_dict['growth_rate_historic'] if year < self.city_params_dict['year_of_data_pop'] else self.city_params_dict['growth_rate_future']
+
+#             # if self.scenario == 0:
+#             #     divs = self.divs
+#             #     fraction_of_waste = self.landfill.fraction_of_waste
+#             # else:
+#             #     if year >= self.dst_implement_year:
+#             #         divs = self.scenario_parameters[self.scenario].divs
+#             #         fraction_of_waste = self.landfill.fraction_of_waste[self.landfill.landfill_index] # Need to figure out how to handle multiple fraction of waste values. make a df indexed by year? Or bring back new
+#             #     else:
+#             #         divs = self.divs
+#             #         fraction_of_waste = self.landfill.fraction_of_waste
+
+#             for waste in self.city_instance_attrs['components']:
+#                 # self.ms[year][waste] = (
+#                 #     self.waste_mass * getattr(self.waste_fractions, waste) -
+#                 #     sum(getattr(getattr(divs, key), waste) for key in ["compost", "anaerobic", "combustion", "recycling"])) * \
+#                 #     fraction_of_waste * (growth_rate ** t)
+
+#                 # if doing_div_masses:
+#                 #     for key in self.divs.model_fields:
+#                 #         div_masses[key][year][waste] = getattr(getattr(divs, key), waste) * (growth_rate ** t)
+
+#                 ch4_produced = []
+#                 ch4 = []
+#                 for y in range(self.landfill_instance_attrs['open_date'], year):
+#                     years_back = year - y
+#                     ch4_produce = (
+#                         self.city_params_dict['ks'][waste] *
+#                         defaults_2019.L_0[waste] *
+#                         self.landfill_instance_attrs['waste_mass_df'].at[y, waste] *
+#                         np.exp(-self.city_params_dict['ks'][waste] * (years_back - 0.5)) *
+#                         self.landfill_instance_attrs['mcf']
+#                     )
+#                     ch4_produced.append(ch4_produce)
+#                     ch4_capture = ch4_produce * self.landfill_instance_attrs['gas_capture_efficiency']
+#                     caps.append(ch4_capture)
+#                     val = (ch4_produce - ch4_capture) * (1 - self.landfill_instance_attrs['oxidation_factor']) + ch4_capture * 0.02
+#                     ch4.append(val)
+
+#                 self.qs[year][waste] = sum(ch4)
+#                 self.ch4_produced[year][waste] = sum(ch4_produced)
+
+#             self.captured[year] = sum(caps) / 365 / 24
+
+#         self.q_df = pd.DataFrame(self.qs).T
+#         self.q_df['total'] = self.q_df.sum(axis=1)
+#         self.m_df = pd.DataFrame(self.ms).T
+#         self.ch4_df = pd.DataFrame(self.ch4_produced).T
+
+#         # if doing_div_masses:
+#         #     for key in ["compost", "anaerobic", "combustion", "recycling"]:
+#         #         div_masses[key] = pd.DataFrame(div_masses[key]).T
+
+#         #     div_masses_annual = DivMassesAnnual(
+#         #         compost=div_masses['compost'],
+#         #         anaerobic=div_masses['anaerobic'],
+#         #         combustion=div_masses['combustion'],
+#         #         recycling=div_masses['recycling']
+#         #     )
+
+#         #     if self.scenario == 0:
+#         #         self.div_masses = div_masses_annual
+#         #     else:
+#         #         self.scenario_parameters[self.scenario].div_masses = div_masses_annual
+
+#         return self.m_df, self.q_df, self.ch4_df, self.captured
+
+class SWEET:
+    def __init__(self, city_instance_attrs: dict, city_params_dict: dict, landfill_instance_attrs: dict):
+        self.landfill_instance_attrs = landfill_instance_attrs
+        self.city_instance_attrs = city_instance_attrs
+        self.city_params_dict = city_params_dict
 
     def estimate_emissions(self):
+        open_date = self.landfill_instance_attrs['open_date']
+        close_date = self.landfill_instance_attrs['close_date']
+        year_of_data_pop = self.city_params_dict['year_of_data_pop']
+        growth_rate_historic = self.city_params_dict['growth_rate_historic']
+        growth_rate_future = self.city_params_dict['growth_rate_future']
+        ks = self.city_params_dict['ks']
+        waste_mass_df = self.landfill_instance_attrs['waste_mass_df']
+        mcf = self.landfill_instance_attrs['mcf']
+        gas_capture_efficiency = self.landfill_instance_attrs['gas_capture_efficiency']
+        oxidation_factor = self.landfill_instance_attrs['oxidation_factor']
+        components = self.city_instance_attrs['components']
+
+        years = np.arange(open_date, close_date)
+        t = years - year_of_data_pop
+        growth_rates = np.where(years < year_of_data_pop, growth_rate_historic, growth_rate_future) ** t
+
+        qs = {}
+        ch4_produced = {}
+        captured = {}
+
+        for year in years:
+            ch4_year = {}
+            ch4_produced_year = {}
+
+            for waste in components:
+                ch4_year[waste] = 0
+                ch4_produced_year[waste] = 0
+
+                years_back = year - np.arange(open_date, year)
+                exp_term = np.exp(-ks[waste] * (years_back - 0.5))
+                waste_masses = waste_mass_df.loc[open_date:year-1, waste].values
+
+                ch4_produce = ks[waste] * defaults_2019.L_0[waste] * waste_masses * exp_term * mcf
+                ch4_produced_year[waste] = np.sum(ch4_produce)
+                ch4_capture = ch4_produce * gas_capture_efficiency
+                ch4_year[waste] = np.sum((ch4_produce - ch4_capture) * (1 - oxidation_factor) + ch4_capture * 0.02)
+
+            qs[year] = ch4_year
+            ch4_produced[year] = ch4_produced_year
+            captured[year] = np.sum([ch4_produced_year[w] * gas_capture_efficiency for w in components]) / 365 / 24
+
+        q_df = pd.DataFrame(qs).T
+        q_df['total'] = q_df.sum(axis=1)
+        ch4_df = pd.DataFrame(ch4_produced).T
+
+        return None, q_df, ch4_df, captured
+    
+    def model_dump_for_serialization(self) -> dict:
         """
-        Estimates methane emissions based on the SWEET model. It considers the amount and type of waste generated 
-        annually, how much of that waste is diverted to different facilities, and how waste biodegrades over time 
-        to produce methane. The results are aggregated annually.
-
-        Returns:
-            tuple: Four pandas DataFrames, respectively containing:
-                0. Landfilled waste masses for each year and type.
-                1. Net methane emissions for each year.
-                2. Methane produced (before capture) for each year and waste type.
-                3. Amount of methane captured at the landfill for each year.
+        Dumps the model attributes into a dictionary, excluding certain attributes.
         """
-        self.qs = {}
-        self.ms = {}
-        self.captured = {}
-        self.ch4_produced = {}
-
-        # if self.div_masses is None:
-        #     doing_div_masses = True
-        #     div_masses = {key: {} for key in ["compost", "anaerobic", "combustion", "recycling"]}
-        # else:
-        #     doing_div_masses = False
-        #     div_masses = self.div_masses.model_dump()
-
-        for year in range(self.landfill.open_date, self.landfill.close_date):
-            t = year - self.year_of_data_pop
-            self.qs[year] = {}
-            self.ms[year] = {}
-            self.ch4_produced[year] = {}
-
-            # if doing_div_masses:
-            #     for key in ["compost", "anaerobic", "combustion", "recycling"]:
-            #         div_masses[key][year] = {}
-
-            caps = []
-            growth_rate = self.growth_rate_historic if year < self.year_of_data_pop else self.growth_rate_future
-
-            # if self.scenario == 0:
-            #     divs = self.divs
-            #     fraction_of_waste = self.landfill.fraction_of_waste
-            # else:
-            #     if year >= self.dst_implement_year:
-            #         divs = self.scenario_parameters[self.scenario].divs
-            #         fraction_of_waste = self.landfill.fraction_of_waste[self.landfill.landfill_index] # Need to figure out how to handle multiple fraction of waste values. make a df indexed by year? Or bring back new
-            #     else:
-            #         divs = self.divs
-            #         fraction_of_waste = self.landfill.fraction_of_waste
-
-            for waste in self.city.components:
-                # self.ms[year][waste] = (
-                #     self.waste_mass * getattr(self.waste_fractions, waste) -
-                #     sum(getattr(getattr(divs, key), waste) for key in ["compost", "anaerobic", "combustion", "recycling"])) * \
-                #     fraction_of_waste * (growth_rate ** t)
-
-                # if doing_div_masses:
-                #     for key in self.divs.model_fields:
-                #         div_masses[key][year][waste] = getattr(getattr(divs, key), waste) * (growth_rate ** t)
-
-                ch4_produced = []
-                ch4 = []
-                for y in range(self.landfill.open_date, year):
-                    years_back = year - y
-                    ch4_produce = (
-                        getattr(self.ks, waste) *
-                        defaults_2019.L_0[waste] *
-                        self.waste_mass_df.at[y, waste] *
-                        np.exp(-getattr(self.ks, waste) * (years_back - 0.5)) *
-                        self.landfill.mcf
-                    )
-                    ch4_produced.append(ch4_produce)
-                    ch4_capture = ch4_produce * self.landfill.gas_capture_efficiency
-                    caps.append(ch4_capture)
-                    val = (ch4_produce - ch4_capture) * (1 - self.landfill.oxidation_factor) + ch4_capture * 0.02
-                    ch4.append(val)
-
-                self.qs[year][waste] = sum(ch4)
-                self.ch4_produced[year][waste] = sum(ch4_produced)
-
-            self.captured[year] = sum(caps) / 365 / 24
-
-        self.q_df = pd.DataFrame(self.qs).T
-        self.q_df['total'] = self.q_df.sum(axis=1)
-        self.m_df = pd.DataFrame(self.ms).T
-        self.ch4_df = pd.DataFrame(self.ch4_produced).T
-
-        # if doing_div_masses:
-        #     for key in ["compost", "anaerobic", "combustion", "recycling"]:
-        #         div_masses[key] = pd.DataFrame(div_masses[key]).T
-
-        #     div_masses_annual = DivMassesAnnual(
-        #         compost=div_masses['compost'],
-        #         anaerobic=div_masses['anaerobic'],
-        #         combustion=div_masses['combustion'],
-        #         recycling=div_masses['recycling']
-        #     )
-
-        #     if self.scenario == 0:
-        #         self.div_masses = div_masses_annual
-        #     else:
-        #         self.scenario_parameters[self.scenario].div_masses = div_masses_annual
-
-        return self.m_df, self.q_df, self.ch4_df, self.captured
+        d = {k: v for k, v in self.__dict__.items()}
+        if 'city_instance_attrs' in d:
+            d['city_instance_attrs'] = {}
+        if 'city_params_dict' in d:
+            d['city_params_dict'] = {}
+        if 'landfill_instance_attrs' in d:
+            d['landfill_instance_attrs'] = {}
+        return d

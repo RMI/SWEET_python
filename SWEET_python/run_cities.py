@@ -1,3 +1,4 @@
+#from city_dict import cities_to_run
 from city_params import City
 import pandas as pd
 import warnings
@@ -21,11 +22,16 @@ cities = db_file['City'].unique()
 
 for city_name in cities:
     city = City(city_name)
+    cities_to_run[city.city_name] = city
     city.load_from_csv(db_file)
-    cities_to_run[city.name] = city
+    city._calculate_divs()
     for landfill in city.baseline_parameters.non_zero_landfills:
         landfill.estimate_emissions()
     city.estimate_diversion_emissions(scenario=0)
     city.sum_landfill_emissions(scenario=0)
+
+def get_cities_to_run():
+    global cities_to_run
+    return cities_to_run
 
 #%%
