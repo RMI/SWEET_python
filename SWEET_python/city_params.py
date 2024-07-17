@@ -76,6 +76,145 @@ class CityParameters(BaseModel):
                     landfill.model.city_params_dict = city_params_dict
                     landfill.model.landfill_instance_attrs=landfill.model_dump()
 
+    def _singapore_k(self) -> None:
+        """
+        Calculates and sets k values for the city based on the Singapore method.
+        """
+        # Start with kc, which accounts for waste composition
+        nb = self.waste_fractions['metal'] + self.waste_fractions['glass'] + self.waste_fractions['plastic'] + self.waste_fractions['other'] + self.waste_fractions['rubber']
+        bs = self.waste_fractions['wood'] + self.waste_fractions['paper_cardboard'] + self.waste_fractions['textiles']
+        bf = self.waste_fractions['food'] + self.waste_fractions['green']
+
+        # Lookup array order is bs, bf, nb. Multiply by 8
+        lookup_array = np.zeros((8, 8, 8))
+
+        lookup_array[0, 0, 7] = 0.3 # lower left corner
+        lookup_array[0, 0, 6] = 0.3 # this is all the bottom row
+        lookup_array[1, 0, 6] = 0.3
+        lookup_array[1, 0, 5] = 0.3
+        lookup_array[2, 0, 5] = 0.3
+        lookup_array[2, 0, 4] = 0.3
+        lookup_array[3, 0, 4] = 0.3
+        lookup_array[3, 0, 3] = 0.3
+        lookup_array[4, 0, 3] = 0.5
+        lookup_array[4, 0, 2] = 0.5
+        lookup_array[5, 0, 2] = 0.5
+        lookup_array[5, 0, 1] = 0.5
+        lookup_array[6, 0, 1] = 0.1
+        lookup_array[6, 0, 0] = 0.1
+        lookup_array[7, 0, 0] = 0.1 # lower right corner
+
+        lookup_array[0, 1, 6] = 0.3 # second row from bottom
+        lookup_array[0, 1, 5] = 0.3
+        lookup_array[1, 1, 5] = 0.3
+        lookup_array[1, 1, 4] = 0.3
+        lookup_array[2, 1, 4] = 0.3
+        lookup_array[2, 1, 3] = 0.3
+        lookup_array[3, 1, 3] = 0.3
+        lookup_array[3, 1, 2] = 0.3
+        lookup_array[4, 1, 2] = 0.5
+        lookup_array[4, 1, 1] = 0.1
+        lookup_array[5, 1, 1] = 0.1
+        lookup_array[5, 1, 0] = 0.1
+        lookup_array[6, 1, 0] = 0.1
+
+        lookup_array[0, 2, 5] = 0.3
+        lookup_array[0, 2, 4] = 0.3
+        lookup_array[1, 2, 4] = 0.3
+        lookup_array[1, 2, 3] = 0.3
+        lookup_array[2, 2, 3] = 0.7
+        lookup_array[2, 2, 2] = 0.7
+        lookup_array[3, 2, 2] = 0.7
+        lookup_array[3, 2, 1] = 0.7
+        lookup_array[4, 2, 1] = 0.1
+        lookup_array[4, 2, 0] = 0.1
+        lookup_array[5, 2, 0] = 0.1
+
+        lookup_array[0, 3, 4] = 0.3
+        lookup_array[0, 3, 3] = 0.3
+        lookup_array[1, 3, 3] = 0.3
+        lookup_array[1, 3, 2] = 0.3
+        lookup_array[2, 3, 2] = 0.7
+        lookup_array[2, 3, 1] = 0.7
+        lookup_array[3, 3, 1] = 0.7
+        lookup_array[3, 3, 0] = 0.7
+        lookup_array[4, 3, 0] = 0.1
+
+        lookup_array[0, 4, 3] = 0.3
+        lookup_array[0, 4, 2] = 0.3
+        lookup_array[1, 4, 2] = 0.3
+        lookup_array[1, 4, 1] = 0.5
+        lookup_array[2, 4, 1] = 0.5
+        lookup_array[2, 4, 0] = 0.5
+        lookup_array[3, 4, 0] = 0.5
+
+        lookup_array[0, 5, 2] = 0.7
+        lookup_array[0, 5, 1] = 0.7
+        lookup_array[1, 5, 1] = 0.7
+        lookup_array[1, 5, 0] = 0.7
+        lookup_array[2, 5, 0] = 0.5
+
+        lookup_array[0, 6, 1] = 0.5
+        lookup_array[0, 6, 0] = 0.5
+        lookup_array[1, 6, 0] = 0.5
+
+        lookup_array[0, 7, 0] = 0.5
+
+        nb_idx = int(nb * 8)
+        bs_idx = int(bs * 8)
+        bf_idx = int(bf * 8)
+
+        if nb_idx == 8:
+            nb_idx = 7
+        if bs_idx == 8:
+            bs_idx = 7
+        if bf_idx == 8:
+            bf_idx = 7
+
+        kc = lookup_array[bs_idx, bf_idx, nb_idx]
+        if kc == 0:
+            print('Invalid value for k')
+
+        # ft, accounts for temperature
+        tmin = 0
+        tmax = 55
+        topt = 35
+        t = self.temp + 10 # landfill is warmer than ambient
+
+        num = (t - tmax) * (t - tmin) ** 2
+        denom = (topt - tmin) * \
+            ((topt - tmin) * \
+            (t - topt) - \
+            (topt - tmax) * \
+            (topt + tmin - 2 * t))
+        
+        if denom != 0:
+            tf = num / denom
+        else:
+            print('Invalid value for temperature factor')
+
+        # fm, accounts for moisture
+        # read more on this to make sure it handles dumpsites correctly. 
+
+        if self.precip < 500:
+            fm = 0.1
+        elif self.precip >= 500 and self.precip < 1000:
+            fm = 0.3
+        elif self.precip >= 1000 and self.precip < 1500:
+            fm = 0.5
+        elif self.precip >= 1500 and self.precip < 2000:
+            fm = 0.8
+        else:
+            fm = 1
+
+        self.ks = DecompositionRates(
+            food=kc * tf * fm,
+            green=kc * tf * fm,
+            wood=kc * tf * fm,
+            paper_cardboard=kc * tf * fm,
+            textiles=kc * tf * fm
+        )
+
 class CustomError(Exception):
     def __init__(self, code: str, message: str):
         self.code = code
@@ -194,13 +333,13 @@ class City:
             )
         )
 
-        ks = DecompositionRates(
-            food=city_data['k: Food'].values[0],
-            green=city_data['k: Green'].values[0],
-            wood=city_data['k: Wood'].values[0],
-            paper_cardboard=city_data['k: Paper and Cardboard'].values[0],
-            textiles=city_data['k: Textiles'].values[0]
-        )
+        # ks = DecompositionRates(
+        #     food=city_data['k: Food'].values[0],
+        #     green=city_data['k: Green'].values[0],
+        #     wood=city_data['k: Wood'].values[0],
+        #     paper_cardboard=city_data['k: Paper and Cardboard'].values[0],
+        #     textiles=city_data['k: Textiles'].values[0]
+        # )
 
         non_compostable_not_targeted_total = sum([
             self.non_compostable_not_targeted[x] * getattr(div_component_fractions.compost, x) for x in self.div_components['compost']
@@ -234,7 +373,7 @@ class City:
             growth_rate_future=city_data['Population Growth Rate: Future (%)'].values[0] / 100 + 1,
             waste_per_capita=city_data['Waste Generation Rate per Capita (kg/person/day)'].values[0],
             precip_zone=city_data['Precipitation Zone'].values[0],
-            ks=ks,
+            #ks=ks,
             gas_capture_efficiency=gas_capture_efficiency,
             mef_compost=mef_compost,
             waste_mass=waste_mass,
@@ -254,6 +393,7 @@ class City:
     def _calculate_divs(self) -> None:
         
         city_parameters = self.baseline_parameters
+        city_parameters._singapore_k()
 
         # Create city-level dataframes
         start_year = 1960
@@ -1147,141 +1287,116 @@ class City:
         self.estimate_diversion_emissions(scenario=scenario)
         self.sum_landfill_emissions(scenario=scenario)
 
-    def _singapore_k(self) -> None:
-        """
-        Calculates and sets k values for the city based on the Singapore method.
-        """
-        # Start with kc, which accounts for waste composition
-        nb = self.waste_fractions['metal'] + self.waste_fractions['glass'] + self.waste_fractions['plastic'] + self.waste_fractions['other'] + self.waste_fractions['rubber']
-        bs = self.waste_fractions['wood'] + self.waste_fractions['paper_cardboard'] + self.waste_fractions['textiles']
-        bf = self.waste_fractions['food'] + self.waste_fractions['green']
-
-        # Lookup array order is bs, bf, nb. Multiply by 8
-        lookup_array = np.zeros((8, 8, 8))
-
-        lookup_array[0, 0, 7] = 0.3 # lower left corner
-        lookup_array[0, 0, 6] = 0.3 # this is all the bottom row
-        lookup_array[1, 0, 6] = 0.3
-        lookup_array[1, 0, 5] = 0.3
-        lookup_array[2, 0, 5] = 0.3
-        lookup_array[2, 0, 4] = 0.3
-        lookup_array[3, 0, 4] = 0.3
-        lookup_array[3, 0, 3] = 0.3
-        lookup_array[4, 0, 3] = 0.5
-        lookup_array[4, 0, 2] = 0.5
-        lookup_array[5, 0, 2] = 0.5
-        lookup_array[5, 0, 1] = 0.5
-        lookup_array[6, 0, 1] = 0.1
-        lookup_array[6, 0, 0] = 0.1
-        lookup_array[7, 0, 0] = 0.1 # lower right corner
-
-        lookup_array[0, 1, 6] = 0.3 # second row from bottom
-        lookup_array[0, 1, 5] = 0.3
-        lookup_array[1, 1, 5] = 0.3
-        lookup_array[1, 1, 4] = 0.3
-        lookup_array[2, 1, 4] = 0.3
-        lookup_array[2, 1, 3] = 0.3
-        lookup_array[3, 1, 3] = 0.3
-        lookup_array[3, 1, 2] = 0.3
-        lookup_array[4, 1, 2] = 0.5
-        lookup_array[4, 1, 1] = 0.1
-        lookup_array[5, 1, 1] = 0.1
-        lookup_array[5, 1, 0] = 0.1
-        lookup_array[6, 1, 0] = 0.1
-
-        lookup_array[0, 2, 5] = 0.3
-        lookup_array[0, 2, 4] = 0.3
-        lookup_array[1, 2, 4] = 0.3
-        lookup_array[1, 2, 3] = 0.3
-        lookup_array[2, 2, 3] = 0.7
-        lookup_array[2, 2, 2] = 0.7
-        lookup_array[3, 2, 2] = 0.7
-        lookup_array[3, 2, 1] = 0.7
-        lookup_array[4, 2, 1] = 0.1
-        lookup_array[4, 2, 0] = 0.1
-        lookup_array[5, 2, 0] = 0.1
-
-        lookup_array[0, 3, 4] = 0.3
-        lookup_array[0, 3, 3] = 0.3
-        lookup_array[1, 3, 3] = 0.3
-        lookup_array[1, 3, 2] = 0.3
-        lookup_array[2, 3, 2] = 0.7
-        lookup_array[2, 3, 1] = 0.7
-        lookup_array[3, 3, 1] = 0.7
-        lookup_array[3, 3, 0] = 0.7
-        lookup_array[4, 3, 0] = 0.1
-
-        lookup_array[0, 4, 3] = 0.3
-        lookup_array[0, 4, 2] = 0.3
-        lookup_array[1, 4, 2] = 0.3
-        lookup_array[1, 4, 1] = 0.5
-        lookup_array[2, 4, 1] = 0.5
-        lookup_array[2, 4, 0] = 0.5
-        lookup_array[3, 4, 0] = 0.5
-
-        lookup_array[0, 5, 2] = 0.7
-        lookup_array[0, 5, 1] = 0.7
-        lookup_array[1, 5, 1] = 0.7
-        lookup_array[1, 5, 0] = 0.7
-        lookup_array[2, 5, 0] = 0.5
-
-        lookup_array[0, 6, 1] = 0.5
-        lookup_array[0, 6, 0] = 0.5
-        lookup_array[1, 6, 0] = 0.5
-
-        lookup_array[0, 7, 0] = 0.5
-
-        nb_idx = int(nb * 8)
-        bs_idx = int(bs * 8)
-        bf_idx = int(bf * 8)
-
-        if nb_idx == 8:
-            nb_idx = 7
-        if bs_idx == 8:
-            bs_idx = 7
-        if bf_idx == 8:
-            bf_idx = 7
-
-        kc = lookup_array[bs_idx, bf_idx, nb_idx]
-        if kc == 0:
-            print('Invalid value for k')
-
-        # ft, accounts for temperature
-        tmin = 0
-        tmax = 55
-        topt = 35
-        t = self.temp + 10 # landfill is warmer than ambient
-
-        num = (t - tmax) * (t - tmin) ** 2
-        denom = (topt - tmin) * \
-            ((topt - tmin) * \
-            (t - topt) - \
-            (topt - tmax) * \
-            (topt + tmin - 2 * t))
+    def implement_dst_changes_advanced(
+        self,
+        population: float,
+        precipitation: float,
+        new_waste_fractions: WasteFractions,
+        new_div_fractions: DiversionFractions,
+        new_landfill_types: List,
+        new_landfill_fracs: List,
+        new_gas_efficiency: List,
+        new_landfill_flaring: List,
+        new_landfill_keep_old: List,
+        new_landfill_cover: List,
+        new_landfill_leachate_circulate: List,
+        new_landfill_open_close_dates: List,
+        implement_year: float,
+        scenario: int,
+        new_baseline: int,
+    ) -> None:
         
-        if denom != 0:
-            tf = num / denom
-        else:
-            print('Invalid value for temperature factor')
+        scenario_parameters = copy.deepcopy(self.baseline_parameters)
+        self.scenario_parameters[scenario - 1] = scenario_parameters
+        scenario_parameters.div_fractions = new_div_fractions
+        scenario_parameters.waste_fractions = new_waste_fractions
+        scenario_parameters._singapore_k()
 
-        # fm, accounts for moisture
-        # read more on this to make sure it handles dumpsites correctly. 
+        # Set up new landfills
+        city_params_dict = self.update_cityparams_dict(scenario_parameters)
+        mcfs = [1, 0.7, 0.4]
+        landfill_types = ['landfill', 'controlled_dumpsite', 'dumpsite']
+        new_landfills = []
+        for i, lf_type in enumerate(new_landfill_types.landfills):
+            new_landfill = Landfill(
+                open_date=new_landfill_open_close_dates[i][0], 
+                close_date=new_landfill_open_close_dates[i][0], 
+                site_type=landfill_types[lf_type], 
+                mcf=mcfs[lf_type],
+                city_params_dict=city_params_dict,
+                city_instance_attrs=scenario_parameters.city_instance_attrs,
+                landfill_index=0, 
+                fraction_of_waste=new_landfill_fracs[i], 
+                gas_capture=False if new_gas_efficiency[i] == 0 else True,
+                scenario=scenario,
+                new_baseline=new_baseline,
+                gas_capture_efficiency=new_gas_efficiency[i],
+                flaring=new_landfill_flaring[i],
+                cover=new_landfill_cover[i],
+                leachate_circulate=new_landfill_leachate_circulate[i]
+                )
 
-        if self.baseline_parameters.precip < 500:
-            fm = 0.1
-        elif self.baseline_parameters.precip >= 500 and self.baseline_parameters.precip < 1000:
-            fm = 0.3
-        elif self.baseline_parameters.precip >= 1000 and self.baseline_parameters.precip < 1500:
-            fm = 0.5
-        elif self.baseline_parameters.precip >= 1500 and self.baseline_parameters.precip < 2000:
-            fm = 0.8
-        else:
-            fm = 1
+        scenario_parameters.implement_year = implement_year
 
-        self.baseline_parameters.ks = DecompositionRates(
-            food=kc * tf * fm,
-            green=kc * tf * fm,
-            wood=kc * tf * fm,
-            paper_cardboard=kc * tf * fm,
-            textiles=kc * tf * fm
+        # Recalculate div_component_fractions
+        waste_fractions = scenario_parameters.waste_fractions
+
+        def calculate_component_fractions(waste_fractions: WasteFractions, div_type: str) -> WasteFractions:
+            components = self.div_components[div_type]
+            filtered_fractions = {waste: getattr(waste_fractions, waste) for waste in components}
+            total = sum(filtered_fractions.values())
+            normalized_fractions = {waste: fraction / total for waste, fraction in filtered_fractions.items()}
+            return WasteFractions(**{waste: normalized_fractions.get(waste, 0) for waste in waste_fractions.model_fields})
+
+        scenario_parameters.div_component_fractions = DivComponentFractions(
+            compost=calculate_component_fractions(waste_fractions, 'compost'),
+            anaerobic=calculate_component_fractions(waste_fractions, 'anaerobic'),
+            combustion=calculate_component_fractions(waste_fractions, 'combustion'),
+            recycling=calculate_component_fractions(waste_fractions, 'recycling'),
         )
+        scenario_parameters.non_compostable_not_targeted_total = sum(
+            [self.non_compostable_not_targeted[x] * \
+             getattr(scenario_parameters.div_component_fractions.compost, x) for x in self.div_components['compost']])
+        self._calculate_diverted_masses(scenario=scenario) # This function could be moved to cityparameters class, and then it doesn't need scenario argument
+
+        #scenario_parameters.repopulate_attr_dicts()
+        self._check_masses_v2(scenario=scenario)
+
+        if scenario_parameters.input_problems:
+            print(f'Invalid new value')
+            return
+
+        net = self._calculate_net_masses(scenario=scenario)
+        for mass in vars(net).values():
+            if mass < 0:
+                print(f'Invalid new value')
+                return
+
+        scenario_parameters.divs_df._dst_implement(
+            implement_year=implement_year, 
+            scenario_div_masses=scenario_parameters.divs, 
+            baseline_div_masses=self.baseline_parameters.divs, 
+            start_year=1960, 
+            end_year=2073, 
+            year_of_data_pop=scenario_parameters.year_of_data_pop, 
+            growth_rate_historic=scenario_parameters.growth_rate_historic, 
+            growth_rate_future=scenario_parameters.growth_rate_future,
+            components=self.components
+        )
+
+        # combine these two loops maybe...though it still does six things, maybe doesn't matter
+        scenario_parameters.repopulate_attr_dicts()
+        for i, landfill in enumerate(scenario_parameters.landfills):
+            # Might be able to do this more efficienctly...i'm looping over the pre implementation years twice sort of
+            landfill.waste_mass_df = LandfillWasteMassDF.create(scenario_parameters.waste_generated_df, scenario_parameters.divs_df, landfill.fraction_of_waste, self.components).df
+            landfill.waste_mass_df.loc[:(implement_year-1), :] = self.baseline_parameters.landfills[i].waste_mass_df.loc[:(implement_year-1), :]
+            landfill.waste_mass_df.to_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/scratch_paper/new' + str(i) + '.csv')
+
+        #scenario_parameters.repopulate_attr_dicts() # does this need to come sooner? Does anything in the above functions rely on the attr dicts?
+        for landfill in scenario_parameters.non_zero_landfills:
+            landfill.estimate_emissions()
+
+        self.estimate_diversion_emissions(scenario=scenario)
+        self.sum_landfill_emissions(scenario=scenario)
+
+

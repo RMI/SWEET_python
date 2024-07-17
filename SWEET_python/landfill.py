@@ -18,7 +18,13 @@ class Landfill:
                  landfill_index: int = 0, 
                  fraction_of_waste: float = 1, 
                  gas_capture: bool = False, 
-                 scenario: int = 0):
+                 scenario: int = 0,
+                 new_baseline: int = 0,
+                 gas_capture_efficiency: float = 0,
+                 flaring: int = 1,
+                 cover: int = 0,
+                 leachate_circulated: int = 0,
+    ):
         """
         Initializes a Landfill object.
 
@@ -49,8 +55,13 @@ class Landfill:
         self.scenario = scenario
         self.city_instance_attrs = city_instance_attrs
         self.city_params_dict = city_params_dict
+        self.new_baseline = new_baseline
+        self.gas_capture_efficiency = gas_capture_efficiency
+        self.flaring = flaring
+        self.cover = cover
+        self.leachate_circulated = leachate_circulated
 
-        if self.gas_capture:
+        if (self.gas_capture) and (scenario == 0):
             self.gas_capture_efficiency = defaults_2019.gas_capture_efficiency[site_type]
             self.oxidation_factor = defaults_2019.oxidation_factor['with_lfg'][site_type]
         else:
