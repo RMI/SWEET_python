@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 import pandas as pd
 
 class WasteFractions(BaseModel):
@@ -29,8 +29,11 @@ class WasteMasses(BaseModel):
 class DiversionFractions(BaseModel):
     compost: float
     anaerobic: float
-    combustion: float
+    combustion: Union[float, pd.Series]
     recycling: float
+
+    class Config:
+        arbitrary_types_allowed = True
 
 class DivComponentFractions(BaseModel):
     compost: WasteFractions
@@ -41,8 +44,11 @@ class DivComponentFractions(BaseModel):
 class DivMasses(BaseModel):
     compost: WasteMasses
     anaerobic: WasteMasses
-    combustion: WasteMasses
+    combustion: Union[WasteMasses, pd.DataFrame]
     recycling: WasteMasses
+
+    class Config:
+        arbitrary_types_allowed = True
 
 class DivMassesAnnual(BaseModel):
     compost: pd.DataFrame
@@ -95,6 +101,32 @@ class WasteGeneratedDF(BaseModel):
 
         df = pd.DataFrame(data, index=years)
         return cls(df=df)
+    
+    def dst_implement_advanced(self, df: pd.DataFrame, implement_year: int, new_waste_mass: float, new_waste_fractions: WasteFractions, year_of_data_pop: int, growth_rate_historic: float, growth_rate_future: float):
+        # Ensure implement_year is within the DataFrame's index range
+        if implement_year < df.index.min() or implement_year > df.index.max():
+            raise ValueError(f"Implement year {implement_year} is out of the DataFrame's index range.")
+
+        # Create new data starting from the implement_year
+        waste_types = new_waste_fractions.model_dump().keys()
+        years = list(range(implement_year, df.index.max() + 1))
+        new_data = {waste: [] for waste in waste_types}
+
+        for year in years:
+            t = year - year_of_data_pop
+            growth_rate = growth_rate_historic if year < year_of_data_pop else growth_rate_future
+            for waste in waste_types:
+                value = new_waste_mass * getattr(new_waste_fractions, waste) * (growth_rate ** t)
+                new_data[waste].append(value)
+
+        # Create a DataFrame for new data
+        new_df = pd.DataFrame(new_data, index=years)
+
+        # Update the original DataFrame
+        updated_df = df.copy()
+        updated_df.loc[implement_year:] = new_df
+
+        self.df = updated_df
 
 class DivsDF(BaseModel):
     # baseline_compost: pd.DataFrame
@@ -143,6 +175,7 @@ class DivsDF(BaseModel):
         df = pd.DataFrame(data, index=years)
         return df
     
+    # THIS NEEDS TO ACCOMODATE NEW_BASELINE, and i think can be rewritten to use df, be more efficient. same with the one below. 
     def _dst_implement(self, implement_year: int, scenario_div_masses: DivMasses, baseline_div_masses: DivMasses, start_year: int, end_year: int, year_of_data_pop: int, growth_rate_historic: float, growth_rate_future: float, components: List[str]) -> None:
         def _get_value_for_year(div_masses: WasteMasses, waste: str, year: int, year_of_data_pop: int, growth_rate_historic: float, growth_rate_future: float) -> float:
             t = year - year_of_data_pop
@@ -206,3 +239,31 @@ class LandfillWasteMassDF(BaseModel):
 
         df = pd.DataFrame(data, index=years)
         return cls(df=df)
+    
+    def dst_implement_advanced(self, waste_generated_df: pd.DataFrame, divs_df: 'DivsDF', fraction_of_waste_series: pd.Series, waste_types: List[str]) -> 'LandfillWasteMassDF':
+        years = waste_generated_df.index
+        data = {waste: [] for waste in waste_types}
+
+        for year in years:
+            fraction_of_waste = fraction_of_waste_series.at[str(year)]
+            for waste in waste_types:
+                total_waste = waste_generated_df.at[year, waste]
+                try:
+                    diverted_waste = (
+                        divs_df.compost.at[year, waste] + 
+                        divs_df.anaerobic.at[year, waste] + 
+                        divs_df.combustion.at[year, waste] + 
+                        divs_df.recycling.at[year, waste]
+                    )
+                except KeyError:
+                    diverted_waste = (
+                        divs_df['compost'].at[year, waste] + 
+                        divs_df['anaerobic'].at[year, waste] + 
+                        divs_df['combustion'].at[year, waste] + 
+                        divs_df['recycling'].at[year, waste]
+                    )
+                landfill_waste = (total_waste - diverted_waste) * fraction_of_waste
+                data[waste].append(landfill_waste)
+
+        self.df = pd.DataFrame(data, index=years)
+        #return cls(df=df)

@@ -19,7 +19,7 @@ class CityParameters(BaseModel):
     growth_rate_future: float
     waste_per_capita: float
     precip_zone: str
-    ks: DecompositionRates
+    ks: Optional[DecompositionRates] = None
     gas_capture_efficiency: float
     mef_compost: float
     waste_mass: float
@@ -38,9 +38,10 @@ class CityParameters(BaseModel):
     adjusted_diversion_constituents: bool = False
     input_problems: bool = False
     divs_df: Optional[pd.DataFrame] = None
-    waste_generated_df: Optional[pd.DataFrame] = None
+    waste_generated_df: Optional[WasteGeneratedDF] = None
     city_instance_attrs: Optional[Dict[str, Any]] = None
     population: Optional[int] = None
+    temp: Optional[float] = None 
 
     class Config:
         arbitrary_types_allowed = True
@@ -81,9 +82,13 @@ class CityParameters(BaseModel):
         Calculates and sets k values for the city based on the Singapore method.
         """
         # Start with kc, which accounts for waste composition
-        nb = self.waste_fractions['metal'] + self.waste_fractions['glass'] + self.waste_fractions['plastic'] + self.waste_fractions['other'] + self.waste_fractions['rubber']
-        bs = self.waste_fractions['wood'] + self.waste_fractions['paper_cardboard'] + self.waste_fractions['textiles']
-        bf = self.waste_fractions['food'] + self.waste_fractions['green']
+        # nb = self.waste_fractions['metal'] + self.waste_fractions['glass'] + self.waste_fractions['plastic'] + self.waste_fractions['other'] + self.waste_fractions['rubber']
+        # bs = self.waste_fractions['wood'] + self.waste_fractions['paper_cardboard'] + self.waste_fractions['textiles']
+        # bf = self.waste_fractions['food'] + self.waste_fractions['green']
+
+        nb = self.waste_fractions.metal + self.waste_fractions.glass + self.waste_fractions.plastic + self.waste_fractions.other + self.waste_fractions.rubber
+        bs = self.waste_fractions.wood + self.waste_fractions.paper_cardboard + self.waste_fractions.textiles
+        bf = self.waste_fractions.food + self.waste_fractions.green
 
         # Lookup array order is bs, bf, nb. Multiply by 8
         lookup_array = np.zeros((8, 8, 8))
@@ -92,14 +97,17 @@ class CityParameters(BaseModel):
         lookup_array[0, 0, 6] = 0.3 # this is all the bottom row
         lookup_array[1, 0, 6] = 0.3
         lookup_array[1, 0, 5] = 0.3
+        lookup_array[2, 0, 6] = 0.3
         lookup_array[2, 0, 5] = 0.3
         lookup_array[2, 0, 4] = 0.3
         lookup_array[3, 0, 4] = 0.3
         lookup_array[3, 0, 3] = 0.3
+        lookup_array[4, 0, 4] = 0.4
         lookup_array[4, 0, 3] = 0.5
         lookup_array[4, 0, 2] = 0.5
         lookup_array[5, 0, 2] = 0.5
         lookup_array[5, 0, 1] = 0.5
+        lookup_array[6, 0, 2] = 0.3
         lookup_array[6, 0, 1] = 0.1
         lookup_array[6, 0, 0] = 0.1
         lookup_array[7, 0, 0] = 0.1 # lower right corner
@@ -118,17 +126,21 @@ class CityParameters(BaseModel):
         lookup_array[5, 1, 0] = 0.1
         lookup_array[6, 1, 0] = 0.1
 
+        lookup_array[0, 2, 6] = 0.3
         lookup_array[0, 2, 5] = 0.3
         lookup_array[0, 2, 4] = 0.3
         lookup_array[1, 2, 4] = 0.3
         lookup_array[1, 2, 3] = 0.3
+        lookup_array[2, 2, 4] = 0.5
         lookup_array[2, 2, 3] = 0.7
         lookup_array[2, 2, 2] = 0.7
         lookup_array[3, 2, 2] = 0.7
         lookup_array[3, 2, 1] = 0.7
+        lookup_array[4, 2, 2] = 0.5
         lookup_array[4, 2, 1] = 0.1
         lookup_array[4, 2, 0] = 0.1
         lookup_array[5, 2, 0] = 0.1
+        lookup_array[6, 2, 0] = 0.1
 
         lookup_array[0, 3, 4] = 0.3
         lookup_array[0, 3, 3] = 0.3
@@ -140,13 +152,16 @@ class CityParameters(BaseModel):
         lookup_array[3, 3, 0] = 0.7
         lookup_array[4, 3, 0] = 0.1
 
+        lookup_array[0, 4, 4] = 0.3
         lookup_array[0, 4, 3] = 0.3
         lookup_array[0, 4, 2] = 0.3
         lookup_array[1, 4, 2] = 0.3
         lookup_array[1, 4, 1] = 0.5
+        lookup_array[2, 4, 2] = 0.5
         lookup_array[2, 4, 1] = 0.5
         lookup_array[2, 4, 0] = 0.5
         lookup_array[3, 4, 0] = 0.5
+        lookup_array[4, 4, 0] = 0.5
 
         lookup_array[0, 5, 2] = 0.7
         lookup_array[0, 5, 1] = 0.7
@@ -154,15 +169,17 @@ class CityParameters(BaseModel):
         lookup_array[1, 5, 0] = 0.7
         lookup_array[2, 5, 0] = 0.5
 
+        lookup_array[0, 6, 2] = 0.6
         lookup_array[0, 6, 1] = 0.5
         lookup_array[0, 6, 0] = 0.5
         lookup_array[1, 6, 0] = 0.5
+        lookup_array[2, 6, 0] = 0.6
 
         lookup_array[0, 7, 0] = 0.5
 
-        nb_idx = int(nb * 8)
         bs_idx = int(bs * 8)
         bf_idx = int(bf * 8)
+        nb_idx = int(nb * 8)
 
         if nb_idx == 8:
             nb_idx = 7
@@ -174,11 +191,41 @@ class CityParameters(BaseModel):
         kc = lookup_array[bs_idx, bf_idx, nb_idx]
         if kc == 0:
             print('Invalid value for k')
+        
+        # invalid_combinations = []
+        # # Iterate over bs, bf, nb in increments of 0.01
+        # step = 0.01
+        # for bs in np.arange(0, 1 + step, step):
+        #     for bf in np.arange(0, 1 - bs + step, step):
+        #         nb = 1 - bs - bf
+        #         if nb < 0 or nb > 1:
+        #             continue
+
+        #         bs_idx = int(bs * 8)
+        #         bf_idx = int(bf * 8)
+        #         nb_idx = int(nb * 8)
+
+        #         # Adjust indices if they are at the boundary
+        #         if nb_idx == 8:
+        #             nb_idx = 7
+        #         if bs_idx == 8:
+        #             bs_idx = 7
+        #         if bf_idx == 8:
+        #             bf_idx = 7
+
+        #         kc = lookup_array[bs_idx, bf_idx, nb_idx]
+        #         if kc == 0:
+        #             invalid_combinations.append((bs, bf, nb))
+
+        # # Print invalid combinations
+        # for combo in invalid_combinations:
+        #     print(f"Invalid combination: bs={combo[0]:.2f}, bf={combo[1]:.2f}, nb={combo[2]:.2f}")
 
         # ft, accounts for temperature
         tmin = 0
         tmax = 55
         topt = 35
+        self.temp = 18
         t = self.temp + 10 # landfill is warmer than ambient
 
         num = (t - tmax) * (t - tmin) ** 2
@@ -398,7 +445,7 @@ class City:
         # Create city-level dataframes
         start_year = 1960
         end_year = 2073
-        city_parameters.waste_generated_df = WasteGeneratedDF.create(city_parameters.waste_mass, city_parameters.waste_fractions, start_year, end_year, city_parameters.year_of_data_pop, city_parameters.growth_rate_historic, city_parameters.growth_rate_future).df
+        city_parameters.waste_generated_df = WasteGeneratedDF.create(city_parameters.waste_mass, city_parameters.waste_fractions, start_year, end_year, city_parameters.year_of_data_pop, city_parameters.growth_rate_historic, city_parameters.growth_rate_future)
         
         # if scenario == 0:
         #     self.baseline_parameters = city_parameters
@@ -473,7 +520,8 @@ class City:
         if city_parameters.landfills is not None:
             for landfill in city_parameters.landfills:
                 landfill.city_params_dict = city_params_dict
-                landfill.model.city_params_dict = city_params_dict
+                if hasattr(landfill, 'model'):
+                    landfill.model.city_params_dict = city_params_dict
 
         return city_params_dict
 
@@ -497,19 +545,50 @@ class City:
 
         diverted_masses = {}
 
-        for div in parameters.div_component_fractions.model_fields:
-            diverted_masses[div] = {}
-            fracs = getattr(parameters.div_component_fractions, div)
+        if isinstance(parameters.div_fractions.combustion, float):
+            for div in parameters.div_component_fractions.model_fields:
+                diverted_masses[div] = {}
+                fracs = getattr(parameters.div_component_fractions, div)
+                s = sum(fracs.__dict__.values())
+                # Make sure the component fractions add up to 1
+                if s != 0 and np.abs(1 - s) > 0.01:
+                    print(s, 'problems', div)
+                for waste in fracs.__fields__:
+                    diverted_masses[div][waste] = (
+                        parameters.waste_mass *
+                        getattr(parameters.div_fractions, div) *
+                        getattr(fracs, waste)
+                    )
+        else:
+            for div in ['compost', 'anaerobic', 'recycling']:
+                diverted_masses[div] = {}
+                fracs = getattr(parameters.div_component_fractions, div)
+                s = sum(fracs.__dict__.values())
+                # Make sure the component fractions add up to 1
+                if s != 0 and np.abs(1 - s) > 0.01:
+                    print(s, 'problems', div)
+                for waste in fracs.__fields__:
+                    diverted_masses[div][waste] = (
+                        parameters.waste_mass *
+                        getattr(parameters.div_fractions, div) *
+                        getattr(fracs, waste)
+                    )
+
+            diverted_masses['combustion'] = {}
+            fracs = parameters.div_component_fractions.combustion
             s = sum(fracs.__dict__.values())
             # Make sure the component fractions add up to 1
             if s != 0 and np.abs(1 - s) > 0.01:
                 print(s, 'problems', div)
             for waste in fracs.__fields__:
-                diverted_masses[div][waste] = (
-                    parameters.waste_mass *
-                    getattr(parameters.div_fractions, div) *
-                    getattr(fracs, waste)
-                )
+                diverted_masses['combustion'][waste] = {}
+                for year in parameters.div_fractions.combustion.index:
+                    diverted_masses['combustion'][waste][year] = (
+                            parameters.waste_mass *
+                            parameters.div_fractions.combustion.at[year] *
+                            getattr(fracs, waste)
+                        )
+            diverted_masses['combustion'] = pd.DataFrame(diverted_masses['combustion'])
 
         # Reduce diverted masses by rejection rates
         for waste in self.div_components['compost']:
@@ -521,12 +600,20 @@ class City:
         for waste in self.div_components['recycling']:
             diverted_masses['recycling'][waste] *= self.recycling_reject_rates[waste]
 
-        divs = DivMasses(
-            compost=WasteMasses(**diverted_masses['compost']),
-            anaerobic=WasteMasses(**diverted_masses['anaerobic']),
-            combustion=WasteMasses(**diverted_masses['combustion']),
-            recycling=WasteMasses(**diverted_masses['recycling'])
-        )
+        if isinstance(parameters.div_fractions.combustion, float):
+            divs = DivMasses(
+                compost=WasteMasses(**diverted_masses['compost']),
+                anaerobic=WasteMasses(**diverted_masses['anaerobic']),
+                combustion=WasteMasses(**diverted_masses['combustion']),
+                recycling=WasteMasses(**diverted_masses['recycling'])
+            )
+        else:
+            divs = DivMasses(
+                compost=WasteMasses(**diverted_masses['compost']),
+                anaerobic=WasteMasses(**diverted_masses['anaerobic']),
+                combustion=diverted_masses['combustion'],
+                recycling=WasteMasses(**diverted_masses['recycling'])
+            )
 
         # Save the results in the correct attribute
         parameters.divs = divs
@@ -794,11 +881,12 @@ class City:
 
         if scenario == 0:
             parameters = self.baseline_parameters
+            organic_emissions = parameters.organic_emissions
+            landfill_emissions = [x.emissions.map(self.convert_methane_m3_to_ton_co2e) for x in parameters.non_zero_landfills]
         else:
             parameters = self.scenario_parameters[scenario - 1]
-
-        organic_emissions = parameters.organic_emissions
-        landfill_emissions = [x.emissions.map(self.convert_methane_m3_to_ton_co2e) for x in parameters.non_zero_landfills]
+            organic_emissions = parameters.organic_emissions
+            landfill_emissions = [x.emissions.map(self.convert_methane_m3_to_ton_co2e) for x in parameters.landfills]
 
         # Concatenate all emissions dataframes
         all_emissions = pd.concat(landfill_emissions, axis=0)
@@ -826,7 +914,7 @@ class City:
         parameters.diversion_emissions = summed_diversion_emissions
         parameters.total_emissions = summed_emissions
 
-    def _check_masses_v2(self, scenario: int) -> None:
+    def _check_masses_v2(self, scenario: int, advanced: bool=False) -> None:
         """
         Adjusts diversion waste type fractions if more of a waste type is being diverted than generated.
 
@@ -838,224 +926,458 @@ class City:
         else:
             parameters = self.scenario_parameters[scenario-1]
 
-        div_fractions = parameters.div_fractions
-        div_component_fractions = parameters.div_component_fractions
+        if not advanced:
+            div_fractions = parameters.div_fractions
+            div_component_fractions = parameters.div_component_fractions
 
-        components_multiplied_through = {}
-        for div in div_component_fractions.model_fields:
-            components_multiplied_through[div] = {}
-            for waste in getattr(div_component_fractions, div).model_fields:
-                components_multiplied_through[div][waste] = getattr(div_fractions, div) * getattr(getattr(div_component_fractions, div), waste)
+            components_multiplied_through = {}
+            for div in div_component_fractions.model_fields:
+                components_multiplied_through[div] = {}
+                for waste in getattr(div_component_fractions, div).model_fields:
+                    components_multiplied_through[div][waste] = getattr(div_fractions, div) * getattr(getattr(div_component_fractions, div), waste)
 
-        net = {}
-        negative_catcher = False
-        for waste in self.baseline_parameters.waste_fractions.model_fields:
-            s = sum(components_multiplied_through[div].get(waste, 0) for div in div_fractions.model_fields)
-            net[waste] = getattr(self.baseline_parameters.waste_fractions, waste) - s
-            if net[waste] < -1e-3:
-                negative_catcher = True
+            net = {}
+            negative_catcher = False
+            for waste in parameters.waste_fractions.model_fields:
+                s = sum(components_multiplied_through[div].get(waste, 0) for div in div_fractions.model_fields)
+                net[waste] = getattr(parameters.waste_fractions, waste) - s
+                if net[waste] < -1e-3:
+                    negative_catcher = True
 
-        if not negative_catcher:
-            #divs = self._divs_from_component_fractions(div_fractions, div_component_fractions, scenario=scenario)
-            #parameters.divs = divs
-            parameters.adjusted_diversion_constituents = False
-            parameters.input_problems = False
-            return
+            if not negative_catcher:
+                #divs = self._divs_from_component_fractions(div_fractions, div_component_fractions, scenario=scenario)
+                #parameters.divs = divs
+                parameters.adjusted_diversion_constituents = False
+                parameters.input_problems = False
+                return
 
-        if sum(getattr(div_fractions, div) for div in div_fractions.model_fields) > 1:
-            raise CustomError("INVALID_PARAMETERS", f"Diversions sum to {sum(getattr(div_fractions, div) for div in div_fractions.model_fields)}, but they must sum to 1 or less.")
-        
-        compostables = sum(getattr(self.baseline_parameters.waste_fractions, waste) for waste in ['food', 'green', 'wood', 'paper_cardboard'])
-        if div_fractions.compost + div_fractions.anaerobic > compostables:
-            raise CustomError("INVALID_PARAMETERS", f"Only food, green, wood, and paper/cardboard can be composted or anaerobically digested. Those waste types sum to {compostables}, but input values of compost and anaerobic digestion sum to {div_fractions.compost + div_fractions.anaerobic}.")
-
-        for div in div_fractions.model_fields:
-            fraction = getattr(div_fractions, div)
-            s = sum(getattr(self.baseline_parameters.waste_fractions, waste) for waste in self.div_components[div])
-            if s / self.baseline_parameters.waste_mass < fraction:
-                components = self.div_components[div]
-                values = [getattr(self.baseline_parameters.waste_fractions, x) for x in components]
-                raise CustomError("INVALID_PARAMETERS", f"{div} too high. {div} applies to {components}, which are {values} of total waste--the sum of these is {sum(values)}, so only that much waste can be {div}, but input value was {fraction}.")
-
-        non_combustables = sum(getattr(self.baseline_parameters.waste_fractions, waste) for waste in ['glass', 'metal', 'other'])
-        if div_fractions.compost + div_fractions.anaerobic + div_fractions.combustion > (1 - non_combustables):
-            s = div_fractions.compost + div_fractions.anaerobic + div_fractions.combustion
-            raise CustomError("INVALID_PARAMETERS", f"Glass, metal, and other account for {non_combustables:.3f} of waste, and they can only be recycled. {div_fractions.compost} compost, {div_fractions.anaerobic} anaerobic, and {div_fractions.combustion} incineration were specified, summing to {s}, but only {1 - non_combustables} of waste can be diverted to these diversion types.")
-
-        non_combustion = {}
-        combustion_all = {}
-        keys_of_interest = ['compost', 'anaerobic', 'recycling']
-        for waste in self.baseline_parameters.waste_fractions.model_fields:
-            s = sum(components_multiplied_through[div].get(waste, 0) for div in keys_of_interest)
-            non_combustion[waste] = s
-            combustion_all[waste] = getattr(self.baseline_parameters.waste_fractions, waste) - s
-
-        adjust_non_combustion = False
-        for waste, frac in non_combustion.items():
-            if frac > getattr(self.baseline_parameters.waste_fractions, waste):
-                adjust_non_combustion = True
-
-        if adjust_non_combustion:
-            div_component_fractions_adjusted = DivComponentFractions(**div_component_fractions.model_dump())
-
-            dont_add_to = {waste for waste, frac in self.baseline_parameters.waste_fractions.model_dump().items() if frac == 0}
-            problems = [set(waste for waste, frac in non_combustion.items() if frac > getattr(self.baseline_parameters.waste_fractions, waste))]
-            dont_add_to.update(problems[0])
-
-            while problems:
-                probs = problems.pop(0)
-                for waste in probs:
-                    remove = {}
-                    distribute = {}
-                    overflow = {}
-                    can_be_adjusted = []
-                    div_total = sum(getattr(div_fractions, div) * getattr(getattr(div_component_fractions_adjusted, div), waste) for div in keys_of_interest if waste in getattr(div_component_fractions_adjusted, div).model_fields)
-                    div_target = getattr(self.baseline_parameters.waste_fractions, waste)
-                    diff = (div_total - div_target) / div_total
-
-                    for div in keys_of_interest:
-                        if getattr(div_fractions, div) == 0:
-                            continue
-                        distribute[div] = {}
-                        component = getattr(getattr(div_component_fractions_adjusted, div), waste, 0)
-                        to_be_removed = diff * component
-
-                        to_distribute_to = [x for x in self.div_components[div] if x not in dont_add_to]
-                        to_distribute_to_sum = sum(getattr(getattr(div_component_fractions_adjusted, div), x, 0) for x in to_distribute_to)
-                        if to_distribute_to_sum == 0:
-                            overflow[div] = 1
-                            continue
-
-                        for w in to_distribute_to:
-                            add_amount = to_be_removed * (getattr(getattr(div_component_fractions_adjusted, div), w, 0) / to_distribute_to_sum)
-                            if w not in distribute[div]:
-                                distribute[div][w] = [add_amount]
-                            else:
-                                distribute[div][w].append(add_amount)
-
-                        remove[div] = to_be_removed
-                        can_be_adjusted.append(div)
-
-                    for div in overflow:
-                        component = getattr(getattr(div_component_fractions_adjusted, div), waste, 0)
-                        to_be_removed = diff * component
-                        to_distribute_to = [x for x in distribute.keys() if waste in self.div_components[x] and x not in overflow]
-                        to_distribute_to_sum = sum(getattr(div_fractions, x) for x in to_distribute_to)
-                        if to_distribute_to_sum == 0:
-                            raise CustomError("INVALID_PARAMETERS", f"Combination of compost, anaerobic digestion, and recycling is too high")
-
-                        for d in to_distribute_to:
-                            to_be_removed_component = to_be_removed * (getattr(div_fractions, d) / to_distribute_to_sum) / getattr(div_fractions, d)
-                            to_distribute_to_component = [x for x in getattr(div_component_fractions_adjusted, d).model_fields if x not in dont_add_to]
-                            to_distribute_to_sum_component = sum(getattr(getattr(div_component_fractions_adjusted, d), x, 0) for x in to_distribute_to_component)
-                            if to_distribute_to_sum_component == 0:
-                                raise CustomError("INVALID_PARAMETERS", f"Combination of compost, anaerobic digestion, and recycling is too high")
-
-                            for w in to_distribute_to_component:
-                                add_amount = to_be_removed_component * getattr(getattr(div_component_fractions_adjusted, d), w, 0) / to_distribute_to_sum_component
-                                if w in distribute[d]:
-                                    distribute[d][w].append(add_amount)
-
-                            remove[d] += to_be_removed_component
-
-                    for div in distribute:
-                        for w in distribute[div]:
-                            setattr(getattr(div_component_fractions_adjusted, div), w, getattr(getattr(div_component_fractions_adjusted, div), w) + sum(distribute[div][w]))
-
-                    for div in remove:
-                        setattr(getattr(div_component_fractions_adjusted, div), waste, getattr(getattr(div_component_fractions_adjusted, div), waste) - remove[div])
-
-                new_probs = {waste for waste in self.baseline_parameters.waste_fractions.model_fields if sum(getattr(div_fractions, div) * getattr(getattr(div_component_fractions_adjusted, div), waste, 0) for div in keys_of_interest) > getattr(self.baseline_parameters.waste_fractions, waste) + 0.001}
-                if new_probs:
-                    problems.append(new_probs)
-                dont_add_to.update(new_probs)
-
-            components_multiplied_through = {
-                div: {waste: getattr(div_fractions, div) * getattr(getattr(div_component_fractions_adjusted, div), waste) for waste in getattr(div_component_fractions_adjusted, div).model_fields}
-                for div in div_component_fractions_adjusted.model_fields
-            }
-
-        non_combustion = {}
-        combustion_all = {}
-        for waste in self.baseline_parameters.waste_fractions.model_fields:
-            s = sum(components_multiplied_through[div].get(waste, 0) for div in keys_of_interest)
-            non_combustion[waste] = s
-            combustion_all[waste] = getattr(self.baseline_parameters.waste_fractions, waste) - s
-
-        adjust_non_combustion = False
-        for waste, frac in non_combustion.items():
-            if frac > (getattr(self.baseline_parameters.waste_fractions, waste) + 1e-5):
-                adjust_non_combustion = True
-                raise CustomError("INVALID_PARAMETERS", f"Combination of compost, anaerobic digestion, and recycling is too high")
-
-        all_divs = sum(getattr(div_fractions, div) for div in div_fractions.model_fields)
-
-        assert np.abs(div_fractions.recycling - sum(components_multiplied_through['recycling'].values())) < 1e-3
-
-        remainder = sum(fraction for waste_type, fraction in combustion_all.items() if waste_type in self.div_components['combustion'])
-        combustion_fraction_of_remainder = div_fractions.combustion / remainder
-        if combustion_fraction_of_remainder > (1 + 1e-5):
-            non_combustables = [x for x in self.baseline_parameters.waste_fractions.model_fields if x not in self.div_components['combustion']]
-            for waste in non_combustables:
-                if getattr(self.baseline_parameters.waste_fractions, waste) == 0:
-                    continue
-                new_val = getattr(self.baseline_parameters.waste_fractions, waste) * all_divs
-                components_multiplied_through['recycling'][waste] = new_val
+            if sum(getattr(div_fractions, div) for div in div_fractions.model_fields) > 1:
+                raise CustomError("INVALID_PARAMETERS", f"Diversions sum to {sum(getattr(div_fractions, div) for div in div_fractions.model_fields)}, but they must sum to 1 or less.")
             
-            available_div = sum(v for k, v in components_multiplied_through['recycling'].items() if k not in non_combustables)
-            available_div_target = div_fractions.recycling - sum(v for k, v in components_multiplied_through['recycling'].items() if k in non_combustables)
-            if available_div_target < 0:
-                too_much_frac = (sum(v for k, v in components_multiplied_through['recycling'].items() if k in non_combustables) - div_fractions.recycling) / sum(v for k, v in components_multiplied_through['recycling'].items() if k in non_combustables)
-                for key, value in components_multiplied_through['recycling'].items():
-                    if key in non_combustables:
-                        components_multiplied_through['recycling'][key] = value * (1 - too_much_frac)
-                    else:
-                        components_multiplied_through['recycling'][key] = 0
-                assert np.abs(div_fractions.recycling - sum(v for v in components_multiplied_through['recycling'].values())) < 1e-5
+            compostables = sum(getattr(parameters.waste_fractions, waste) for waste in ['food', 'green', 'wood', 'paper_cardboard'])
+            if div_fractions.compost + div_fractions.anaerobic > compostables:
+                raise CustomError("INVALID_PARAMETERS", f"Only food, green, wood, and paper/cardboard can be composted or anaerobically digested. Those waste types sum to {compostables}, but input values of compost and anaerobic digestion sum to {div_fractions.compost + div_fractions.anaerobic}.")
 
-            else:
-                reduce_frac = (available_div - available_div_target) / available_div
-                for key, value in components_multiplied_through['recycling'].items():
-                    if key not in non_combustables:
-                        components_multiplied_through['recycling'][key] = value * (1 - reduce_frac)
-                assert np.abs(div_fractions.recycling - sum(v for v in components_multiplied_through['recycling'].values())) < 1e-5
+            for div in div_fractions.model_fields:
+                fraction = getattr(div_fractions, div)
+                s = sum(getattr(parameters.waste_fractions, waste) for waste in self.div_components[div])
+                if s < fraction:
+                    components = self.div_components[div]
+                    values = [getattr(parameters.waste_fractions, x) for x in components]
+                    raise CustomError("INVALID_PARAMETERS", f"{div} too high. {div} applies to {components}, which are {values} of total waste--the sum of these is {sum(values)}, so only that much waste can be {div}, but input value was {fraction}.")
+
+            non_combustables = sum(getattr(parameters.waste_fractions, waste) for waste in ['glass', 'metal', 'other'])
+            if div_fractions.compost + div_fractions.anaerobic + div_fractions.combustion > (1 - non_combustables):
+                s = div_fractions.compost + div_fractions.anaerobic + div_fractions.combustion
+                raise CustomError("INVALID_PARAMETERS", f"Glass, metal, and other account for {non_combustables:.3f} of waste, and they can only be recycled. {div_fractions.compost} compost, {div_fractions.anaerobic} anaerobic, and {div_fractions.combustion} incineration were specified, summing to {s}, but only {1 - non_combustables} of waste can be diverted to these diversion types.")
 
             non_combustion = {}
             combustion_all = {}
-            for waste in self.baseline_parameters.waste_fractions.model_fields:
+            keys_of_interest = ['compost', 'anaerobic', 'recycling']
+            for waste in parameters.waste_fractions.model_fields:
                 s = sum(components_multiplied_through[div].get(waste, 0) for div in keys_of_interest)
                 non_combustion[waste] = s
-                combustion_all[waste] = getattr(self.baseline_parameters.waste_fractions, waste) - s
+                combustion_all[waste] = getattr(parameters.waste_fractions, waste) - s
+
+            adjust_non_combustion = False
+            for waste, frac in non_combustion.items():
+                if frac > getattr(parameters.waste_fractions, waste):
+                    adjust_non_combustion = True
+
+            if adjust_non_combustion:
+                div_component_fractions_adjusted = DivComponentFractions(**div_component_fractions.model_dump())
+
+                dont_add_to = {waste for waste, frac in parameters.waste_fractions.model_dump().items() if frac == 0}
+                problems = [set(waste for waste, frac in non_combustion.items() if frac > getattr(parameters.waste_fractions, waste))]
+                dont_add_to.update(problems[0])
+
+                while problems:
+                    probs = problems.pop(0)
+                    for waste in probs:
+                        remove = {}
+                        distribute = {}
+                        overflow = {}
+                        can_be_adjusted = []
+                        div_total = sum(getattr(div_fractions, div) * getattr(getattr(div_component_fractions_adjusted, div), waste) for div in keys_of_interest if waste in getattr(div_component_fractions_adjusted, div).model_fields)
+                        div_target = getattr(parameters.waste_fractions, waste)
+                        diff = (div_total - div_target) / div_total
+
+                        for div in keys_of_interest:
+                            if getattr(div_fractions, div) == 0:
+                                continue
+                            distribute[div] = {}
+                            component = getattr(getattr(div_component_fractions_adjusted, div), waste, 0)
+                            to_be_removed = diff * component
+
+                            to_distribute_to = [x for x in self.div_components[div] if x not in dont_add_to]
+                            to_distribute_to_sum = sum(getattr(getattr(div_component_fractions_adjusted, div), x, 0) for x in to_distribute_to)
+                            if to_distribute_to_sum == 0:
+                                overflow[div] = 1
+                                continue
+
+                            for w in to_distribute_to:
+                                add_amount = to_be_removed * (getattr(getattr(div_component_fractions_adjusted, div), w, 0) / to_distribute_to_sum)
+                                if w not in distribute[div]:
+                                    distribute[div][w] = [add_amount]
+                                else:
+                                    distribute[div][w].append(add_amount)
+
+                            remove[div] = to_be_removed
+                            can_be_adjusted.append(div)
+
+                        for div in overflow:
+                            component = getattr(getattr(div_component_fractions_adjusted, div), waste, 0)
+                            to_be_removed = diff * component
+                            to_distribute_to = [x for x in distribute.keys() if waste in self.div_components[x] and x not in overflow]
+                            to_distribute_to_sum = sum(getattr(div_fractions, x) for x in to_distribute_to)
+                            if to_distribute_to_sum == 0:
+                                raise CustomError("INVALID_PARAMETERS", f"Combination of compost, anaerobic digestion, and recycling is too high")
+
+                            for d in to_distribute_to:
+                                to_be_removed_component = to_be_removed * (getattr(div_fractions, d) / to_distribute_to_sum) / getattr(div_fractions, d)
+                                to_distribute_to_component = [x for x in getattr(div_component_fractions_adjusted, d).model_fields if x not in dont_add_to]
+                                to_distribute_to_sum_component = sum(getattr(getattr(div_component_fractions_adjusted, d), x, 0) for x in to_distribute_to_component)
+                                if to_distribute_to_sum_component == 0:
+                                    raise CustomError("INVALID_PARAMETERS", f"Combination of compost, anaerobic digestion, and recycling is too high")
+
+                                for w in to_distribute_to_component:
+                                    add_amount = to_be_removed_component * getattr(getattr(div_component_fractions_adjusted, d), w, 0) / to_distribute_to_sum_component
+                                    if w in distribute[d]:
+                                        distribute[d][w].append(add_amount)
+
+                                remove[d] += to_be_removed_component
+
+                        for div in distribute:
+                            for w in distribute[div]:
+                                setattr(getattr(div_component_fractions_adjusted, div), w, getattr(getattr(div_component_fractions_adjusted, div), w) + sum(distribute[div][w]))
+
+                        for div in remove:
+                            setattr(getattr(div_component_fractions_adjusted, div), waste, getattr(getattr(div_component_fractions_adjusted, div), waste) - remove[div])
+
+                    new_probs = {waste for waste in parameters.waste_fractions.model_fields if sum(getattr(div_fractions, div) * getattr(getattr(div_component_fractions_adjusted, div), waste, 0) for div in keys_of_interest) > getattr(parameters.waste_fractions, waste) + 0.001}
+                    if new_probs:
+                        problems.append(new_probs)
+                    dont_add_to.update(new_probs)
+
+                components_multiplied_through = {
+                    div: {waste: getattr(div_fractions, div) * getattr(getattr(div_component_fractions_adjusted, div), waste) for waste in getattr(div_component_fractions_adjusted, div).model_fields}
+                    for div in div_component_fractions_adjusted.model_fields
+                }
+
+            non_combustion = {}
+            combustion_all = {}
+            for waste in parameters.waste_fractions.model_fields:
+                s = sum(components_multiplied_through[div].get(waste, 0) for div in keys_of_interest)
+                non_combustion[waste] = s
+                combustion_all[waste] = getattr(parameters.waste_fractions, waste) - s
+
+            adjust_non_combustion = False
+            for waste, frac in non_combustion.items():
+                if frac > (getattr(parameters.waste_fractions, waste) + 1e-5):
+                    adjust_non_combustion = True
+                    raise CustomError("INVALID_PARAMETERS", f"Combination of compost, anaerobic digestion, and recycling is too high")
+
+            all_divs = sum(getattr(div_fractions, div) for div in div_fractions.model_fields)
+
+            assert np.abs(div_fractions.recycling - sum(components_multiplied_through['recycling'].values())) < 1e-3
 
             remainder = sum(fraction for waste_type, fraction in combustion_all.items() if waste_type in self.div_components['combustion'])
             combustion_fraction_of_remainder = div_fractions.combustion / remainder
-            assert combustion_fraction_of_remainder < (1 + 1e-5)
-            if combustion_fraction_of_remainder > 1:
-                combustion_fraction_of_remainder = 1
+            if combustion_fraction_of_remainder > (1 + 1e-5):
+                non_combustables = [x for x in parameters.waste_fractions.model_fields if x not in self.div_components['combustion']]
+                for waste in non_combustables:
+                    if getattr(parameters.waste_fractions, waste) == 0:
+                        continue
+                    new_val = getattr(parameters.waste_fractions, waste) * all_divs
+                    components_multiplied_through['recycling'][waste] = new_val
+                
+                available_div = sum(v for k, v in components_multiplied_through['recycling'].items() if k not in non_combustables)
+                available_div_target = div_fractions.recycling - sum(v for k, v in components_multiplied_through['recycling'].items() if k in non_combustables)
+                if available_div_target < 0:
+                    too_much_frac = (sum(v for k, v in components_multiplied_through['recycling'].items() if k in non_combustables) - div_fractions.recycling) / sum(v for k, v in components_multiplied_through['recycling'].items() if k in non_combustables)
+                    for key, value in components_multiplied_through['recycling'].items():
+                        if key in non_combustables:
+                            components_multiplied_through['recycling'][key] = value * (1 - too_much_frac)
+                        else:
+                            components_multiplied_through['recycling'][key] = 0
+                    assert np.abs(div_fractions.recycling - sum(v for v in components_multiplied_through['recycling'].values())) < 1e-5
 
-        for waste in self.div_components['combustion']:
-            components_multiplied_through['combustion'][waste] = combustion_fraction_of_remainder * combustion_all[waste]
+                else:
+                    reduce_frac = (available_div - available_div_target) / available_div
+                    for key, value in components_multiplied_through['recycling'].items():
+                        if key not in non_combustables:
+                            components_multiplied_through['recycling'][key] = value * (1 - reduce_frac)
+                    assert np.abs(div_fractions.recycling - sum(v for v in components_multiplied_through['recycling'].values())) < 1e-5
 
-        for d in div_fractions.model_fields:
-            assert np.abs(getattr(div_fractions, d) - sum(components_multiplied_through[d].values())) < 1e-3
-            for w in components_multiplied_through[d]:
-                if abs(components_multiplied_through[d][w]) < 1e-5:
-                    components_multiplied_through[d][w] = 0
-                assert components_multiplied_through[d][w] >= 0
+                non_combustion = {}
+                combustion_all = {}
+                for waste in parameters.waste_fractions.model_fields:
+                    s = sum(components_multiplied_through[div].get(waste, 0) for div in keys_of_interest)
+                    non_combustion[waste] = s
+                    combustion_all[waste] = getattr(parameters.waste_fractions, waste) - s
 
-        adjusted_div_component_fractions = {
-            div: {waste: components_multiplied_through[div][waste] / getattr(div_fractions, div) if getattr(div_fractions, div) != 0 else 0 for waste in components_multiplied_through[div]}
-            for div in components_multiplied_through
-        }
+                remainder = sum(fraction for waste_type, fraction in combustion_all.items() if waste_type in self.div_components['combustion'])
+                combustion_fraction_of_remainder = div_fractions.combustion / remainder
+                assert combustion_fraction_of_remainder < (1 + 1e-5)
+                if combustion_fraction_of_remainder > 1:
+                    combustion_fraction_of_remainder = 1
 
-        adjusted_div_component_fractions = DivComponentFractions(**adjusted_div_component_fractions)
+            for waste in self.div_components['combustion']:
+                components_multiplied_through['combustion'][waste] = combustion_fraction_of_remainder * combustion_all[waste]
 
-        divs = self._divs_from_component_fractions(div_fractions, adjusted_div_component_fractions, scenario=scenario)
+            for d in div_fractions.model_fields:
+                assert np.abs(getattr(div_fractions, d) - sum(components_multiplied_through[d].values())) < 1e-3
+                for w in components_multiplied_through[d]:
+                    if abs(components_multiplied_through[d][w]) < 1e-5:
+                        components_multiplied_through[d][w] = 0
+                    assert components_multiplied_through[d][w] >= 0
 
-        parameters.div_component_fractions = adjusted_div_component_fractions
-        parameters.divs = divs
-        parameters.adjusted_diversion_constituents = True
-        parameters.input_problems = False
+            adjusted_div_component_fractions = {
+                div: {waste: components_multiplied_through[div][waste] / getattr(div_fractions, div) if getattr(div_fractions, div) != 0 else 0 for waste in components_multiplied_through[div]}
+                for div in components_multiplied_through
+            }
+
+            adjusted_div_component_fractions = DivComponentFractions(**adjusted_div_component_fractions)
+
+            divs = self._divs_from_component_fractions(div_fractions, adjusted_div_component_fractions, scenario=scenario)
+
+            parameters.div_component_fractions = adjusted_div_component_fractions
+            parameters.divs = divs
+            parameters.adjusted_diversion_constituents = True
+            parameters.input_problems = False
+        
+        else:
+            
+            # For this to work, I need to identify during which divset the implement year is. All divsets before that
+            # only need to check against pre-implement, all divsets after should check against post-implement, and the
+            # divset of the implement year should check against both.
+
+            div_fractions = parameters.div_fractions
+            div_component_fractions = parameters.div_component_fractions
+
+            components_multiplied_through = {}
+            for div in div_component_fractions.model_fields:
+                components_multiplied_through[div] = {}
+                for waste in getattr(div_component_fractions, div).model_fields:
+                    components_multiplied_through[div][waste] = getattr(div_fractions, div) * getattr(getattr(div_component_fractions, div), waste)
+
+            components_multiplied_through['combustion'] = pd.DataFrame(components_multiplied_through['combustion'])
+            unique_divsets = components_multiplied_through['combustion'].drop_duplicates()
+
+            for divset in unique_divsets.iterrows():
+                divset = divset[1]
+                components_multiplied_through_dummy = components_multiplied_through.copy()
+                components_multiplied_through_dummy['combustion'] = {x: float(divset.at[x]) for x in divset.index}
+
+                net = {}
+                negative_catcher = False
+                for waste in parameters.waste_fractions.model_fields:
+                    s = sum(components_multiplied_through[div].get(waste, 0) for div in div_fractions.model_fields)
+                    net[waste] = getattr(parameters.waste_fractions, waste) - s
+                    if net[waste] < -1e-3:
+                        negative_catcher = True
+
+                if not negative_catcher:
+                    #divs = self._divs_from_component_fractions(div_fractions, div_component_fractions, scenario=scenario)
+                    #parameters.divs = divs
+                    parameters.adjusted_diversion_constituents = False
+                    parameters.input_problems = False
+                    return
+
+                if sum(getattr(div_fractions, div) for div in div_fractions.model_fields) > 1:
+                    raise CustomError("INVALID_PARAMETERS", f"Diversions sum to {sum(getattr(div_fractions, div) for div in div_fractions.model_fields)}, but they must sum to 1 or less.")
+                
+                compostables = sum(getattr(parameters.waste_fractions, waste) for waste in ['food', 'green', 'wood', 'paper_cardboard'])
+                if div_fractions.compost + div_fractions.anaerobic > compostables:
+                    raise CustomError("INVALID_PARAMETERS", f"Only food, green, wood, and paper/cardboard can be composted or anaerobically digested. Those waste types sum to {compostables}, but input values of compost and anaerobic digestion sum to {div_fractions.compost + div_fractions.anaerobic}.")
+
+                for div in div_fractions.model_fields:
+                    fraction = getattr(div_fractions, div)
+                    s = sum(getattr(parameters.waste_fractions, waste) for waste in self.div_components[div])
+                    if s < fraction:
+                        components = self.div_components[div]
+                        values = [getattr(parameters.waste_fractions, x) for x in components]
+                        raise CustomError("INVALID_PARAMETERS", f"{div} too high. {div} applies to {components}, which are {values} of total waste--the sum of these is {sum(values)}, so only that much waste can be {div}, but input value was {fraction}.")
+
+                non_combustables = sum(getattr(parameters.waste_fractions, waste) for waste in ['glass', 'metal', 'other'])
+                if div_fractions.compost + div_fractions.anaerobic + div_fractions.combustion > (1 - non_combustables):
+                    s = div_fractions.compost + div_fractions.anaerobic + div_fractions.combustion
+                    raise CustomError("INVALID_PARAMETERS", f"Glass, metal, and other account for {non_combustables:.3f} of waste, and they can only be recycled. {div_fractions.compost} compost, {div_fractions.anaerobic} anaerobic, and {div_fractions.combustion} incineration were specified, summing to {s}, but only {1 - non_combustables} of waste can be diverted to these diversion types.")
+
+                non_combustion = {}
+                combustion_all = {}
+                keys_of_interest = ['compost', 'anaerobic', 'recycling']
+                for waste in parameters.waste_fractions.model_fields:
+                    s = sum(components_multiplied_through[div].get(waste, 0) for div in keys_of_interest)
+                    non_combustion[waste] = s
+                    combustion_all[waste] = getattr(parameters.waste_fractions, waste) - s
+
+                adjust_non_combustion = False
+                for waste, frac in non_combustion.items():
+                    if frac > getattr(parameters.waste_fractions, waste):
+                        adjust_non_combustion = True
+
+                if adjust_non_combustion:
+                    div_component_fractions_adjusted = DivComponentFractions(**div_component_fractions.model_dump())
+
+                    dont_add_to = {waste for waste, frac in parameters.waste_fractions.model_dump().items() if frac == 0}
+                    problems = [set(waste for waste, frac in non_combustion.items() if frac > getattr(parameters.waste_fractions, waste))]
+                    dont_add_to.update(problems[0])
+
+                    while problems:
+                        probs = problems.pop(0)
+                        for waste in probs:
+                            remove = {}
+                            distribute = {}
+                            overflow = {}
+                            can_be_adjusted = []
+                            div_total = sum(getattr(div_fractions, div) * getattr(getattr(div_component_fractions_adjusted, div), waste) for div in keys_of_interest if waste in getattr(div_component_fractions_adjusted, div).model_fields)
+                            div_target = getattr(parameters.waste_fractions, waste)
+                            diff = (div_total - div_target) / div_total
+
+                            for div in keys_of_interest:
+                                if getattr(div_fractions, div) == 0:
+                                    continue
+                                distribute[div] = {}
+                                component = getattr(getattr(div_component_fractions_adjusted, div), waste, 0)
+                                to_be_removed = diff * component
+
+                                to_distribute_to = [x for x in self.div_components[div] if x not in dont_add_to]
+                                to_distribute_to_sum = sum(getattr(getattr(div_component_fractions_adjusted, div), x, 0) for x in to_distribute_to)
+                                if to_distribute_to_sum == 0:
+                                    overflow[div] = 1
+                                    continue
+
+                                for w in to_distribute_to:
+                                    add_amount = to_be_removed * (getattr(getattr(div_component_fractions_adjusted, div), w, 0) / to_distribute_to_sum)
+                                    if w not in distribute[div]:
+                                        distribute[div][w] = [add_amount]
+                                    else:
+                                        distribute[div][w].append(add_amount)
+
+                                remove[div] = to_be_removed
+                                can_be_adjusted.append(div)
+
+                            for div in overflow:
+                                component = getattr(getattr(div_component_fractions_adjusted, div), waste, 0)
+                                to_be_removed = diff * component
+                                to_distribute_to = [x for x in distribute.keys() if waste in self.div_components[x] and x not in overflow]
+                                to_distribute_to_sum = sum(getattr(div_fractions, x) for x in to_distribute_to)
+                                if to_distribute_to_sum == 0:
+                                    raise CustomError("INVALID_PARAMETERS", f"Combination of compost, anaerobic digestion, and recycling is too high")
+
+                                for d in to_distribute_to:
+                                    to_be_removed_component = to_be_removed * (getattr(div_fractions, d) / to_distribute_to_sum) / getattr(div_fractions, d)
+                                    to_distribute_to_component = [x for x in getattr(div_component_fractions_adjusted, d).model_fields if x not in dont_add_to]
+                                    to_distribute_to_sum_component = sum(getattr(getattr(div_component_fractions_adjusted, d), x, 0) for x in to_distribute_to_component)
+                                    if to_distribute_to_sum_component == 0:
+                                        raise CustomError("INVALID_PARAMETERS", f"Combination of compost, anaerobic digestion, and recycling is too high")
+
+                                    for w in to_distribute_to_component:
+                                        add_amount = to_be_removed_component * getattr(getattr(div_component_fractions_adjusted, d), w, 0) / to_distribute_to_sum_component
+                                        if w in distribute[d]:
+                                            distribute[d][w].append(add_amount)
+
+                                    remove[d] += to_be_removed_component
+
+                            for div in distribute:
+                                for w in distribute[div]:
+                                    setattr(getattr(div_component_fractions_adjusted, div), w, getattr(getattr(div_component_fractions_adjusted, div), w) + sum(distribute[div][w]))
+
+                            for div in remove:
+                                setattr(getattr(div_component_fractions_adjusted, div), waste, getattr(getattr(div_component_fractions_adjusted, div), waste) - remove[div])
+
+                        new_probs = {waste for waste in parameters.waste_fractions.model_fields if sum(getattr(div_fractions, div) * getattr(getattr(div_component_fractions_adjusted, div), waste, 0) for div in keys_of_interest) > getattr(parameters.waste_fractions, waste) + 0.001}
+                        if new_probs:
+                            problems.append(new_probs)
+                        dont_add_to.update(new_probs)
+
+                    components_multiplied_through = {
+                        div: {waste: getattr(div_fractions, div) * getattr(getattr(div_component_fractions_adjusted, div), waste) for waste in getattr(div_component_fractions_adjusted, div).model_fields}
+                        for div in div_component_fractions_adjusted.model_fields
+                    }
+
+                non_combustion = {}
+                combustion_all = {}
+                for waste in parameters.waste_fractions.model_fields:
+                    s = sum(components_multiplied_through[div].get(waste, 0) for div in keys_of_interest)
+                    non_combustion[waste] = s
+                    combustion_all[waste] = getattr(parameters.waste_fractions, waste) - s
+
+                adjust_non_combustion = False
+                for waste, frac in non_combustion.items():
+                    if frac > (getattr(parameters.waste_fractions, waste) + 1e-5):
+                        adjust_non_combustion = True
+                        raise CustomError("INVALID_PARAMETERS", f"Combination of compost, anaerobic digestion, and recycling is too high")
+
+                all_divs = sum(getattr(div_fractions, div) for div in div_fractions.model_fields)
+
+                assert np.abs(div_fractions.recycling - sum(components_multiplied_through['recycling'].values())) < 1e-3
+
+                remainder = sum(fraction for waste_type, fraction in combustion_all.items() if waste_type in self.div_components['combustion'])
+                combustion_fraction_of_remainder = div_fractions.combustion / remainder
+                if combustion_fraction_of_remainder > (1 + 1e-5):
+                    non_combustables = [x for x in parameters.waste_fractions.model_fields if x not in self.div_components['combustion']]
+                    for waste in non_combustables:
+                        if getattr(parameters.waste_fractions, waste) == 0:
+                            continue
+                        new_val = getattr(parameters.waste_fractions, waste) * all_divs
+                        components_multiplied_through['recycling'][waste] = new_val
+                    
+                    available_div = sum(v for k, v in components_multiplied_through['recycling'].items() if k not in non_combustables)
+                    available_div_target = div_fractions.recycling - sum(v for k, v in components_multiplied_through['recycling'].items() if k in non_combustables)
+                    if available_div_target < 0:
+                        too_much_frac = (sum(v for k, v in components_multiplied_through['recycling'].items() if k in non_combustables) - div_fractions.recycling) / sum(v for k, v in components_multiplied_through['recycling'].items() if k in non_combustables)
+                        for key, value in components_multiplied_through['recycling'].items():
+                            if key in non_combustables:
+                                components_multiplied_through['recycling'][key] = value * (1 - too_much_frac)
+                            else:
+                                components_multiplied_through['recycling'][key] = 0
+                        assert np.abs(div_fractions.recycling - sum(v for v in components_multiplied_through['recycling'].values())) < 1e-5
+
+                    else:
+                        reduce_frac = (available_div - available_div_target) / available_div
+                        for key, value in components_multiplied_through['recycling'].items():
+                            if key not in non_combustables:
+                                components_multiplied_through['recycling'][key] = value * (1 - reduce_frac)
+                        assert np.abs(div_fractions.recycling - sum(v for v in components_multiplied_through['recycling'].values())) < 1e-5
+
+                    non_combustion = {}
+                    combustion_all = {}
+                    for waste in parameters.waste_fractions.model_fields:
+                        s = sum(components_multiplied_through[div].get(waste, 0) for div in keys_of_interest)
+                        non_combustion[waste] = s
+                        combustion_all[waste] = getattr(parameters.waste_fractions, waste) - s
+
+                    remainder = sum(fraction for waste_type, fraction in combustion_all.items() if waste_type in self.div_components['combustion'])
+                    combustion_fraction_of_remainder = div_fractions.combustion / remainder
+                    assert combustion_fraction_of_remainder < (1 + 1e-5)
+                    if combustion_fraction_of_remainder > 1:
+                        combustion_fraction_of_remainder = 1
+
+                for waste in self.div_components['combustion']:
+                    components_multiplied_through['combustion'][waste] = combustion_fraction_of_remainder * combustion_all[waste]
+
+                for d in div_fractions.model_fields:
+                    assert np.abs(getattr(div_fractions, d) - sum(components_multiplied_through[d].values())) < 1e-3
+                    for w in components_multiplied_through[d]:
+                        if abs(components_multiplied_through[d][w]) < 1e-5:
+                            components_multiplied_through[d][w] = 0
+                        assert components_multiplied_through[d][w] >= 0
+
+                adjusted_div_component_fractions = {
+                    div: {waste: components_multiplied_through[div][waste] / getattr(div_fractions, div) if getattr(div_fractions, div) != 0 else 0 for waste in components_multiplied_through[div]}
+                    for div in components_multiplied_through
+                }
+
+                adjusted_div_component_fractions = DivComponentFractions(**adjusted_div_component_fractions)
+
+                divs = self._divs_from_component_fractions(div_fractions, adjusted_div_component_fractions, scenario=scenario)
+
+                parameters.div_component_fractions = adjusted_div_component_fractions
+                parameters.divs = divs
+                parameters.adjusted_diversion_constituents = True
+                parameters.input_problems = False
 
     def _divs_from_component_fractions(self, div_fractions: DiversionFractions, div_component_fractions: DivComponentFractions, scenario: int) -> dict:
         """
@@ -1276,7 +1598,7 @@ class City:
         scenario_parameters.repopulate_attr_dicts()
         for i, landfill in enumerate(scenario_parameters.landfills):
             # Might be able to do this more efficienctly...i'm looping over the pre implementation years twice sort of
-            landfill.waste_mass_df = LandfillWasteMassDF.create(scenario_parameters.waste_generated_df, scenario_parameters.divs_df, landfill.fraction_of_waste, self.components).df
+            landfill.waste_mass_df = LandfillWasteMassDF.create(scenario_parameters.waste_generated_df.df, scenario_parameters.divs_df, landfill.fraction_of_waste, self.components).df
             landfill.waste_mass_df.loc[:(implement_year-1), :] = self.baseline_parameters.landfills[i].waste_mass_df.loc[:(implement_year-1), :]
             landfill.waste_mass_df.to_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/scratch_paper/new' + str(i) + '.csv')
 
@@ -1294,16 +1616,16 @@ class City:
         new_waste_fractions: WasteFractions,
         new_div_fractions: DiversionFractions,
         new_landfill_types: List,
-        new_landfill_fracs: List,
-        new_gas_efficiency: List,
-        new_landfill_flaring: List,
-        new_landfill_keep_old: List,
-        new_landfill_cover: List,
-        new_landfill_leachate_circulate: List,
         new_landfill_open_close_dates: List,
         implement_year: float,
         scenario: int,
         new_baseline: int,
+        fraction_waste_timeline: Dict,
+        new_gas_efficiency: List,
+        new_landfill_fracs: List = None,
+        new_landfill_flaring: List = None,
+        new_landfill_cover: List = None,
+        new_landfill_leachate_circulate: List = None,
     ) -> None:
         
         scenario_parameters = copy.deepcopy(self.baseline_parameters)
@@ -1312,29 +1634,78 @@ class City:
         scenario_parameters.waste_fractions = new_waste_fractions
         scenario_parameters._singapore_k()
 
+        # REMOVE THIS LATER
+        new_waste_mass = scenario_parameters.waste_mass
+
+        # New waste masses
+        waste_masses = {waste: frac * new_waste_mass for waste, frac in new_waste_fractions.model_dump().items()}
+        scenario_parameters.waste_masses = WasteMasses(**waste_masses)
+
+        # Update waste generated
+        scenario_parameters.waste_generated_df.dst_implement_advanced(
+            df=self.baseline_parameters.waste_generated_df.df,
+            implement_year=implement_year, 
+            new_waste_mass=new_waste_mass, 
+            new_waste_fractions=new_waste_fractions, 
+            year_of_data_pop=scenario_parameters.year_of_data_pop, 
+            growth_rate_historic=scenario_parameters.growth_rate_historic, 
+            growth_rate_future=scenario_parameters.growth_rate_future
+        )
+
+        # Create a DataFrame for fraction_waste_timeline
+        fraction_df = pd.DataFrame(fraction_waste_timeline).transpose()
+        fraction_df.columns = [f'Landfill_{i}' for i in range(fraction_df.shape[1])]
+        fraction_df.index.name = 'Year'
+
         # Set up new landfills
         city_params_dict = self.update_cityparams_dict(scenario_parameters)
-        mcfs = [1, 0.7, 0.4]
+        mcfs = [1, 0.7, 0.4] # Should this include ameliorated? 
         landfill_types = ['landfill', 'controlled_dumpsite', 'dumpsite']
-        new_landfills = []
-        for i, lf_type in enumerate(new_landfill_types.landfills):
-            new_landfill = Landfill(
-                open_date=new_landfill_open_close_dates[i][0], 
-                close_date=new_landfill_open_close_dates[i][0], 
-                site_type=landfill_types[lf_type], 
-                mcf=mcfs[lf_type],
-                city_params_dict=city_params_dict,
-                city_instance_attrs=scenario_parameters.city_instance_attrs,
-                landfill_index=0, 
-                fraction_of_waste=new_landfill_fracs[i], 
-                gas_capture=False if new_gas_efficiency[i] == 0 else True,
-                scenario=scenario,
-                new_baseline=new_baseline,
-                gas_capture_efficiency=new_gas_efficiency[i],
-                flaring=new_landfill_flaring[i],
-                cover=new_landfill_cover[i],
-                leachate_circulate=new_landfill_leachate_circulate[i]
+        
+        for i, lf_type in enumerate(new_landfill_types):
+            if i <= 2:
+                new_landfill = copy.deepcopy(self.baseline_parameters.landfills[i])
+                new_landfill.close_date = new_landfill_open_close_dates[i][1]
+                old_type = new_landfill.site_type
+                new_type = landfill_types[lf_type]
+                if new_type != old_type:
+                    new_landfill.ameliorated = True
+                new_landfill.site_type = new_type
+                new_landfill.mcf = mcfs[lf_type]
+                # not sure if these two are necessary or if they'll be taken care of other ways.
+                new_landfill.city_params_dict = city_params_dict
+                new_landfill.city_instance_attrs = scenario_parameters.city_instance_attrs
+                new_landfill.gas_capture = False if new_gas_efficiency[i] == 0 else True
+                new_landfill.scenario = scenario
+                new_landfill.new_baseline = new_baseline
+                new_landfill.gas_capture_efficiency = new_gas_efficiency[i]
+                if new_landfill.flaring:
+                    new_landfill.flaring = new_landfill_flaring[i]
+                    new_landfill.cover = new_landfill_cover[i]
+                    new_landfill.leachate_circulate = new_landfill_leachate_circulate[i]
+                new_landfill.fraction_of_waste_vector = fraction_df[f'Landfill_{i}']
+                scenario_parameters.landfills[i] = new_landfill
+            else:
+                new_landfill = Landfill(
+                    open_date=new_landfill_open_close_dates[i][0], 
+                    close_date=new_landfill_open_close_dates[i][1], 
+                    site_type=landfill_types[lf_type], 
+                    mcf=mcfs[lf_type],
+                    city_params_dict=city_params_dict,
+                    city_instance_attrs=scenario_parameters.city_instance_attrs,
+                    landfill_index=i, 
+                    fraction_of_waste=new_landfill_fracs[i], 
+                    gas_capture=False if new_gas_efficiency[i] == 0 else True,
+                    scenario=scenario,
+                    new_baseline=new_baseline,
+                    gas_capture_efficiency=new_gas_efficiency[i],
+                    flaring=new_landfill_flaring[i],
+                    cover=new_landfill_cover[i],
+                    leachate_circulate=new_landfill_leachate_circulate[i],
+                    fraction_of_waste_vector=fraction_df[f'Landfill_{i}'],
+                    advaned=True
                 )
+                scenario_parameters.landfills[i] = new_landfill
 
         scenario_parameters.implement_year = implement_year
 
@@ -1360,7 +1731,7 @@ class City:
         self._calculate_diverted_masses(scenario=scenario) # This function could be moved to cityparameters class, and then it doesn't need scenario argument
 
         #scenario_parameters.repopulate_attr_dicts()
-        self._check_masses_v2(scenario=scenario)
+        self._check_masses_v2(scenario=scenario, advanced=True)
 
         if scenario_parameters.input_problems:
             print(f'Invalid new value')
@@ -1388,12 +1759,18 @@ class City:
         scenario_parameters.repopulate_attr_dicts()
         for i, landfill in enumerate(scenario_parameters.landfills):
             # Might be able to do this more efficienctly...i'm looping over the pre implementation years twice sort of
-            landfill.waste_mass_df = LandfillWasteMassDF.create(scenario_parameters.waste_generated_df, scenario_parameters.divs_df, landfill.fraction_of_waste, self.components).df
-            landfill.waste_mass_df.loc[:(implement_year-1), :] = self.baseline_parameters.landfills[i].waste_mass_df.loc[:(implement_year-1), :]
-            landfill.waste_mass_df.to_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/scratch_paper/new' + str(i) + '.csv')
+            landfill.waste_mass_df.dst_implement_advanced(
+                waste_generated_df=scenario_parameters.waste_generated_df.df,
+                divs_df=scenario_parameters.divs_df, 
+                fraction_of_waste_series=landfill.fraction_of_waste_vector,
+                waste_types=self.components,
+            )
+
+            #landfill.waste_mass_df.loc[:(implement_year-1), :] = self.baseline_parameters.landfills[i].waste_mass_df.loc[:(implement_year-1), :]
+            #landfill.waste_mass_df.to_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/scratch_paper/new' + str(i) + '.csv')
 
         #scenario_parameters.repopulate_attr_dicts() # does this need to come sooner? Does anything in the above functions rely on the attr dicts?
-        for landfill in scenario_parameters.non_zero_landfills:
+        for landfill in scenario_parameters.landfills:
             landfill.estimate_emissions()
 
         self.estimate_diversion_emissions(scenario=scenario)

@@ -8,22 +8,27 @@ import numpy as np
 
 
 class Landfill:
-    def __init__(self,
-                 open_date: int, 
-                 close_date: int, 
-                 site_type: str, 
-                 mcf: float,
-                 city_params_dict: dict,
-                 city_instance_attrs: dict,
-                 landfill_index: int = 0, 
-                 fraction_of_waste: float = 1, 
-                 gas_capture: bool = False, 
-                 scenario: int = 0,
-                 new_baseline: int = 0,
-                 gas_capture_efficiency: float = 0,
-                 flaring: int = 1,
-                 cover: int = 0,
-                 leachate_circulated: int = 0,
+    def __init__(
+            self,
+            open_date: int, 
+            close_date: int, 
+            site_type: str, 
+            mcf: float,
+            city_params_dict: dict,
+            city_instance_attrs: dict,
+            landfill_index: int = 0, 
+            fraction_of_waste: float = 1, 
+            gas_capture: bool = False, 
+            scenario: int = 0,
+            new_baseline: int = None,
+            gas_capture_efficiency: float = None,
+            flaring: int = None,
+            cover: int = None,
+            leachate_circulated: int = None,
+            fraction_of_waste_vector: pd.DataFrame = None,
+            ameliorated: int = None,
+            advanced: bool = False,
+            oxidation_factor: float = None,
     ):
         """
         Initializes a Landfill object.
@@ -60,20 +65,45 @@ class Landfill:
         self.flaring = flaring
         self.cover = cover
         self.leachate_circulated = leachate_circulated
+        self.ameliorated = ameliorated
+        self.oxidation_factor = oxidation_factor
 
-        if (self.gas_capture) and (scenario == 0):
+        if not self.gas_capture_efficiency:
             self.gas_capture_efficiency = defaults_2019.gas_capture_efficiency[site_type]
-            self.oxidation_factor = defaults_2019.oxidation_factor['with_lfg'][site_type]
-        else:
-            self.gas_capture_efficiency = 0
-            self.oxidation_factor = defaults_2019.oxidation_factor['without_lfg'][site_type]
+
+        if not self.oxidation_factor:
+            if self.gas_capture:
+                self.oxidation_factor = defaults_2019.oxidation_factor['with_lfg'][site_type]
+            else:
+                self.oxidation_factor = defaults_2019.oxidation_factor['without_lfg'][site_type]
+
+        # if (self.gas_capture) and (scenario == 0):
+        #     self.gas_capture_efficiency = defaults_2019.gas_capture_efficiency[site_type]
+        #     self.oxidation_factor = defaults_2019.oxidation_factor['with_lfg'][site_type]
+        # else:
+        #     self.gas_capture_efficiency = 0
+        #     self.oxidation_factor = defaults_2019.oxidation_factor['without_lfg'][site_type]
 
         self.waste_mass = None
         self.emissions = None
         self.ch4 = None
         self.captured = None
 
-        self.waste_mass_df = LandfillWasteMassDF.create(self.city_params_dict['waste_generated_df'], self.city_params_dict['divs_df'], self.fraction_of_waste, self.city_instance_attrs['components']).df
+        if advanced:
+            self.waste_mass_df.dst_implement_advanced(
+                self.city_params_dict['waste_generated_df']['df'], 
+                self.city_params_dict['divs_df'], 
+                self.fraction_of_waste, 
+                self.city_instance_attrs['components'],
+                fraction_of_waste_vector
+            )
+        else:
+            self.waste_mass_df = LandfillWasteMassDF.create(
+                self.city_params_dict['waste_generated_df']['df'], 
+                self.city_params_dict['divs_df'], 
+                self.fraction_of_waste, 
+                self.city_instance_attrs['components']
+            )
 
     # def update_landfill_attrs_dict(self, city_parameters: dict) -> None:
     #     """

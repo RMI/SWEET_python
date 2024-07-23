@@ -182,7 +182,7 @@ class SWEET:
         growth_rate_historic = self.city_params_dict['growth_rate_historic']
         growth_rate_future = self.city_params_dict['growth_rate_future']
         ks = self.city_params_dict['ks']
-        waste_mass_df = self.landfill_instance_attrs['waste_mass_df']
+        waste_mass_df = self.landfill_instance_attrs['waste_mass_df'].df
         mcf = self.landfill_instance_attrs['mcf']
         gas_capture_efficiency = self.landfill_instance_attrs['gas_capture_efficiency']
         oxidation_factor = self.landfill_instance_attrs['oxidation_factor']
@@ -222,16 +222,3 @@ class SWEET:
         ch4_df = pd.DataFrame(ch4_produced).T
 
         return None, q_df, ch4_df, captured
-    
-    def model_dump_for_serialization(self) -> dict:
-        """
-        Dumps the model attributes into a dictionary, excluding certain attributes.
-        """
-        d = {k: v for k, v in self.__dict__.items()}
-        if 'city_instance_attrs' in d:
-            d['city_instance_attrs'] = {}
-        if 'city_params_dict' in d:
-            d['city_params_dict'] = {}
-        if 'landfill_instance_attrs' in d:
-            d['landfill_instance_attrs'] = {}
-        return d
