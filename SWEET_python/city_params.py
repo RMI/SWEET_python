@@ -1164,15 +1164,18 @@ class City:
             components_multiplied_through['combustion'] = pd.DataFrame(components_multiplied_through['combustion'])
             unique_divsets = components_multiplied_through['combustion'].drop_duplicates()
 
-            for divset in unique_divsets.iterrows():
-                divset = divset[1]
+            div_component_fractions_adjusted = []
+            divs = []
+
+            for i in range(unique_divsets.shape[0]):
+                divset = unique_divsets.iloc[i,:]
                 components_multiplied_through_dummy = components_multiplied_through.copy()
                 components_multiplied_through_dummy['combustion'] = {x: float(divset.at[x]) for x in divset.index}
 
                 net = {}
                 negative_catcher = False
                 for waste in parameters.waste_fractions.model_fields:
-                    s = sum(components_multiplied_through[div].get(waste, 0) for div in div_fractions.model_fields)
+                    s = sum(components_multiplied_through_dummy[div].get(waste, 0) for div in div_fractions.model_fields)
                     net[waste] = getattr(parameters.waste_fractions, waste) - s
                     if net[waste] < -1e-3:
                         negative_catcher = True
@@ -1208,7 +1211,7 @@ class City:
                 combustion_all = {}
                 keys_of_interest = ['compost', 'anaerobic', 'recycling']
                 for waste in parameters.waste_fractions.model_fields:
-                    s = sum(components_multiplied_through[div].get(waste, 0) for div in keys_of_interest)
+                    s = sum(components_multiplied_through_dummy[div].get(waste, 0) for div in keys_of_interest)
                     non_combustion[waste] = s
                     combustion_all[waste] = getattr(parameters.waste_fractions, waste) - s
 
@@ -1292,7 +1295,7 @@ class City:
                             problems.append(new_probs)
                         dont_add_to.update(new_probs)
 
-                    components_multiplied_through = {
+                    components_multiplied_through_dummy = {
                         div: {waste: getattr(div_fractions, div) * getattr(getattr(div_component_fractions_adjusted, div), waste) for waste in getattr(div_component_fractions_adjusted, div).model_fields}
                         for div in div_component_fractions_adjusted.model_fields
                     }
@@ -1300,7 +1303,7 @@ class City:
                 non_combustion = {}
                 combustion_all = {}
                 for waste in parameters.waste_fractions.model_fields:
-                    s = sum(components_multiplied_through[div].get(waste, 0) for div in keys_of_interest)
+                    s = sum(components_multiplied_through_dummy[div].get(waste, 0) for div in keys_of_interest)
                     non_combustion[waste] = s
                     combustion_all[waste] = getattr(parameters.waste_fractions, waste) - s
 
@@ -1312,7 +1315,7 @@ class City:
 
                 all_divs = sum(getattr(div_fractions, div) for div in div_fractions.model_fields)
 
-                assert np.abs(div_fractions.recycling - sum(components_multiplied_through['recycling'].values())) < 1e-3
+                assert np.abs(div_fractions.recycling - sum(components_multiplied_through_dummy['recycling'].values())) < 1e-3
 
                 remainder = sum(fraction for waste_type, fraction in combustion_all.items() if waste_type in self.div_components['combustion'])
                 combustion_fraction_of_remainder = div_fractions.combustion / remainder
@@ -1322,30 +1325,30 @@ class City:
                         if getattr(parameters.waste_fractions, waste) == 0:
                             continue
                         new_val = getattr(parameters.waste_fractions, waste) * all_divs
-                        components_multiplied_through['recycling'][waste] = new_val
+                        components_multiplied_through_dummy['recycling'][waste] = new_val
                     
-                    available_div = sum(v for k, v in components_multiplied_through['recycling'].items() if k not in non_combustables)
-                    available_div_target = div_fractions.recycling - sum(v for k, v in components_multiplied_through['recycling'].items() if k in non_combustables)
+                    available_div = sum(v for k, v in components_multiplied_through_dummy['recycling'].items() if k not in non_combustables)
+                    available_div_target = div_fractions.recycling - sum(v for k, v in components_multiplied_through_dummy['recycling'].items() if k in non_combustables)
                     if available_div_target < 0:
-                        too_much_frac = (sum(v for k, v in components_multiplied_through['recycling'].items() if k in non_combustables) - div_fractions.recycling) / sum(v for k, v in components_multiplied_through['recycling'].items() if k in non_combustables)
-                        for key, value in components_multiplied_through['recycling'].items():
+                        too_much_frac = (sum(v for k, v in components_multiplied_through_dummy['recycling'].items() if k in non_combustables) - div_fractions.recycling) / sum(v for k, v in components_multiplied_through_dummy['recycling'].items() if k in non_combustables)
+                        for key, value in components_multiplied_through_dummy['recycling'].items():
                             if key in non_combustables:
-                                components_multiplied_through['recycling'][key] = value * (1 - too_much_frac)
+                                components_multiplied_through_dummy['recycling'][key] = value * (1 - too_much_frac)
                             else:
-                                components_multiplied_through['recycling'][key] = 0
-                        assert np.abs(div_fractions.recycling - sum(v for v in components_multiplied_through['recycling'].values())) < 1e-5
+                                components_multiplied_through_dummy['recycling'][key] = 0
+                        assert np.abs(div_fractions.recycling - sum(v for v in components_multiplied_through_dummy['recycling'].values())) < 1e-5
 
                     else:
                         reduce_frac = (available_div - available_div_target) / available_div
-                        for key, value in components_multiplied_through['recycling'].items():
+                        for key, value in components_multiplied_through_dummy['recycling'].items():
                             if key not in non_combustables:
-                                components_multiplied_through['recycling'][key] = value * (1 - reduce_frac)
-                        assert np.abs(div_fractions.recycling - sum(v for v in components_multiplied_through['recycling'].values())) < 1e-5
+                                components_multiplied_through_dummy['recycling'][key] = value * (1 - reduce_frac)
+                        assert np.abs(div_fractions.recycling - sum(v for v in components_multiplied_through_dummy['recycling'].values())) < 1e-5
 
                     non_combustion = {}
                     combustion_all = {}
                     for waste in parameters.waste_fractions.model_fields:
-                        s = sum(components_multiplied_through[div].get(waste, 0) for div in keys_of_interest)
+                        s = sum(components_multiplied_through_dummy[div].get(waste, 0) for div in keys_of_interest)
                         non_combustion[waste] = s
                         combustion_all[waste] = getattr(parameters.waste_fractions, waste) - s
 
@@ -1356,28 +1359,30 @@ class City:
                         combustion_fraction_of_remainder = 1
 
                 for waste in self.div_components['combustion']:
-                    components_multiplied_through['combustion'][waste] = combustion_fraction_of_remainder * combustion_all[waste]
+                    components_multiplied_through_dummy['combustion'][waste] = combustion_fraction_of_remainder * combustion_all[waste]
 
                 for d in div_fractions.model_fields:
-                    assert np.abs(getattr(div_fractions, d) - sum(components_multiplied_through[d].values())) < 1e-3
-                    for w in components_multiplied_through[d]:
-                        if abs(components_multiplied_through[d][w]) < 1e-5:
-                            components_multiplied_through[d][w] = 0
-                        assert components_multiplied_through[d][w] >= 0
+                    assert np.abs(getattr(div_fractions, d) - sum(components_multiplied_through_dummy[d].values())) < 1e-3
+                    for w in components_multiplied_through_dummy[d]:
+                        if abs(components_multiplied_through_dummy[d][w]) < 1e-5:
+                            components_multiplied_through_dummy[d][w] = 0
+                        assert components_multiplied_through_dummy[d][w] >= 0
 
                 adjusted_div_component_fractions = {
-                    div: {waste: components_multiplied_through[div][waste] / getattr(div_fractions, div) if getattr(div_fractions, div) != 0 else 0 for waste in components_multiplied_through[div]}
-                    for div in components_multiplied_through
+                    div: {waste: components_multiplied_through_dummy[div][waste] / getattr(div_fractions, div) if getattr(div_fractions, div) != 0 else 0 for waste in components_multiplied_through_dummy[div]}
+                    for div in components_multiplied_through_dummy
                 }
 
                 adjusted_div_component_fractions = DivComponentFractions(**adjusted_div_component_fractions)
 
-                divs = self._divs_from_component_fractions(div_fractions, adjusted_div_component_fractions, scenario=scenario)
+                divs_adj = self._divs_from_component_fractions(div_fractions, adjusted_div_component_fractions, scenario=scenario)
+                divs.append(divs_adj)
+                div_component_fractions_adjusted.append(adjusted_div_component_fractions)
 
-                parameters.div_component_fractions = adjusted_div_component_fractions
-                parameters.divs = divs
-                parameters.adjusted_diversion_constituents = True
-                parameters.input_problems = False
+            parameters.div_component_fractions = adjusted_div_component_fractions
+            parameters.divs = divs
+            parameters.adjusted_diversion_constituents = True
+            parameters.input_problems = False
 
     def _divs_from_component_fractions(self, div_fractions: DiversionFractions, div_component_fractions: DivComponentFractions, scenario: int) -> dict:
         """
@@ -1458,7 +1463,7 @@ class City:
         reduction = min(reducible, excess * (reducible / total_reducible))  # proportional reduction
         return reduction
 
-    def _calculate_net_masses(self, scenario: int = 0) -> WasteMasses:
+    def _calculate_net_masses(self, scenario: int=0, advanced: bool=False) -> WasteMasses:
         """
         Calculate the net masses of different types of waste after diversion.
 
@@ -1476,6 +1481,34 @@ class City:
                 raise ValueError(f"Scenario '{scenario}' not found in scenario_parameters.")
 
         divs = parameters.divs
+        implement_year = parameters.implement_year
+
+        if advanced:
+            wastefractions_before = self.baseline_parameters.waste_fractions
+            wastefractions_after = parameters.waste_fractions
+
+            unique_divsets = divs.combustion.drop_duplicates()
+            incineration_implement_year = unique_divsets.index[1]
+            try:
+                incineration_end_year = unique_divsets.index[2]
+                years_to_check = sorted(list(set(
+                    implement_year - 1,
+                    implement_year + 1,
+                    incineration_implement_year - 1,
+                    incineration_implement_year + 1,
+                    incineration_end_year - 1,
+                    incineration_end_year + 1
+                )))
+            except:
+                incineration_end_year = None
+                years_to_check = sorted(list(set(
+                    implement_year - 1,
+                    implement_year + 1,
+                    incineration_implement_year - 1,
+                    incineration_implement_year + 1,
+                )))
+
+
 
         net_masses = {waste: parameters.waste_masses.model_dump()[waste] - (
                         getattr(divs.compost, waste) +
