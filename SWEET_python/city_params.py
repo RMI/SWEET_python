@@ -1462,6 +1462,52 @@ class City:
         reducible = value - limit  # the amount we can reduce this component by
         reduction = min(reducible, excess * (reducible / total_reducible))  # proportional reduction
         return reduction
+    
+    def _create_divs_dataframe(self, baseline_divs, scenario_divs):
+        """
+        Create a DataFrame that merges baseline and scenario diversion data based on the implementation year.
+
+        Args:
+            baseline_divs (object): Baseline diversion data.
+            scenario_divs (object): Scenario diversion data.
+            implement_year (int): The year when the scenario diversions start being implemented.
+
+        Returns:
+            DataFrame: A DataFrame with years as the index and diversion data as the columns.
+        """
+
+        implement_year = self.scenario_parameters[0].implement_year
+
+        baseline_data = {year: {waste: getattr(baseline_divs, waste) for waste in baseline_divs.model_dump()} for year in range(1960, implement_year)}
+        scenario_data = {year: {waste: getattr(scenario_divs, waste) for waste in scenario_divs.model_dump()} for year in range(implement_year, 2074)}
+
+        df = pd.concat([pd.DataFrame(baseline_data).T, pd.DataFrame(scenario_data).T])
+
+        return df
+
+    def _create_waste_fractions_dataframe(self):
+        """
+        Create a DataFrame that merges baseline and scenario waste fractions data based on the implementation year.
+
+        Args:
+            baseline_waste_fractions (object): Baseline waste fractions data.
+            scenario_waste_fractions (object): Scenario waste fractions data.
+            implement_year (int): The year when the scenario waste fractions start being implemented.
+
+        Returns:
+            DataFrame: A DataFrame with years as the index and waste fractions data as the columns.
+        """
+
+        baseline_waste_fractions = self.baseline_parameters.waste_fractions
+        scenario_waste_fractions = self.scenario_parameters[0].waste_fractions
+        implement_year = self.scenario_parameters[0].implement_year
+
+        baseline_data = {year: {waste: getattr(baseline_waste_fractions, waste) for waste in baseline_waste_fractions.model_dump()} for year in range(1960, implement_year)}
+        scenario_data = {year: {waste: getattr(scenario_waste_fractions, waste) for waste in scenario_waste_fractions.model_dump()} for year in range(implement_year, 2074)}
+
+        df = pd.concat([pd.DataFrame(baseline_data).T, pd.DataFrame(scenario_data).T])
+
+        return df
 
     def _calculate_net_masses(self, scenario: int=0, advanced: bool=False) -> WasteMasses:
         """
@@ -1484,31 +1530,39 @@ class City:
         implement_year = parameters.implement_year
 
         if advanced:
-            wastefractions_before = self.baseline_parameters.waste_fractions
-            wastefractions_after = parameters.waste_fractions
+            # Create DataFrames for divs and waste_fractions
+            divs_compost = self._create_divs_dataframe(self.baseline_parameters.divs.compost, divs.compost)
+            divs_anaerobic = self._create_divs_dataframe(self.baseline_parameters.divs.anaerobic, divs.anaerobic)
+            divs_recycling = self._create_divs_dataframe(self.baseline_parameters.divs.recycling, divs.recycling)
+            waste_fractions_df = self._create_waste_fractions_dataframe()
 
-            unique_divsets = divs.combustion.drop_duplicates()
-            incineration_implement_year = unique_divsets.index[1]
-            try:
-                incineration_end_year = unique_divsets.index[2]
-                years_to_check = sorted(list(set(
-                    implement_year - 1,
-                    implement_year + 1,
-                    incineration_implement_year - 1,
-                    incineration_implement_year + 1,
-                    incineration_end_year - 1,
-                    incineration_end_year + 1
-                )))
-            except:
-                incineration_end_year = None
-                years_to_check = sorted(list(set(
-                    implement_year - 1,
-                    implement_year + 1,
-                    incineration_implement_year - 1,
-                    incineration_implement_year + 1,
-                )))
+            years = sorted(set(divs.combustion.index))
+            net_masses_over_years = {}
 
+            for year in years:
+                year = int(year)
+                if year == int(years[0]):
+                    pass
+                elif (divs.combustion.loc[str(year)].equals(divs.combustion.loc[str(int(year)-1)]) and
+                    divs_compost.loc[year].equals(divs_compost.loc[year-1]) and
+                    divs_anaerobic.loc[year].equals(divs_anaerobic.loc[year-1]) and
+                    divs_recycling.loc[year].equals(divs_recycling.loc[year-1]) and
+                    waste_fractions_df.loc[year].equals(waste_fractions_df.loc[year-1])):
+                    continue
 
+                waste_fractions = waste_fractions_df.loc[int(year)]
+
+                net_masses = {waste: getattr(parameters.waste_masses, waste) - (
+                                divs_compost.loc[year][waste] +
+                                divs_anaerobic.loc[year][waste] +
+                                divs.combustion.loc[str(year)][waste] +
+                                divs_recycling.loc[year][waste]
+                            ) for waste in waste_fractions.index}
+
+                net_masses_over_years[year] = WasteMasses(**net_masses)
+
+            # Process or return net_masses_over_years as needed
+            return net_masses_over_years
 
         net_masses = {waste: parameters.waste_masses.model_dump()[waste] - (
                         getattr(divs.compost, waste) +
@@ -1770,13 +1824,15 @@ class City:
             print(f'Invalid new value')
             return
 
-        net = self._calculate_net_masses(scenario=scenario)
-        for mass in vars(net).values():
-            if mass < 0:
-                print(f'Invalid new value')
-                return
+        net = self._calculate_net_masses(scenario=scenario, advanced=True)
+        for year in net:
+            n = net[year]
+            for mass in vars(n).values():
+                if mass < 0:
+                    print(f'Invalid new value')
+                    return
 
-        scenario_parameters.divs_df._dst_implement(
+        scenario_parameters.divs_df._dst_implement_advanced(
             implement_year=implement_year, 
             scenario_div_masses=scenario_parameters.divs, 
             baseline_div_masses=self.baseline_parameters.divs, 
