@@ -1713,6 +1713,11 @@ class City:
         new_landfill_flaring: List = None,
         new_landfill_cover: List = None,
         new_landfill_leachate_circulate: List = None,
+        new_landfill_latlons: List = None,
+        new_landfill_areas: List = None,
+        new_covertypes: List = None,
+        new_coverthicknesses: List = None,
+        waste_burning: float = None,
     ) -> None:
         
         scenario_parameters = copy.deepcopy(self.baseline_parameters)
@@ -1723,6 +1728,8 @@ class City:
 
         # REMOVE THIS LATER
         new_waste_mass = scenario_parameters.waste_mass
+        if waste_burning is not None:
+            new_waste_mass -= waste_burning * new_waste_mass
 
         # New waste masses
         waste_masses = {waste: frac * new_waste_mass for waste, frac in new_waste_fractions.model_dump().items()}
@@ -1746,7 +1753,18 @@ class City:
 
         # Set up new landfills
         city_params_dict = self.update_cityparams_dict(scenario_parameters)
-        mcfs = [1, 0.7, 0.4] # Should this include ameliorated? 
+        #mcfs = [1, 0.7, 0.4] # Should this include ameliorated?
+        #mcf_ameliorated = [0.7, 0.4, 0.1]
+        mcfs = {}
+        mcfs['ameliorated'] = {}
+        mcfs['not_ameliorated'] = {}
+        mcfs['ameliorated']['gas_capture'] = [0.18, 0, 0]
+        mcfs['ameliorated']['no_gas_capture'] = [0.1, 0, 0]
+        mcfs['not_ameliorated']['gas_capture'] = [0.22, 0.1, 0]
+        mcfs['not_ameliorated']['no_gas_capture'] = [0.1, 0.05, 0]
+        gas_capture_efficiencies = {}
+        gas_capture_efficiencies['ameliorated'] = [0.5, 0.3, 0]
+        gas_capture_efficiencies['not_ameliorated'] = [0.6, 0.45, 0]
         landfill_types = ['landfill', 'controlled_dumpsite', 'dumpsite']
         
         for i, lf_type in enumerate(new_landfill_types):
@@ -1758,17 +1776,32 @@ class City:
                 if new_type != old_type:
                     new_landfill.ameliorated = True
                 new_landfill.site_type = new_type
-                new_landfill.mcf = mcfs[lf_type]
+                #new_landfill.mcf = mcfs[lf_type]
                 # not sure if these two are necessary or if they'll be taken care of other ways.
                 new_landfill.city_params_dict = city_params_dict
                 new_landfill.city_instance_attrs = scenario_parameters.city_instance_attrs
                 new_landfill.gas_capture = False if new_gas_efficiency[i] == 0 else True
                 new_landfill.scenario = scenario
                 new_landfill.new_baseline = new_baseline
+                if new_gas_efficiency[i] is None:
+                    if new_landfill.ameliorated is True:
+                        new_landfill.mcf = mcfs['ameliorated']['no_gas_capture'][lf_type]
+                        new_landfill.gas_capture_efficiency = gas_capture_efficiencies['ameliorated'][lf_type]
+                    else:
+                        new_landfill.mcf = mcfs['not_ameliorated']['no_gas_capture'][lf_type]
+                        new_landfill.gas_capture_efficiency = gas_capture_efficiencies['not_ameliorated'][lf_type]
+                else:
+                    if new_landfill.ameliorated is True:
+                        new_landfill.mcf = mcfs['ameliorated']['gas_capture'][lf_type]
+                        new_landfill.gas_capture_efficiency = gas_capture_efficiencies['ameliorated'][lf_type]
+                    else:
+                        new_landfill.mcf = mcfs['not_ameliorated']['gas_capture'][lf_type]
+                        new_landfill.gas_capture_efficiency = gas_capture_efficiencies['not_ameliorated'][lf_type]
                 new_landfill.gas_capture_efficiency = new_gas_efficiency[i]
+
+                # Still have to implement flaring
                 if new_landfill.flaring:
                     new_landfill.flaring = new_landfill_flaring[i]
-                    new_landfill.cover = new_landfill_cover[i]
                     new_landfill.leachate_circulate = new_landfill_leachate_circulate[i]
                 new_landfill.fraction_of_waste_vector = fraction_df[f'Landfill_{i}']
                 scenario_parameters.landfills[i] = new_landfill
@@ -1790,7 +1823,11 @@ class City:
                     cover=new_landfill_cover[i],
                     leachate_circulate=new_landfill_leachate_circulate[i],
                     fraction_of_waste_vector=fraction_df[f'Landfill_{i}'],
-                    advaned=True
+                    advanced=True,
+                    latlon=new_landfill_latlons[i],
+                    area=new_landfill_areas[i],
+                    cover_type=new_covertypes[i],
+                    cover_thickness=new_coverthicknesses[i]
                 )
                 scenario_parameters.landfills[i] = new_landfill
 
@@ -1865,4 +1902,6 @@ class City:
         self.estimate_diversion_emissions(scenario=scenario)
         self.sum_landfill_emissions(scenario=scenario)
 
-
+        # ADD WASTE BURNING EMISSIONS
+        self.scenario_parameters[scenario - 1].waste_burning_emissions = waste_burning * new_waste_mass * 3.7 * 1000 / 1000 / 1000 # g ch4 / kg waste to ton ch4 / ton waste
+        self.scenario_parameters[scenario - 1].total_emissions += self.scenario_parameters[scenario - 1].waste_burning_emissions

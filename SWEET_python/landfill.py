@@ -2,9 +2,10 @@ import defaults_2019
 from class_defs import *
 import pandas as pd
 from model_v2 import SWEET
-from typing import List, Dict, Union, Any, Set, Optional
+from typing import List, Dict, Union, Any, Set, Optional, Tuple
 import time
 import numpy as np
+from calmim_ox import Site, WeatherModel, WeatherProfile, Cover, CoverMaterial, materials
 
 
 class Landfill:
@@ -29,6 +30,10 @@ class Landfill:
             ameliorated: int = None,
             advanced: bool = False,
             oxidation_factor: float = None,
+            latlon: Tuple[float, float] = None,
+            area: float = None,
+            cover_type: str = None, # remember that these need to be in meters and square meters. 
+            cover_thickness: float = None,
     ):
         """
         Initializes a Landfill object.
@@ -67,15 +72,36 @@ class Landfill:
         self.leachate_circulated = leachate_circulated
         self.ameliorated = ameliorated
         self.oxidation_factor = oxidation_factor
+        self.advanced = advanced
+        
+        if cover_thickness is not None:
+            # Get oxidation potential
+            site = Site(lat=latlon[0], lon=latlon[1])  # Make sure this handles negative longitudes correctly
+            weather_profile = WeatherProfile()
+            weather_model = WeatherModel(site=site, weather_profile=weather_profile)
+
+            # Simulate weather data
+            weather_model.simulate_weather()
+
+            # THIS NEEDS UPDATING TO WORK
+            material = materials[0]
+
+            material.calculate_properties()
+
+            cover = Cover(material=material, site=site, weather_profile=weather_profile, weather_model=weather_model)
+
+            # Calculate the oxidation potential by converting micrograms ch4 / g soil / day to ton ch4 / year
+            #self.oxidation_potential = self.ch4_convert_ton_to_m3(cover.calculate_oxidation_rate() * area * cover_thickness * cover.soil_density * 365.25 / 1e6)
+            self.oxidation_potential = cover.calculate_oxidation_rate() * area * cover_thickness * cover.soil_density * 365.25 / 1e6
 
         if not self.gas_capture_efficiency:
             self.gas_capture_efficiency = defaults_2019.gas_capture_efficiency[site_type]
 
-        if not self.oxidation_factor:
-            if self.gas_capture:
-                self.oxidation_factor = defaults_2019.oxidation_factor['with_lfg'][site_type]
-            else:
-                self.oxidation_factor = defaults_2019.oxidation_factor['without_lfg'][site_type]
+        # if not self.oxidation_factor:
+        #     if self.gas_capture:
+        #         self.oxidation_factor = defaults_2019.oxidation_factor['with_lfg'][site_type]
+        #     else:
+        #         self.oxidation_factor = defaults_2019.oxidation_factor['without_lfg'][site_type]
 
         # if (self.gas_capture) and (scenario == 0):
         #     self.gas_capture_efficiency = defaults_2019.gas_capture_efficiency[site_type]
@@ -139,32 +165,48 @@ class Landfill:
 
         return d
     
-    def model_dump_for_serialization(self) -> dict:
-        def convert_sets_to_lists(data):
-            if isinstance(data, dict):
-                return {self._convert_key(k): convert_sets_to_lists(v) for k, v in data.items()}
-            elif isinstance(data, list):
-                return [convert_sets_to_lists(v) for v in data]
-            elif isinstance(data, set):
-                return list(data)
-            elif isinstance(data, pd.DataFrame):
-                return data.to_dict(orient='records')
-            elif isinstance(data, (np.int64, np.float64)):
-                return data.item()
-            elif isinstance(data, SWEET):
-                return data.model_dump_for_serialization()
-            else:
-                return data
+    # def model_dump_for_serialization(self) -> dict:
+    #     def convert_sets_to_lists(data):
+    #         if isinstance(data, dict):
+    #             return {self._convert_key(k): convert_sets_to_lists(v) for k, v in data.items()}
+    #         elif isinstance(data, list):
+    #             return [convert_sets_to_lists(v) for v in data]
+    #         elif isinstance(data, set):
+    #             return list(data)
+    #         elif isinstance(data, pd.DataFrame):
+    #             return data.to_dict(orient='records')
+    #         elif isinstance(data, (np.int64, np.float64)):
+    #             return data.item()
+    #         elif isinstance(data, SWEET):
+    #             return data.model_dump_for_serialization()
+    #         else:
+    #             return data
 
-        d = {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
-        if 'city_instance_attrs' in d:
-            d['city_instance_attrs'] = {}
-        if 'city_params_dict' in d:
-            d['city_params_dict'] = {}
-        if 'model' in d:
-            d['model'] = {}
+    #     d = {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
+    #     if 'city_instance_attrs' in d:
+    #         d['city_instance_attrs'] = {}
+    #     if 'city_params_dict' in d:
+    #         d['city_params_dict'] = {}
+    #     if 'model' in d:
+    #         d['model'] = {}
 
-        return convert_sets_to_lists(d)
+    #     return convert_sets_to_lists(d)
+
+    @staticmethod
+    def ch4_convert_ton_to_m3(ch4: float) -> float:
+        """
+        Convert CH4 in tons to equivalent volume in m^3.
+
+        Args:
+            mass_co2e (float): ch4 in tons.
+
+        Returns:
+            float: Equivalent volume of ch4 in cubic meters.
+        """
+        density_kg_per_m3 = 0.7168
+        mass_kg = ch4 * 1000
+        volume_m3 = mass_kg / density_kg_per_m3
+        return volume_m3
 
     def _convert_key(self, key):
         if isinstance(key, (np.int64, np.float64)):
@@ -178,6 +220,10 @@ class Landfill:
         Args:
             baseline (bool, optional): If True, estimates baseline emissions. If False, uses new values. Defaults to True.
         """
+
+        if self.cover_thickness is not None:
+            self.oxidation_factor = 0
+
         if hasattr(self, 'model'):
             # These are maybe not necessary if I did repopulate already?
             self.model.city_instance_attrs = self.city_instance_attrs
@@ -193,6 +239,17 @@ class Landfill:
         start_time = time.time()
         self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions()
         end_time = time.time()
+
+        if self.cover_thickness is not None:
+            available_ch4 = self.ch4.at[2023, 'total'] - self.captured.at[2023, 'total']
+            self.oxidation_factor = self.oxidation_potential / available_ch4
+            if self.oxidation_facotr < 0:
+                self.oxidation_factor = 0
+            elif self.oxidation_factor > 1:
+                self.oxidation_factor = 1
+            self.model.landfill_instance_attrs = self.model_dump()
+            self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions()
+
         #print(f"Time taken to estimate emissions in Landfill: {end_time - start_time} seconds")
 
     # def _convert_df_to_dict(self, df: pd.DataFrame) -> Dict[str, Any]:

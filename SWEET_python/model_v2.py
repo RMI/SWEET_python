@@ -178,6 +178,7 @@ class SWEET:
     def estimate_emissions(self):
         open_date = self.landfill_instance_attrs['open_date']
         close_date = self.landfill_instance_attrs['close_date']
+        advanced = self.landfill_instance_attrs['advanced']
         year_of_data_pop = self.city_params_dict['year_of_data_pop']
         growth_rate_historic = self.city_params_dict['growth_rate_historic']
         growth_rate_future = self.city_params_dict['growth_rate_future']
@@ -211,7 +212,10 @@ class SWEET:
                 ch4_produce = ks[waste] * defaults_2019.L_0[waste] * waste_masses * exp_term * mcf
                 ch4_produced_year[waste] = np.sum(ch4_produce)
                 ch4_capture = ch4_produce * gas_capture_efficiency
+                #if advanced:
                 ch4_year[waste] = np.sum((ch4_produce - ch4_capture) * (1 - oxidation_factor) + ch4_capture * 0.02)
+                # else:
+                #     ch4_year[waste] = np.sum((ch4_produce - ch4_capture) * (1 - oxidation_factor) + ch4_capture * 0.02)
 
             qs[year] = ch4_year
             ch4_produced[year] = ch4_produced_year
