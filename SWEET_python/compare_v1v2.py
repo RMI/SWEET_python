@@ -23,32 +23,36 @@ for city_name in cities:
     start_time = time.time()
     city_new = CityNew(city_name)
     end_time = time.time()
-    #print(f"Time taken to initialize CityNew: {end_time - start_time} seconds")
+    print(f"Time taken to initialize CityNew: {end_time - start_time} seconds")
     start_time = time.time()
-    city_new.load_from_csv(db_file)
+    city_new.load_csv_new(db_file)
     end_time = time.time()
-    #print(f"Time taken to load data into CityNew: {end_time - start_time} seconds")
+    print(f"Time taken to load data into CityNew: {end_time - start_time} seconds")
     start_time = time.time()
     city_new._calculate_divs()
     end_time = time.time()
-    #print(f"Time taken to calculate divs in CityNew: {end_time - start_time} seconds")
+    print(f"Time taken to calculate divs in CityNew: {end_time - start_time} seconds")
     start_time = time.time()
     for landfill in city_new.baseline_parameters.non_zero_landfills:
         landfill.estimate_emissions()
     end_time = time.time()
-    #print(f"Time taken to estimate emissions in CityNew: {end_time - start_time} seconds")
+    print(f"Time taken to estimate emissions in CityNew: {end_time - start_time} seconds")
     start_time = time.time()
     city_new.estimate_diversion_emissions(scenario=0)
     end_time = time.time()
-    #print(f"Time taken to estimate diversion emissions in CityNew: {end_time - start_time} seconds")
+    print(f"Time taken to estimate diversion emissions in CityNew: {end_time - start_time} seconds")
     start_time = time.time()
     city_new.sum_landfill_emissions(scenario=0)
     end_time = time.time()
-    #print(f"Time taken to sum landfill emissions in CityNew: {end_time - start_time} seconds")
+    print(f"Time taken to sum landfill emissions in CityNew: {end_time - start_time} seconds")
     cities_to_run_new[city_new.city_name] = city_new
-    #break
+    break
 end_time_new = time.time()
 time_taken_new = end_time_new - start_time_new
+print(time_taken_new)
+print(city_new.baseline_parameters.total_emissions['total'].loc[2035])
+
+#%%
 
 # Run the old code and measure the time
 start_time_old = time.time()
@@ -63,7 +67,7 @@ for city_name in cities:
     city_old.organic_emissions_baseline = city_old.estimate_diversion_emissions(baseline=True)
     city_old.landfill_emissions_baseline, city_old.diversion_emissions_baseline, city_old.total_emissions_baseline = city_old.sum_landfill_emissions(baseline=True)
     cities_to_run_old[city_old.name] = city_old
-    #break
+    break
 end_time_old = time.time()
 time_taken_old = end_time_old - start_time_old
 
@@ -90,8 +94,8 @@ for city_name in cities:
         old_emissions_year = old_emissions.loc[year]
         
         difference = np.abs(new_emissions_year - old_emissions_year)
-        if difference > 1:
-            print('blurgh')
+        #if difference > 1:
+            #print('blurgh')
         percentage_difference = difference / old_emissions_year * 100
 
         if percentage_difference > 1:
@@ -102,5 +106,8 @@ for city_name in cities:
         else:
             pass
             #print(f"{city_name} for year {year}: Emissions match within 1% (difference: {percentage_difference:.2f}%)")
+
+    break
+
 
 # %%

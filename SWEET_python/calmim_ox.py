@@ -4,6 +4,7 @@ import jpype.imports
 from jpype.types import *
 import numpy as np
 import math
+import os
 
 @dataclass
 class Site:
@@ -120,8 +121,31 @@ materials = [
 
 #%%
 
+# Determine the base directory (current directory where this script is run)
+launch_dir = os.path.dirname(__file__)
+
+# Determine if the script is running from the WasteMAP directory or the SWEET_python directory
+if os.path.basename(launch_dir) == 'SWEET_python':
+    # We're already in the SWEET_python directory, so the JARs should be here
+    jar_dir = launch_dir
+elif os.path.basename(launch_dir) == 'WasteMAP':
+    # We're in the WasteMAP directory, the JARs should be one directory up and then in SWEET_python/SWEET_python
+    jar_dir = os.path.abspath(os.path.join(launch_dir, '../SWEET_python/SWEET_python'))
+else:
+    print('unexpected directory structure')
+
+# Construct the full paths to the JAR files
+jar_paths = [
+    os.path.join(jar_dir, 'ARS_GlobalRainSIM.Jar'),
+    os.path.join(jar_dir, 'GlobalTempSim10.Jar')
+]
+
+# Start the JVM if not already started, with the constructed classpath
+if not jpype.isJVMStarted():
+    jpype.startJVM(classpath=jar_paths)
+
 # Start the JVM with the classpath for both .jar files
-jpype.startJVM(classpath=['ARS_GlobalRainSIM.Jar', 'GlobalTempSim10.Jar'])
+#jpype.startJVM(classpath=['ARS_GlobalRainSIM.Jar', 'GlobalTempSim10.Jar'])
 
 # Import the Java classes from the JAR files
 RainSIM = jpype.JClass('RainSIM')
@@ -137,12 +161,12 @@ class WeatherProfile:
     time_evap: np.ndarray
 
     def __init__(self):
-        self.weather_data = np.zeros((9, 365))
-        self.weather_solar_hourly = np.zeros((365, 24))
-        self.soil_temp_add = np.zeros((365, 24))
-        self.surface_temp = np.zeros((365, 1442))
-        self.rel_humidity = np.zeros((365, 1442))
-        self.time_evap = np.zeros((365, 1442))
+        self.weather_data = np.zeros((9, 366))
+        self.weather_solar_hourly = np.zeros((366, 24))
+        self.soil_temp_add = np.zeros((366, 24))
+        self.surface_temp = np.zeros((366, 1442))
+        self.rel_humidity = np.zeros((366, 1442))
+        self.time_evap = np.zeros((366, 1442))
 
 @dataclass
 class Site:
@@ -156,7 +180,7 @@ class Site:
         self.lon = lon
 
 class WeatherModel:
-    days = 365
+    days = 366
     hours = 24
     max, min, precip, evap, dew, d_solar, total_precip, delta_temp, avg_temp = range(9)
 
@@ -179,8 +203,8 @@ class WeatherModel:
         print(f"Length of rain_data: {len(rain_data)}")
         
         # Trim the padding. index 399 is cumulative, if i need that. 
-        if len(rain_data) > 365:
-            rain_data = rain_data[1:366]
+        if len(rain_data) > 366:
+            rain_data = rain_data[:366]
         
         # Assign the truncated or full rain data to the weather data array
         self.weather_data[self.precip] = rain_data
@@ -194,8 +218,8 @@ class WeatherModel:
 
         print(f"Length of temp data: {len(self.weather_holder[0])}")
         # Adjust the length to remove padding
-        if len(self.weather_holder[0]) > 365:
-            self.weather_holder = [data[1:366] for data in self.weather_holder]
+        if len(self.weather_holder[0]) > 366:
+            self.weather_holder = [data[:366] for data in self.weather_holder]
 
         self.weather_data[self.max] = self.weather_holder[0]
         self.weather_data[self.min] = self.weather_holder[1]

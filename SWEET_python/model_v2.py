@@ -183,7 +183,7 @@ class SWEET:
         growth_rate_historic = self.city_params_dict['growth_rate_historic']
         growth_rate_future = self.city_params_dict['growth_rate_future']
         ks = self.city_params_dict['ks']
-        waste_mass_df = self.landfill_instance_attrs['waste_mass_df'].df
+        waste_mass_df = self.landfill_instance_attrs['waste_mass_df']
         mcf = self.landfill_instance_attrs['mcf']
         gas_capture_efficiency = self.landfill_instance_attrs['gas_capture_efficiency']
         oxidation_factor = self.landfill_instance_attrs['oxidation_factor']
@@ -206,14 +206,21 @@ class SWEET:
                 ch4_produced_year[waste] = 0
 
                 years_back = year - np.arange(open_date, year)
-                exp_term = np.exp(-ks[waste] * (years_back - 0.5))
-                waste_masses = waste_mass_df.loc[open_date:year-1, waste].values
-
-                ch4_produce = ks[waste] * defaults_2019.L_0[waste] * waste_masses * exp_term * mcf
+                # is this the right range of years...verify
+                exp_term = np.exp(-ks[waste].loc[np.arange(open_date, year)] * (years_back - 0.5))
+                waste_masses = waste_mass_df.loc[open_date:year-1, waste] #.values
+                # Make sure the use of decay rate time series makes sense. 
+                ch4_produce = ks[waste].loc[np.arange(open_date, year)] * defaults_2019.L_0[waste] * waste_masses * exp_term * mcf.loc[np.arange(open_date, year)]
+                # This np sum could maybe be replaced with pandas
                 ch4_produced_year[waste] = np.sum(ch4_produce)
                 ch4_capture = ch4_produce * gas_capture_efficiency
-                #if advanced:
-                ch4_year[waste] = np.sum((ch4_produce - ch4_capture) * (1 - oxidation_factor) + ch4_capture * 0.02)
+                if (len(ch4_produce) == 0) and (len(ch4_capture) == 0):
+                    ch4_year[waste] = 0
+                else:
+                    try:
+                        ch4_year[waste] = np.sum((ch4_produce - ch4_capture) * (1 - oxidation_factor) + ch4_capture * 0.02)
+                    except:
+                        print('break point')
                 # else:
                 #     ch4_year[waste] = np.sum((ch4_produce - ch4_capture) * (1 - oxidation_factor) + ch4_capture * 0.02)
 

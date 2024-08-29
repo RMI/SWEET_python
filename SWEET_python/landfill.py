@@ -14,7 +14,7 @@ class Landfill:
             open_date: int, 
             close_date: int, 
             site_type: str, 
-            mcf: float,
+            mcf: pd.Series,
             city_params_dict: dict,
             city_instance_attrs: dict,
             landfill_index: int = 0, 
@@ -22,14 +22,14 @@ class Landfill:
             gas_capture: bool = False, 
             scenario: int = 0,
             new_baseline: int = None,
-            gas_capture_efficiency: float = None,
+            gas_capture_efficiency: pd.Series = None,
             flaring: int = None,
             cover: int = None,
             leachate_circulated: int = None,
             fraction_of_waste_vector: pd.DataFrame = None,
             ameliorated: int = None,
             advanced: bool = False,
-            oxidation_factor: float = None,
+            oxidation_factor: pd.Series = None,
             latlon: Tuple[float, float] = None,
             area: float = None,
             cover_type: str = None, # remember that these need to be in meters and square meters. 
@@ -73,6 +73,7 @@ class Landfill:
         self.ameliorated = ameliorated
         self.oxidation_factor = oxidation_factor
         self.advanced = advanced
+        self.cover_thickness = cover_thickness
         
         if cover_thickness is not None:
             # Get oxidation potential
@@ -115,21 +116,27 @@ class Landfill:
         self.ch4 = None
         self.captured = None
 
-        if advanced:
-            self.waste_mass_df.dst_implement_advanced(
-                self.city_params_dict['waste_generated_df']['df'], 
-                self.city_params_dict['divs_df'], 
-                self.fraction_of_waste, 
-                self.city_instance_attrs['components'],
-                fraction_of_waste_vector
-            )
+        # if (advanced is True) and (new_baseline is True):
+        #     pass
+        # elif advanced is True:
+        #     # Is this implemented twice?
+        #     self.waste_mass_df.dst_implement_advanced(
+        #         self.city_params_dict['waste_generated_df']['df'], 
+        #         self.city_params_dict['divs_df'], 
+        #         self.fraction_of_waste, 
+        #         self.city_instance_attrs['components'],
+        #         fraction_of_waste_vector
+        #     )
+        if advanced is True:
+            pass
         else:
-            self.waste_mass_df = LandfillWasteMassDF.create(
-                self.city_params_dict['waste_generated_df']['df'], 
-                self.city_params_dict['divs_df'], 
-                self.fraction_of_waste, 
-                self.city_instance_attrs['components']
-            )
+            # self.waste_mass_df = LandfillWasteMassDF.create(
+            #     self.city_params_dict['waste_generated_df'], 
+            #     self.city_params_dict['divs_df'], 
+            #     self.fraction_of_waste, 
+            #     self.city_instance_attrs['components']
+            # )
+            self.waste_mass_df = self.city_params_dict['net_masses'] * self.fraction_of_waste
 
     # def update_landfill_attrs_dict(self, city_parameters: dict) -> None:
     #     """
@@ -212,6 +219,28 @@ class Landfill:
         if isinstance(key, (np.int64, np.float64)):
             return key.item()
         return key
+    
+    def _determine_ox_vector(self) -> pd.DataFrame:
+        if self.cover_thickness is not None:
+            return
+        implementation_year = self.city_params_dict['implementation_year']
+
+        # Do the simple DST. Landfill types don't change. 
+        if not self.advanced:
+            years = pd.Index(range(1960, 2074))
+            tag_gas = 'ox_nocap' if not self.gas_capture else 'ox_cap'
+            ox_value = self.ox_options[tag_gas][self.site_type]
+            values = [ox_value for year in years]
+            series = pd.Series(values, index=years)
+        else:
+            # Do the advanced DST. Landfill types can change, also have to account for new landfills
+            years = pd.Index(range(1960, 2074))
+            tag_gas = 'ox_nocap' if not self.gas_capture else 'ox_cap'
+            ox_value = self.ox_options[tag_gas][self.site_type]
+            values = [ox_value for year in years]
+            series = pd.Series(values, index=years)
+
+
 
     def estimate_emissions(self) -> tuple:
         """
@@ -223,6 +252,15 @@ class Landfill:
 
         if self.cover_thickness is not None:
             self.oxidation_factor = 0
+
+        # Oxidation factor for simple DST
+        ox_nocap = {'landfill': 0.1, 'controlled_dumpsite': 0.05, 'dumpsite': 0}
+        ox_cap = {'landfill': 0.22, 'controlled_dumpsite': 0.1, 'dumpsite': 0}
+        if (not self.advanced) or (self.oxidation_factor is None):
+            if self.gas_capture:
+                self.oxidation_factor = ox_cap[self.site_type]
+            else:
+                self.oxidation_factor = ox_nocap[self.site_type]
 
         if hasattr(self, 'model'):
             # These are maybe not necessary if I did repopulate already?
