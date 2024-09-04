@@ -4,16 +4,16 @@ import pandas as pd
 import numpy as np
 
 class WasteFractions(BaseModel):
-    food: float
-    green: float
-    wood: float
-    paper_cardboard: float
-    textiles: float
-    plastic: float
-    metal: float
-    glass: float
-    rubber: float
-    other: float
+    food: float = 0.0
+    green: float = 0.0
+    wood: float = 0.0
+    paper_cardboard: float = 0.0
+    textiles: float = 0.0
+    plastic: float = 0.0
+    metal: float = 0.0
+    glass: float = 0.0
+    rubber: float = 0.0
+    other: float = 0.0
 
 # class WasteFractions(BaseModel):
 #     food: pd.Series
@@ -158,21 +158,21 @@ class WasteGeneratedDF(BaseModel):
 
         # Create growth rate array, using growth_rate_historic for years before year_of_data_pop and growth_rate_future after
         growth_rate = np.where(years < year_of_data_pop, growth_rate_historic, growth_rate_future)
-        growth_factors = growth_rate ** t[:, np.newaxis]
+        growth_factors = growth_rate ** t
 
-        # Apply growth factors to the waste_masses_df
-        adjusted_data = waste_masses_df * growth_factors
+        # Apply growth factors to each row of the DataFrame
+        adjusted_data = waste_masses_df.multiply(growth_factors, axis=0)
 
         return cls(df=adjusted_data)
     
-    def dst_implement_advanced(self, df: pd.DataFrame, implement_year: int, new_waste_mass: float, new_waste_fractions: WasteFractions, year_of_data_pop: int, growth_rate_historic: float, growth_rate_future: float):
+    def dst_implement_advanced(self, waste_masses: pd.DataFrame, implement_year: int, new_waste_mass: float, new_waste_fractions: WasteFractions, year_of_data_pop: int, growth_rate_historic: float, growth_rate_future: float):
         # Ensure implement_year is within the DataFrame's index range
-        if implement_year < df.index.min() or implement_year > df.index.max():
+        if implement_year < waste_masses.index.min() or implement_year > waste_masses.index.max():
             raise ValueError(f"Implement year {implement_year} is out of the DataFrame's index range.")
 
         # Create new data starting from the implement_year
         waste_types = new_waste_fractions.model_dump().keys()
-        years = list(range(implement_year, df.index.max() + 1))
+        years = list(range(implement_year, waste_masses.index.max() + 1))
         new_data = {waste: [] for waste in waste_types}
 
         for year in years:
@@ -186,13 +186,12 @@ class WasteGeneratedDF(BaseModel):
         new_df = pd.DataFrame(new_data, index=years)
 
         # Update the original DataFrame
-        updated_df = df.copy()
+        updated_df = waste_masses.copy()
         updated_df.loc[implement_year:] = new_df
 
         self.df = updated_df
 
 class DivsDF(BaseModel):
-    # baseline_compost: pd.DataFrame
     # baseline_anaerobic: pd.DataFrame
     # baseline_combustion: pd.DataFrame
     # baseline_recycling: pd.DataFrame
@@ -240,12 +239,15 @@ class DivsDF(BaseModel):
     
     def sum(self) -> pd.DataFrame:
         all_columns = self.compost.columns.union(self.anaerobic.columns).union(self.combustion.columns).union(self.recycling.columns)
+        
+        # Reindex and fill missing values, then infer object types
         divs_list = [
-            self.compost.reindex(columns=all_columns).fillna(0),
-            self.anaerobic.reindex(columns=all_columns).fillna(0),
-            self.combustion.reindex(columns=all_columns).fillna(0),
-            self.recycling.reindex(columns=all_columns).fillna(0)
+            self.compost.reindex(columns=all_columns).infer_objects(copy=False).fillna(0),
+            self.anaerobic.reindex(columns=all_columns).infer_objects(copy=False).fillna(0),
+            self.combustion.reindex(columns=all_columns).infer_objects(copy=False).fillna(0),
+            self.recycling.reindex(columns=all_columns).infer_objects(copy=False).fillna(0)
         ]
+        
         return sum(divs_list)
     
     # THIS NEEDS TO ACCOMODATE NEW_BASELINE, and i think can be rewritten to use df, be more efficient. same with the one below. 
@@ -290,6 +292,7 @@ class DivsDF(BaseModel):
 
         return
     
+    # This sucks now...or at least still has dumb loop
     def _dst_implement_advanced(
         self, 
         implement_year: int, 
@@ -349,6 +352,34 @@ class DivsDF(BaseModel):
         self.recycling = _create_dynamic_dataframe(start_year, end_year, year_of_data_pop, baseline_div_masses.recycling, scenario_div_masses.recycling, implement_year, growth_rate_historic, growth_rate_future, components['recycling'])
 
         return
+    
+    @classmethod
+    def create_advanced_baseline(cls, divs: DivMasses, year_of_data_pop: int, growth_rate_historic: float, growth_rate_future: float):
+        compost = cls._apply_growth_rate(divs.compost, year_of_data_pop, growth_rate_historic, growth_rate_future)
+        anaerobic = cls._apply_growth_rate(divs.anaerobic, year_of_data_pop, growth_rate_historic, growth_rate_future)
+        combustion = cls._apply_growth_rate(divs.combustion, year_of_data_pop, growth_rate_historic, growth_rate_future)
+        recycling = cls._apply_growth_rate(divs.recycling, year_of_data_pop, growth_rate_historic, growth_rate_future)
+
+        return cls(
+            compost=compost, 
+            anaerobic=anaerobic, 
+            combustion=combustion, 
+            recycling=recycling
+        )
+
+    @staticmethod
+    def _apply_growth_rate(df: pd.DataFrame, year_of_data_pop: int, growth_rate_historic: float, growth_rate_future: float) -> pd.DataFrame:
+        years = df.index
+        t = years - year_of_data_pop
+
+        # Vectorized growth rate calculation
+        growth_rates = np.where(years < year_of_data_pop, growth_rate_historic, growth_rate_future)
+        growth_factors = np.power(growth_rates, t)
+
+        # Apply growth factors across all waste types (columns) at once
+        adjusted_data = df.multiply(growth_factors, axis=0)
+
+        return adjusted_data
     
     # def _advanced_baseline(
     #     self, 
@@ -453,7 +484,7 @@ class LandfillWasteMassDF(BaseModel):
         return cls(df=landfill_waste)
     
     @classmethod
-    def create_advanced(cls, waste_generated_df: pd.DataFrame, divs_df: 'DivsDF', fraction_of_waste_series: pd.Series) -> 'LandfillWasteMassDF':
+    def create_advanced(cls, waste_generated_df: pd.DataFrame, divs_df: DivsDF, fraction_of_waste_series: pd.Series) -> 'LandfillWasteMassDF':
         try:
             diverted = divs_df.sum()
         except:
@@ -462,7 +493,7 @@ class LandfillWasteMassDF(BaseModel):
         fraction_of_waste_series.index = fraction_of_waste_series.index.astype(int)
         landfill_waste = (waste_generated_df - diverted).mul(fraction_of_waste_series, axis=0)
 
-        cls(df=landfill_waste)
+        return cls(df=landfill_waste)
     
     # This needs an underscore before it i think
     def dst_implement_advanced(self, waste_generated_df: pd.DataFrame, divs_df: 'DivsDF', fraction_of_waste_series: pd.Series) -> 'LandfillWasteMassDF':

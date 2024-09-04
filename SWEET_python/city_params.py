@@ -214,12 +214,13 @@ class CityParameters(BaseModel):
             if bf_idx['scenario'] == 8:
                 bf_idx['scenario'] = 7
 
+            kc = {}
             kc['baseline'] = lookup_array[bs_idx['baseline'], bf_idx['baseline'], nb_idx['baseline']]
-            if kc['baseline'] == 0:
+            if kc['baseline'] == 0.0:
                 print('Invalid value for k')
 
             kc['scenario'] = lookup_array[bs_idx['scenario'], bf_idx['scenario'], nb_idx['scenario']]
-            if kc['scenario'] == 0:
+            if kc['scenario'] == 0.0:
                 print('Invalid value for k')
 
         elif advanced_baseline:
@@ -227,46 +228,28 @@ class CityParameters(BaseModel):
             bs = {}
             bf = {}
 
-            nb['baseline'] = self.waste_fractions['baseline'].metal + self.waste_fractions['baseline'].glass + self.waste_fractions['baseline'].plastic + self.waste_fractions['baseline'].other + self.waste_fractions['baseline'].rubber
-            bs['baseline']  = self.waste_fractions['baseline'].wood + self.waste_fractions['baseline'].paper_cardboard + self.waste_fractions['baseline'].textiles
-            bf['baseline']  = self.waste_fractions['baseline'].food + self.waste_fractions['baseline'].green
-
-            nb['scenario'] = self.waste_fractions['scenario'].metal + self.waste_fractions['scenario'].glass + self.waste_fractions['scenario'].plastic + self.waste_fractions['scenario'].other + self.waste_fractions['scenario'].rubber
-            bs['scenario']  = self.waste_fractions['scenario'].wood + self.waste_fractions['scenario'].paper_cardboard + self.waste_fractions['scenario'].textiles
-            bf['scenario']  = self.waste_fractions['scenario'].food + self.waste_fractions['scenario'].green
+            nb = self.waste_fractions.at[2000, 'metal'] + self.waste_fractions.at[2000, 'glass'] + self.waste_fractions.at[2000, 'plastic'] + self.waste_fractions.at[2000, 'other'] + self.waste_fractions.at[2000, 'metal']
+            bs  = self.waste_fractions.at[2000, 'wood'] + self.waste_fractions.at[2000, 'paper_cardboard'] + self.waste_fractions.at[2000, 'textiles']
+            bf  = self.waste_fractions.at[2000, 'food'] + self.waste_fractions.at[2000, 'green']
 
             bs_idx = {}
             bf_idx = {}
             nb_idx = {}
 
-            bs_idx['baseline'] = int(bs['baseline'] * 8)
-            bf_idx['baseline'] = int(bf['baseline'] * 8)
-            nb_idx['baseline'] = int(nb['baseline'] * 8)
+            bs_idx = int(bs * 8)
+            bf_idx = int(bf * 8)
+            nb_idx = int(nb * 8)
 
-            bs_idx['scenario'] = int(bs['scenario'] * 8)
-            bf_idx['scenario'] = int(bf['scenario'] * 8)
-            nb_idx['scenario'] = int(nb['scenario'] * 8)
+            if nb_idx == 8:
+                nb_idx = 7
+            if bs_idx == 8:
+                bs_idx = 7
+            if bf_idx == 8:
+                bf_idx = 7
 
-            if nb_idx['baseline'] == 8:
-                nb_idx['baseline'] = 7
-            if bs_idx['baseline'] == 8:
-                bs_idx['baseline'] = 7
-            if bf_idx['baseline'] == 8:
-                bf_idx['baseline'] = 7
-
-            if nb_idx['scenario'] == 8:
-                nb_idx['scenario'] = 7
-            if bs_idx['scenario'] == 8:
-                bs_idx['scenario'] = 7
-            if bf_idx['scenario'] == 8:
-                bf_idx['scenario'] = 7
-
-            kc['baseline'] = lookup_array[bs_idx['baseline'], bf_idx['baseline'], nb_idx['baseline']]
-            if kc['baseline'] == 0:
-                print('Invalid value for k')
-
-            kc['scenario'] = lookup_array[bs_idx['scenario'], bf_idx['scenario'], nb_idx['scenario']]
-            if kc['scenario'] == 0:
+            kc = {}
+            kc = lookup_array[bs_idx, bf_idx, nb_idx]
+            if kc == 0:
                 print('Invalid value for k')
 
         else:
@@ -326,15 +309,15 @@ class CityParameters(BaseModel):
             years = pd.Series(index=range(1960, 2074))
             if advanced_dst:
                 # Create baseline series for years up to the implement year
-                baseline_series = kc['baseline'] * tf['baseline'] * fm['baseline']
-                years.loc[:implement_year] = baseline_series
+                baseline_series = kc['baseline'] * tf * fm
+                years.loc[:implement_year-1] = baseline_series
                 
                 # Create scenario series for years after the implement year
-                scenario_series = kc['scenario'] * tf['scenario'] * fm['scenario']
-                years.loc[implement_year + 1:] = scenario_series
+                scenario_series = kc['scenario'] * tf * fm
+                years.loc[implement_year:] = scenario_series
             elif advanced_baseline:
                 # Create baseline series for years up to the implement year
-                baseline_series = kc['baseline'] * tf['baseline'] * fm['baseline']
+                baseline_series = kc * tf * fm
                 years.loc[:] = baseline_series
             else:
                 # Create baseline series for all years
@@ -726,45 +709,46 @@ class City:
 
         city_params_dict = self.update_cityparams_dict(city_parameters)
 
-        landfill_w_capture = Landfill(
-            open_date=1960, 
-            close_date=2073, 
-            site_type='landfill', 
-            mcf=pd.Series(1, index=years),
-            city_params_dict=city_params_dict, 
-            city_instance_attrs=city_parameters.city_instance_attrs, 
-            landfill_index=0, 
-            fraction_of_waste=city_parameters.split_fractions.landfill_w_capture, 
-            gas_capture=True
-        )
-        landfill_wo_capture = Landfill(
-            open_date=1960, 
-            close_date=2073, 
-            site_type='landfill', 
-            mcf=pd.Series(1, index=years), 
-            city_params_dict=city_params_dict, 
-            city_instance_attrs=city_parameters.city_instance_attrs, 
-            landfill_index=1, 
-            fraction_of_waste=city_parameters.split_fractions.landfill_wo_capture, 
-            gas_capture=False
-        )
-        dumpsite = Landfill(
-            open_date=1960, 
-            close_date=2073, 
-            site_type='dumpsite', 
-            mcf=pd.Series(0.4, index=years), 
-            city_params_dict=city_params_dict, 
-            city_instance_attrs=city_parameters.city_instance_attrs, 
-            landfill_index=2, 
-            fraction_of_waste=city_parameters.split_fractions.dumpsite, 
-            gas_capture=False
-        )
+        if not advanced_baseline and not advanced_dst:
+            landfill_w_capture = Landfill(
+                open_date=1960, 
+                close_date=2073, 
+                site_type='landfill', 
+                mcf=pd.Series(1, index=years),
+                city_params_dict=city_params_dict, 
+                city_instance_attrs=city_parameters.city_instance_attrs, 
+                landfill_index=0, 
+                fraction_of_waste=city_parameters.split_fractions.landfill_w_capture, 
+                gas_capture=True
+            )
+            landfill_wo_capture = Landfill(
+                open_date=1960, 
+                close_date=2073, 
+                site_type='landfill', 
+                mcf=pd.Series(1, index=years), 
+                city_params_dict=city_params_dict, 
+                city_instance_attrs=city_parameters.city_instance_attrs, 
+                landfill_index=1, 
+                fraction_of_waste=city_parameters.split_fractions.landfill_wo_capture, 
+                gas_capture=False
+            )
+            dumpsite = Landfill(
+                open_date=1960, 
+                close_date=2073, 
+                site_type='dumpsite', 
+                mcf=pd.Series(0.4, index=years), 
+                city_params_dict=city_params_dict, 
+                city_instance_attrs=city_parameters.city_instance_attrs, 
+                landfill_index=2, 
+                fraction_of_waste=city_parameters.split_fractions.dumpsite, 
+                gas_capture=False
+            )
 
-        landfills = [landfill_w_capture, landfill_wo_capture, dumpsite]
-        non_zero_landfills = [x for x in [landfill_w_capture, landfill_wo_capture, dumpsite] if x.fraction_of_waste > 0]
+            landfills = [landfill_w_capture, landfill_wo_capture, dumpsite]
+            non_zero_landfills = [x for x in [landfill_w_capture, landfill_wo_capture, dumpsite] if x.fraction_of_waste > 0]
 
-        city_parameters.landfills = landfills
-        city_parameters.non_zero_landfills = non_zero_landfills
+            city_parameters.landfills = landfills
+            city_parameters.non_zero_landfills = non_zero_landfills
 
     # This should probably be a method of CityParameters
     def update_cityparams_dict(self, city_parameters: dict) -> None:
@@ -855,6 +839,26 @@ class City:
         #                     getattr(fracs, waste)
         #                 )
         #     diverted_masses['combustion'] = pd.DataFrame(diverted_masses['combustion'])
+        
+        # Unsure if this is the right place for this...
+        if isinstance(parameters.div_component_fractions.combustion, WasteFractions):
+            div_component_fractions = parameters.div_component_fractions
+            years = range(1960, 2074)
+            compost_dict = div_component_fractions.compost.model_dump()
+            compost = pd.DataFrame(compost_dict, index=years)[list(self.div_components['compost'])]
+            anaerobic_dict = div_component_fractions.anaerobic.model_dump()
+            anaerobic = pd.DataFrame(anaerobic_dict, index=years)[list(self.div_components['anaerobic'])]
+            combustion_dict = div_component_fractions.combustion.model_dump()
+            combustion = pd.DataFrame(combustion_dict, index=years)[list(self.div_components['combustion'])]
+            recycling_dict = div_component_fractions.recycling.model_dump()
+            recycling = pd.DataFrame(recycling_dict, index=years)[list(self.div_components['recycling'])]
+            div_component_fractions = DivComponentFractionsDF(
+                compost=compost,
+                anaerobic=anaerobic,
+                combustion=combustion,
+                recycling=recycling,
+            )
+            parameters.div_component_fractions = div_component_fractions
 
         for div in parameters.div_component_fractions.model_fields:
             # Get the component fractions for the current diversion type
@@ -1212,7 +1216,7 @@ class City:
         parameters.diversion_emissions = summed_diversion_emissions
         parameters.total_emissions = summed_emissions
 
-    def _check_masses_v2(self, scenario: int, advanced_baseline: bool=False, dst: bool=False, implement_year: int=None) -> None:
+    def _check_masses_v2(self, scenario: int, advanced_baseline: bool=False, advanced_dst: bool=False, implement_year: int=None) -> None:
         """
         Adjusts diversion waste type fractions if more of a waste type is being diverted than generated.
 
@@ -1224,7 +1228,7 @@ class City:
         else:
             parameters = self.scenario_parameters[scenario-1]
 
-        if (not advanced_baseline) and (not dst):
+        if (not advanced_baseline) and (not advanced_dst):
             diversion_fractions_instance = DiversionFractions(
                 compost=parameters.div_fractions.at[2000, 'compost'],
                 anaerobic=parameters.div_fractions.at[2000, 'anaerobic'],
@@ -1238,25 +1242,34 @@ class City:
                 recycling=WasteFractions(**parameters.div_component_fractions.recycling.at[2000, :])
             )
             waste_fractions_instance = WasteFractions(**parameters.waste_fractions.at[2000, :])
-            self.mass_checker_math(
+            parameters.adjusted_diversion_constituents, parameters.input_problems, parameters.divs, parameters.div_component_fractions, self.mass_checker_math(
                 div_fractions=diversion_fractions_instance,
                 div_component_fractions=div_component_fractions_instance,
-                waste_fractions=waste_fractions_instance
+                waste_fractions=waste_fractions_instance,
+                scenario=scenario
             )
+
+            return
+
         else:
             unique_divsets = parameters.div_fractions.drop_duplicates()
 
             # Initialize empty DataFrames to build the final instances
-            div_masses_df = pd.DataFrame(index=parameters.div_fractions.index, columns=parameters.div_fractions.columns)
-            div_component_fractions_df = {
-                'compost': pd.DataFrame(index=parameters.div_fractions.index, columns=parameters.div_component_fractions.compost.columns),
-                'anaerobic': pd.DataFrame(index=parameters.div_fractions.index, columns=parameters.div_component_fractions.anaerobic.columns),
-                'combustion': pd.DataFrame(index=parameters.div_fractions.index, columns=parameters.div_component_fractions.combustion.columns),
-                'recycling': pd.DataFrame(index=parameters.div_fractions.index, columns=parameters.div_component_fractions.recycling.columns)
-            }
+            div_masses_df = DivsDF(
+                compost = pd.DataFrame(index=parameters.div_fractions.index, columns=list(self.waste_types)),
+                anaerobic = pd.DataFrame(index=parameters.div_fractions.index, columns=list(self.waste_types)),
+                combustion = pd.DataFrame(index=parameters.div_fractions.index, columns=list(self.waste_types)),
+                recycling = pd.DataFrame(index=parameters.div_fractions.index, columns=list(self.waste_types))
+            )
+            div_component_fractions_df = DivComponentFractionsDF(
+                compost = pd.DataFrame(index=parameters.div_fractions.index, columns=parameters.div_component_fractions.compost.columns),
+                anaerobic = pd.DataFrame(index=parameters.div_fractions.index, columns=parameters.div_component_fractions.anaerobic.columns),
+                combustion = pd.DataFrame(index=parameters.div_fractions.index, columns=parameters.div_component_fractions.combustion.columns),
+                recycling = pd.DataFrame(index=parameters.div_fractions.index, columns=parameters.div_component_fractions.recycling.columns)
+            )
 
             for i, row in unique_divsets.iterrows():
-                corresponding_year = row[0]
+                corresponding_year = row.name
                 next_year = unique_divsets.index[i + 1] if i + 1 < len(unique_divsets) else parameters.div_fractions.index[-1] + 1
                 year_range = range(corresponding_year, next_year)
 
@@ -1267,52 +1280,81 @@ class City:
                     recycling=parameters.div_fractions.at[corresponding_year, 'recycling']
                 )
                 div_component_fractions_instance = DivComponentFractions(
-                    compost=WasteFractions(**parameters.div_component_fractions.compost.at[corresponding_year, :]),
-                    anaerobic=WasteFractions(**parameters.div_component_fractions.anaerobic.at[corresponding_year, :]),
-                    combustion=WasteFractions(**parameters.div_component_fractions.combustion.at[corresponding_year, :]),
-                    recycling=WasteFractions(**parameters.div_component_fractions.recycling.at[corresponding_year, :])
+                    compost=WasteFractions(**parameters.div_component_fractions.compost.loc[corresponding_year, :].to_dict()),
+                    anaerobic=WasteFractions(**parameters.div_component_fractions.anaerobic.loc[corresponding_year, :].to_dict()),
+                    combustion=WasteFractions(**parameters.div_component_fractions.combustion.loc[corresponding_year, :].to_dict()),
+                    recycling=WasteFractions(**parameters.div_component_fractions.recycling.loc[corresponding_year, :].to_dict())
                 )
-                waste_fractions_instance = WasteFractions(**parameters.waste_fractions.at[corresponding_year, :])
-                adjusted_diversion_constituents, input_problems, divs, div_component_fractions = self.mass_checker_math(
+                waste_fractions_instance = WasteFractions(**parameters.waste_fractions.loc[corresponding_year, :].to_dict())
+                parameters.adjusted_diversion_constituents, parameters.input_problems, divs, div_component_fractions = self.mass_checker_math(
                     div_fractions=diversion_fractions_instance,
                     div_component_fractions=div_component_fractions_instance,
-                    waste_fractions=waste_fractions_instance
+                    waste_fractions=waste_fractions_instance,
+                    scenario=scenario,
+                    corresponding_year=corresponding_year,
                 )
 
                 # Populate the DataFrames for all years in the range
                 # Check at some point if this is actually working right.
                 #div_masses_df.loc[year_range, :] = pd.DataFrame([divs] * len(year_range), index=year_range)
-                div_masses_df['compost'].loc[year_range, :] = pd.DataFrame([divs['compost']] * len(year_range), index=year_range)
-                div_masses_df['anaerobic'].loc[year_range, :] = pd.DataFrame([divs['anaerobic']] * len(year_range), index=year_range)
-                div_masses_df['combustion'].loc[year_range, :] = pd.DataFrame([divs['combustion']] * len(year_range), index=year_range)
-                div_masses_df['recycling'].loc[year_range, :] = pd.DataFrame([divs['recycling']] * len(year_range), index=year_range)
-                
-                div_component_fractions_df['compost'].loc[year_range, :] = pd.DataFrame([div_component_fractions['compost']] * len(year_range), index=year_range)
-                div_component_fractions_df['anaerobic'].loc[year_range, :] = pd.DataFrame([div_component_fractions['anaerobic']] * len(year_range), index=year_range)
-                div_component_fractions_df['combustion'].loc[year_range, :] = pd.DataFrame([div_component_fractions['combustion']] * len(year_range), index=year_range)
-                div_component_fractions_df['recycling'].loc[year_range, :] = pd.DataFrame([div_component_fractions['recycling']]* len(year_range), index=year_range)
-            
-            # Create the final instances
-            final_div_masses_annual = DivMassesAnnual(
-                compost=div_masses_df['compost'],
-                anaerobic=div_masses_df['anaerobic'],
-                combustion=div_masses_df['combustion'],
-                recycling=div_masses_df['recycling']
-            )
+                try:
+                    div_masses_df['compost'].loc[year_range, :] = pd.DataFrame([divs['compost']] * len(year_range), index=year_range)
+                    div_masses_df['anaerobic'].loc[year_range, :] = pd.DataFrame([divs['anaerobic']] * len(year_range), index=year_range)
+                    div_masses_df['combustion'].loc[year_range, :] = pd.DataFrame([divs['combustion']] * len(year_range), index=year_range)
+                    div_masses_df['recycling'].loc[year_range, :] = pd.DataFrame([divs['recycling']] * len(year_range), index=year_range)
 
-            final_div_component_fractions_df = DivComponentFractionsDF(
-                compost=div_component_fractions_df['compost'],
-                anaerobic=div_component_fractions_df['anaerobic'],
-                combustion=div_component_fractions_df['combustion'],
-                recycling=div_component_fractions_df['recycling']
-            )
+                    div_component_fractions_df['compost'].loc[year_range, :] = pd.DataFrame([div_component_fractions['compost']] * len(year_range), index=year_range)
+                    div_component_fractions_df['anaerobic'].loc[year_range, :] = pd.DataFrame([div_component_fractions['anaerobic']] * len(year_range), index=year_range)
+                    div_component_fractions_df['combustion'].loc[year_range, :] = pd.DataFrame([div_component_fractions['combustion']] * len(year_range), index=year_range)
+                    div_component_fractions_df['recycling'].loc[year_range, :] = pd.DataFrame([div_component_fractions['recycling']]* len(year_range), index=year_range)
+                except:
+                    div_masses_df.compost.loc[year_range, :] = pd.DataFrame([divs.compost.dict()] * len(year_range), index=year_range)
+                    div_masses_df.anaerobic.loc[year_range, :] = pd.DataFrame([divs.anaerobic.dict()] * len(year_range), index=year_range)
+                    div_masses_df.combustion.loc[year_range, :] = pd.DataFrame([divs.combustion.dict()] * len(year_range), index=year_range)
+                    div_masses_df.recycling.loc[year_range, :] = pd.DataFrame([divs.recycling.dict()] * len(year_range), index=year_range)
+                
+                    div_component_fractions_df.compost.loc[year_range, :] = pd.DataFrame([div_component_fractions.compost.dict()] * len(year_range), index=year_range)
+                    div_component_fractions_df.anaerobic.loc[year_range, :] = pd.DataFrame([div_component_fractions.anaerobic.dict()] * len(year_range), index=year_range)
+                    div_component_fractions_df.combustion.loc[year_range, :] = pd.DataFrame([div_component_fractions.combustion.dict()] * len(year_range), index=year_range)
+                    div_component_fractions_df.recycling.loc[year_range, :] = pd.DataFrame([div_component_fractions.recycling.dict()] * len(year_range), index=year_range)
             
-            self.divs = final_div_masses_annual
-            self.div_component_fractions = final_div_component_fractions_df
+            try:
+                # Create the final instances
+                final_div_masses_annual = DivMassesAnnual(
+                    compost=div_masses_df['compost'],
+                    anaerobic=div_masses_df['anaerobic'],
+                    combustion=div_masses_df['combustion'],
+                    recycling=div_masses_df['recycling']
+                )
+
+                final_div_component_fractions_df = DivComponentFractionsDF(
+                    compost=div_component_fractions_df['compost'],
+                    anaerobic=div_component_fractions_df['anaerobic'],
+                    combustion=div_component_fractions_df['combustion'],
+                    recycling=div_component_fractions_df['recycling']
+                )
+            except:
+                # Create the final instances
+                final_div_masses_annual = DivMassesAnnual(
+                    compost=div_masses_df.compost.loc[:, list(self.div_components['compost'])],
+                    anaerobic=div_masses_df.anaerobic.loc[:, list(self.div_components['anaerobic'])],
+                    combustion=div_masses_df.combustion.loc[:, list(self.div_components['combustion'])],
+                    recycling=div_masses_df.recycling.loc[:, list(self.div_components['recycling'])]
+                )
+
+                final_div_component_fractions_df = DivComponentFractionsDF(
+                    compost=div_component_fractions_df.compost.loc[:, list(self.div_components['compost'])],
+                    anaerobic=div_component_fractions_df.anaerobic.loc[:, list(self.div_components['anaerobic'])],
+                    combustion=div_component_fractions_df.combustion.loc[:, list(self.div_components['combustion'])],
+                    recycling=div_component_fractions_df.recycling.loc[:, list(self.div_components['recycling'])]
+                )
+            
+            parameters.divs = final_div_masses_annual
+            parameters.div_component_fractions = final_div_component_fractions_df
             
             return
         
-    def mass_checker_math(self, div_fractions: DiversionFractions, div_component_fractions: DivComponentFractions, waste_fractions: WasteFractions):
+    def mass_checker_math(self, div_fractions: DiversionFractions, div_component_fractions: DivComponentFractions, waste_fractions: WasteFractions, scenario: int, corresponding_year: int=2000) -> tuple:
         components_multiplied_through = {}
         for div in div_component_fractions.model_fields:
             components_multiplied_through[div] = {}
@@ -1332,7 +1374,8 @@ class City:
             #parameters.divs = divs
             adjusted_diversion_constituents = False
             input_problems = False
-            return adjusted_diversion_constituents, input_problems
+            divs = self._divs_from_component_fractions(div_fractions, div_component_fractions, scenario=scenario, advanced=True, year=corresponding_year)
+            return adjusted_diversion_constituents, input_problems, divs, div_component_fractions
 
         if sum(getattr(div_fractions, div) for div in div_fractions.model_fields) > 1:
             raise CustomError("INVALID_PARAMETERS", f"Diversions sum to {sum(getattr(div_fractions, div) for div in div_fractions.model_fields)}, but they must sum to 1 or less.")
@@ -1776,7 +1819,7 @@ class City:
         #     parameters.adjusted_diversion_constituents = True
         #     parameters.input_problems = False
 
-    def _divs_from_component_fractions(self, div_fractions: DiversionFractions, div_component_fractions: DivComponentFractions, scenario: int) -> dict:
+    def _divs_from_component_fractions(self, div_fractions: DiversionFractions, div_component_fractions: DivComponentFractions, scenario: int, advanced: bool=False, year: int=2000) -> dict:
         """
         Calculates diverted masses from diversion fractions and component fractions,
         incorporating rejection rates.
@@ -1793,13 +1836,20 @@ class City:
         else:
             parameters = self.scenario_parameters[scenario - 1]
 
-        waste_mass = self.baseline_parameters.waste_mass
+        waste_mass = parameters.waste_mass
         non_compostable_not_targeted_total = parameters.non_compostable_not_targeted_total
 
         compost_masses = {}
         anaerobic_masses = {}
         combustion_masses = {}
         recycling_masses = {}
+
+        if advanced:
+            waste_mass = waste_mass.at[year]
+            try:
+                non_compostable_not_targeted_total = non_compostable_not_targeted_total.at[year]
+            except:
+                pass
 
         for waste in self.waste_types:
             compost_masses[waste] = (
@@ -1902,7 +1952,7 @@ class City:
 
         return df
 
-    def _calculate_net_masses(self, scenario: int=0, advanced: bool=False, advanced_dst: bool=False) -> WasteMasses:
+    def _calculate_net_masses(self, scenario: int=0, advanced_baseline: bool=False, advanced_dst: bool=False) -> WasteMasses:
         """
         Calculate the net masses of different types of waste after diversion.
         WHY IS THIS RETURNING SHIT???
@@ -1923,75 +1973,33 @@ class City:
         divs = parameters.divs
         implement_year = parameters.implement_year
 
-        if advanced_dst:
-            # Create DataFrames for divs and waste_fractions
-            divs_compost = self._create_divs_dataframe(divs['baseline'].compost, divs['scenario'].compost)
-            divs_anaerobic = self._create_divs_dataframe(divs['baseline'].anaerobic, divs['scenario'].anaerobic)
-            divs_recycling = self._create_divs_dataframe(divs['baseline'].recycling, divs['scenario'].recycling)
-            waste_fractions_df = self._create_waste_fractions_dataframe()
+        # if advanced_dst:
+        #     # Combine all divs DataFrames
+        #     combined_divs = divs.compost.add(divs.anaerobic, fill_value=0)
+        #     combined_divs = combined_divs.add(divs.combustion, fill_value=0)
+        #     combined_divs = combined_divs.add(divs.recycling, fill_value=0)
+            
+        #     # Subtract the combined divs from waste_masses
+        #     new_masses_df = parameters.waste_masses.sub(combined_divs, fill_value=0)
 
-            years = sorted(set(divs.combustion.index))
-            net_masses_over_years = {}
+        #     # Assign the result to parameters.net_masses
+        #     parameters.net_masses = new_masses_df
 
-            for year in years:
-                year = int(year)
-                if year == int(years[0]):
-                    pass
-                elif (divs.combustion.loc[str(year)].equals(divs.combustion.loc[str(int(year)-1)]) and
-                    divs_compost.loc[year].equals(divs_compost.loc[year-1]) and
-                    divs_anaerobic.loc[year].equals(divs_anaerobic.loc[year-1]) and
-                    divs_recycling.loc[year].equals(divs_recycling.loc[year-1]) and
-                    waste_fractions_df.loc[year].equals(waste_fractions_df.loc[year-1])):
-                    continue
+        #     return 
 
-                waste_fractions = waste_fractions_df.loc[int(year)]
+        if advanced_baseline or advanced_dst:
+            # Combine all divs DataFrames
+            combined_divs = divs.compost.add(divs.anaerobic, fill_value=0)
+            combined_divs = combined_divs.add(divs.combustion, fill_value=0)
+            combined_divs = combined_divs.add(divs.recycling, fill_value=0)
+            
+            # Subtract the combined divs from waste_masses
+            new_masses_df = parameters.waste_masses.sub(combined_divs, fill_value=0)
 
-                net_masses = {waste: getattr(parameters.waste_masses, waste) - (
-                                divs_compost.loc[year][waste] +
-                                divs_anaerobic.loc[year][waste] +
-                                divs.combustion.loc[str(year)][waste] +
-                                divs_recycling.loc[year][waste]
-                            ) for waste in waste_fractions.index}
+            # Assign the result to parameters.net_masses
+            parameters.net_masses = new_masses_df
 
-                net_masses_over_years[year] = WasteMasses(**net_masses)
-
-            # Process or return net_masses_over_years as needed
-            return net_masses_over_years
-
-        if advanced:
-            # Create DataFrames for divs and waste_fractions
-            divs_compost = self._create_divs_dataframe(self.baseline_parameters.divs.compost, divs.compost)
-            divs_anaerobic = self._create_divs_dataframe(self.baseline_parameters.divs.anaerobic, divs.anaerobic)
-            divs_recycling = self._create_divs_dataframe(self.baseline_parameters.divs.recycling, divs.recycling)
-            waste_fractions_df = self._create_waste_fractions_dataframe()
-
-            years = sorted(set(divs.combustion.index))
-            net_masses_over_years = {}
-
-            for year in years:
-                year = int(year)
-                if year == int(years[0]):
-                    pass
-                elif (divs.combustion.loc[str(year)].equals(divs.combustion.loc[str(int(year)-1)]) and
-                    divs_compost.loc[year].equals(divs_compost.loc[year-1]) and
-                    divs_anaerobic.loc[year].equals(divs_anaerobic.loc[year-1]) and
-                    divs_recycling.loc[year].equals(divs_recycling.loc[year-1]) and
-                    waste_fractions_df.loc[year].equals(waste_fractions_df.loc[year-1])):
-                    continue
-
-                waste_fractions = waste_fractions_df.loc[int(year)]
-
-                net_masses = {waste: getattr(parameters.waste_masses, waste) - (
-                                divs_compost.loc[year][waste] +
-                                divs_anaerobic.loc[year][waste] +
-                                divs.combustion.loc[str(year)][waste] +
-                                divs_recycling.loc[year][waste]
-                            ) for waste in waste_fractions.index}
-
-                net_masses_over_years[year] = WasteMasses(**net_masses)
-
-            # Process or return net_masses_over_years as needed
-            return net_masses_over_years
+            return 
 
         # net_masses = {waste: parameters.waste_masses.model_dump()[waste] - (
         #                 getattr(divs.compost, waste) +
@@ -2162,7 +2170,7 @@ class City:
         self,
         population: float,
         precipitation: float,
-        new_waste_mass: Dict,
+        #new_waste_mass: Dict,
         new_waste_fractions: Dict,
         new_div_fractions: Dict,
         new_landfill_types: Dict,
@@ -2170,12 +2178,12 @@ class City:
         implement_year: float,
         scenario: int,
         #new_baseline: int,
-        fraction_waste_timeline: Dict,
+        landfill_split_timeline: Dict,
         new_gas_efficiency: Dict, # 0 means no gas capture, blank means figure out the efficiency for me
         new_landfill_fracs: Dict = None,
         new_landfill_flaring: Dict = None,
         new_landfill_cover: Dict = None,
-        new_landfill_leachate_circulate: Dict = None,
+        leachate_circulate: Dict = None,
         new_landfill_latlons: Dict = None,
         new_landfill_areas: Dict = None,
         new_covertypes: Dict = None,
@@ -2188,16 +2196,15 @@ class City:
         self.scenario_parameters[scenario - 1] = scenario_parameters
         scenario_parameters.div_fractions = new_div_fractions
         scenario_parameters.waste_fractions = new_waste_fractions
-        scenario_parameters._singapore_k(advanced=True)
+        scenario_parameters._singapore_k(implement_year=implement_year, advanced_dst=True)
 
         # REMOVE THIS LATER
-        # new_waste_mass = {}
-        # new_waste_mass['baseline'] = scenario_parameters.waste_mass
-        # new_waste_mass['scenario'] = scenario_parameters.waste_mass
-        # if waste_burning['baseline'] is not None:
-        #     new_waste_mass -= waste_burning * new_waste_mass
-        # if waste_burning['scenario'] is not None:
-        #     new_waste_mass -= waste_burning * new_waste_mass
+        pd.set_option('display.max_rows', None)
+        new_waste_mass = {}
+        new_waste_mass['baseline'] = scenario_parameters.waste_mass
+        new_waste_mass['scenario'] = scenario_parameters.waste_mass
+        if waste_burning['baseline'] > 0:
+            new_waste_mass['baseline'] -= waste_burning['baseline'] * new_waste_mass['baseline']
 
         years = pd.Index(range(1960, 2074))
         waste_mass_series = pd.Series(index=years)
@@ -2205,10 +2212,10 @@ class City:
         waste_mass_series.loc[implement_year:] = new_waste_mass['scenario']
 
         # Adjust for waste burning
-        if waste_burning['baseline'] is not None:
+        if waste_burning['baseline'] > 0:
             years.loc[:implement_year-1] -= waste_burning['baseline'] * years.loc[:implement_year]
 
-        if waste_burning['scenario'] is not None:
+        if waste_burning['scenario'] > 0:
             years.loc[implement_year:] -= waste_burning['scenario'] * years.loc[implement_year + 1:]
 
         # New waste masses
@@ -2230,21 +2237,22 @@ class City:
             waste_masses_df.loc[implement_year:, waste] = scenario_frac * waste_mass_series.loc[implement_year:]
 
         # Assign the DataFrame to scenario_parameters
-        scenario_parameters.waste_masses_df = waste_masses_df
+        scenario_parameters.waste_masses = waste_masses_df
 
         # Update waste generated
         # I have to put in the ability to change population and year of population data.
+        # And editable growth rates? Would need to split this into separate baseline and scenario dfs, then combine. 
         scenario_parameters.waste_generated_df = WasteGeneratedDF.create_advanced(
-            waste_masses = waste_masses_df,
+            waste_masses_df = waste_masses_df,
             start_year=1960, 
             end_year=2073,
             year_of_data_pop=scenario_parameters.year_of_data_pop, 
             growth_rate_historic=scenario_parameters.growth_rate_historic, 
             growth_rate_future=scenario_parameters.growth_rate_future
-        )
+        ).df
 
         # Create a DataFrame for fraction_waste_timeline
-        fraction_df = pd.DataFrame(fraction_waste_timeline).transpose()
+        fraction_df = pd.DataFrame(landfill_split_timeline).transpose()
         fraction_df.columns = [f'Landfill_{i}' for i in range(fraction_df.shape[1])]
         fraction_df.index.name = 'Year'
 
@@ -2252,13 +2260,13 @@ class City:
         city_params_dict = self.update_cityparams_dict(scenario_parameters)
         #mcfs = [1, 0.7, 0.4] # Should this include ameliorated?
         #mcf_ameliorated = [0.7, 0.4, 0.1]
-        mcfs = {}
-        mcfs['ameliorated'] = {}
-        mcfs['not_ameliorated'] = {}
-        mcfs['ameliorated']['gas_capture'] = [0.18, 0, 0]
-        mcfs['ameliorated']['no_gas_capture'] = [0.1, 0, 0]
-        mcfs['not_ameliorated']['gas_capture'] = [0.22, 0.1, 0]
-        mcfs['not_ameliorated']['no_gas_capture'] = [0.1, 0.05, 0]
+        mcf_options = {}
+        mcf_options['ameliorated'] = {}
+        mcf_options['not_ameliorated'] = {}
+        mcf_options['ameliorated']['gas_capture'] = [0.18, 0, 0]
+        mcf_options['ameliorated']['no_gas_capture'] = [0.1, 0, 0]
+        mcf_options['not_ameliorated']['gas_capture'] = [0.22, 0.1, 0]
+        mcf_options['not_ameliorated']['no_gas_capture'] = [0.1, 0.05, 0]
         gas_capture_efficiencies = {}
         gas_capture_efficiencies['ameliorated'] = [0.5, 0.3, 0]
         gas_capture_efficiencies['not_ameliorated'] = [0.6, 0.45, 0]
@@ -2267,160 +2275,85 @@ class City:
             'ox_cap': {'landfill': 0.22, 'controlled_dumpsite': 0.1, 'dumpsite': 0}
         }
         landfill_types = ['landfill', 'controlled_dumpsite', 'dumpsite']
-        
-        for i, lf_type in enumerate(new_landfill_types):
-            if i <= 2:
-                new_landfill = copy.deepcopy(self.baseline_parameters.landfills[i])
-                new_landfill.advanced = True
-                new_landfill.open_date = new_landfill_open_close_dates['scenario'][i][0]
-                new_landfill.close_date = new_landfill_open_close_dates['scenario'][i][1]
-                old_type = new_landfill.site_type
-                new_type = landfill_types['scenario'][lf_type]
-                new_landfill.site_type = new_type
-                #new_landfill.mcf = mcfs[lf_type]
-                # not sure if these two are necessary or if they'll be taken care of other ways.
-                new_landfill.city_params_dict = city_params_dict
-                new_landfill.city_instance_attrs = scenario_parameters.city_instance_attrs
-                new_landfill.gas_capture = False if new_gas_efficiency['scenario'][i] == 0 else True
-                new_landfill.scenario = scenario
-                new_landfill.old_gas_eff = self.baseline_parameters.landfills[i].gas_capture_efficiency
-                new_landfill.old_ox = self.baseline_parameters.landfills[i].oxidation_rate
-                if new_type != old_type:
-                    new_landfill.ameliorated = True
-                # Use new gas efficiency if provided
-                if new_gas_efficiency['scenario'][i] is not None:
-                    new_landfill.gas_capture_efficiency.loc[implement_year:] = new_gas_efficiency[i]
-                    
-                    # Figure out the MCF and oxidation rate, which only change if landfill or gas capture added/removed
-                    # First do ameliorated
-                    if self.ameliorated:
-                        # Gas removed or was never there
-                        if new_gas_efficiency['scenario'][i] == 0:
-                            new_landfill.mcf.loc[implement_year:] = mcfs['ameliorated']['no_gas_capture'][lf_type]
-                            new_landfill.oxidation_rate[implement_year:] = self.ox_options['ox_nocap'][new_type]
-                        # Has gas capture
-                        else:
-                            new_landfill.mcf.loc[implement_year:] = mcfs['ameliorated']['gas_capture'][lf_type]
-                            new_landfill.oxidation_rate.loc[implement_year:] = self.ox_options['ox_cap'][new_type]
-                    # Account for non-ameliorated. This only matters if gas removed where it used to exist or vice versa
-                    else:
-                        # Landfill starts w/ gas capture
-                        if i == 0:
-                            if new_gas_efficiency['scenario'][i] == 0:
-                                new_landfill.mcf.loc[implement_year:] = mcfs['not_ameliorated']['no_gas_capture'][0]
-                                new_landfill.oxidation_rate.loc[implement_year:] = self.ox_options['ox_nocap']['landfill']
-                        # Landfill starts without
-                        elif i == 1:
-                            if new_gas_efficiency['scenario'][i] != 0:
-                                new_landfill.mcf.loc[implement_year:] = mcfs['not_ameliorated']['gas_capture'][0]
-                                new_landfill.oxidation_rate.loc[implement_year:] = self.ox_options['ox_cap']['landfill']
-                else:
-                    # First, deal with ameliorated landfills
-                    if self.ameliorated:
-                        #new_landfill.gas_capture_efficiency[implement_year:] = gas_capture_efficiencies['ameliorated'][lf_type]
-                        new_landfill.gas_capture_efficiency.loc[implement_year:] = gas_capture_efficiencies['ameliorated'][lf_type]
-                        new_landfill.mcf.loc[implement_year:] = mcfs['ameliorated']['gas_capture'][lf_type]
-                        new_landfill.oxidation_rate.loc[implement_year:] = self.ox_options['ox_cap'][new_type]
-                    # Account for non-ameliorated. This only matters when adding gas capture, only applies to landfill 1
-                    else:
-                        if i == 1:
-                            new_landfill.gas_capture_efficiency.loc[implement_year:] = gas_capture_efficiencies['not_ameliorated'][0]
-                            new_landfill.mcf.loc[implement_year:] = mcfs['not_ameliorated']['gas_capture'][0]
-                            new_landfill.oxidation_rate.loc[implement_year:] = self.ox_options['ox_cap']['landfill']
-                        else:
-                            # Come back and add some exception error shit here
-                            print('you should never see this')
 
-                if do_fancy_ox:
-                    new_landfill.oxidation_rate.loc[implement_year:] = None
-
-                # Still have to implement flaring
-                if new_landfill.flaring:
-                    new_landfill.flaring = new_landfill_flaring[i]
-                    new_landfill.leachate_circulate = new_landfill_leachate_circulate[i]
-                new_landfill.fraction_of_waste_vector = fraction_df[f'Landfill_{i}']
-                scenario_parameters.landfills[i] = new_landfill
+        for i, lf_type in enumerate(new_landfill_types['scenario']):
+            # Make the MCF, oxidation, and efficiency vectors
+            years = pd.Index(range(1960, 2074))
+            mcf = {}
+            ox_value = {}
+            gas_eff = {}
+            # Handle no gas capture first
+            if new_gas_efficiency['baseline'][i] == 0.0:
+                mcf['baseline'] = mcf_options['not_ameliorated']['no_gas_capture'][lf_type]
+                ox_value['baseline'] = self.ox_options['ox_nocap'][landfill_types[lf_type]]
+                gas_eff['baseline'] = 0
+            # If there is gas capture, use the number or figure it out
+            elif new_gas_efficiency['baseline'][i] > 0.0:
+                mcf['baseline'] = mcf_options['not_ameliorated']['gas_capture'][lf_type]
+                ox_value['baseline'] = self.ox_options['ox_cap'][landfill_types[lf_type]]
+                gas_eff ['baseline']= new_gas_efficiency['baseline'][i] if new_gas_efficiency['baseline'][i] is not None else gas_capture_efficiencies['not_ameliorated'][lf_type]
             else:
-                # Make the MCF, oxidation, and efficiency vectors
-                #years = pd.Index(range(1960, 2074))
+                print('invalid gas efficiency value')
 
-                if new_landfill_types['baseline'][i] != new_landfill_types['scenario'][i]:
+            if new_gas_efficiency['scenario'][i] == 0:
+                mcf['scenario'] = mcf_options['not_ameliorated']['no_gas_capture'][lf_type]
+                ox_value['scenario'] = self.ox_options['ox_nocap'][landfill_types[lf_type]]
+                gas_eff['scenario'] = 0
+            # If there is gas capture, use the number or figure it out
+            elif new_gas_efficiency['scenario'][i] > 0.0:
+                if new_landfill_types['scenario'][i] < new_landfill_types['baseline'][i]:
                     ameliorated=True
-
-                # First, deal with baseline
-                if new_gas_efficiency['baseline'][i] == 0:
-                    gce = 0
-                    mcf = mcfs['not_ameliorated']['no_gas_capture'][lf_type]
-                    ox_value = self.ox_options['ox_nocap'][landfill_types[lf_type]]
+                    mcf['scenario'] = mcf_options['ameliorated']['gas_capture'][lf_type]
+                    ox_value['scenario'] = self.ox_options['ox_cap'][landfill_types[lf_type]]
+                    gas_eff ['scenario']= new_gas_efficiency['baseline'][i] if new_gas_efficiency['baseline'][i] is not None else gas_capture_efficiencies['ameliorated'][lf_type]
                 else:
-                    gce = gas_capture_efficiencies['not_ameliorated'][lf_type]
-                    mcf = mcfs['not_ameliorated']['gas_capture'][lf_type]
-                    ox_value = self.ox_options['ox_cap'][landfill_types[lf_type]]
+                    ameliorated=False
+                    mcf['scenario'] = mcf_options['not_ameliorated']['no_gas_capture'][lf_type]
+                    ox_value['scenario'] = self.ox_options['ox_nocap'][landfill_types[lf_type]]
+                    gas_eff ['scenario']= new_gas_efficiency['baseline'][i] if new_gas_efficiency['baseline'][i] is not None else gas_capture_efficiencies['not_ameliorated'][lf_type]
+            else:
+                print('invalid gas efficiency value')
 
-                if new_gas_efficiency['baseline'][i] is not None:
-                    gce = new_gas_efficiency['baseline'][i]
+            # Create pandas Series for each: mcf, ox_value, and gas_eff
+            mcf_series = pd.Series(index=years)
+            ox_value_series = pd.Series(index=years)
+            gas_eff_series = pd.Series(index=years)
 
-                gces = pd.Series(gce, index=years)
-                mcfs = pd.Series(mcf, index=years)
-                ox_values = pd.Series(ox_value, index=years)
+            # Assign baseline values before implement_year and scenario values after
+            mcf_series.loc[years < implement_year] = mcf['baseline']
+            mcf_series.loc[years >= implement_year] = mcf['scenario']
+            
+            ox_value_series.loc[years < implement_year] = ox_value['baseline']
+            ox_value_series.loc[years >= implement_year] = ox_value['scenario']
+            
+            gas_eff_series.loc[years < implement_year] = gas_eff['baseline']
+            gas_eff_series.loc[years >= implement_year] = gas_eff['scenario']
 
-                # Now, deal with scenario
-                if new_gas_efficiency['scenario'][i] == 0:
-                    if ameliorated == True:
-                        gce = 0
-                        mcf = mcfs['ameliorated']['no_gas_capture'][lf_type]
-                        ox_value = self.ox_options['ox_nocap'][landfill_types[lf_type]]
-                    else:
-                        gce = 0
-                        mcf = mcfs['not_ameliorated']['no_gas_capture'][lf_type]
-                        ox_value = self.ox_options['ox_nocap'][landfill_types[lf_type]]
-                else:
-                    if ameliorated == True:
-                        gce = gas_capture_efficiencies['ameliorated'][lf_type]
-                        mcf = mcfs['ameliorated']['gas_capture'][lf_type]
-                        ox_value = self.ox_options['ox_cap'][landfill_types[lf_type]]
-                    else:
-                        gce = gas_capture_efficiencies['not_ameliorated'][lf_type]
-                        mcf = mcfs['not_ameliorated']['gas_capture'][lf_type]
-                        ox_value = self.ox_options['ox_cap'][landfill_types[lf_type]]
+            new_landfill = Landfill(
+                open_date=new_landfill_open_close_dates['scenario'][i][0], 
+                close_date=new_landfill_open_close_dates['scenario'][i][1], 
+                site_type=landfill_types[lf_type], 
+                mcf=mcf_series,
+                city_params_dict=city_params_dict,
+                city_instance_attrs=scenario_parameters.city_instance_attrs,
+                landfill_index=i, 
+                #fraction_of_waste=new_landfill_fracs[i], 
+                gas_capture=False if new_gas_efficiency['scenario'][i] == 0.0 else True,
+                scenario=scenario,
+                new_baseline=False,
+                gas_capture_efficiency=gas_eff_series,
+                flaring=new_landfill_flaring['scenario'][i],
+                leachate_circulate=leachate_circulate['scenario'][i],
+                fraction_of_waste_vector=fraction_df[f'Landfill_{i}'],
+                advanced=True,
+                latlon=new_landfill_latlons['scenario'][i],
+                area=new_landfill_areas['scenario'][i],
+                cover_type=new_covertypes['scenario'][i],
+                cover_thickness=new_coverthicknesses['scenario'][i],
+                oxidation_factor=ox_value_series if not do_fancy_ox else None,
+            )
+            scenario_parameters.landfills[i] = new_landfill
 
-                if new_gas_efficiency['scenario'][i] is not None:
-                    gce = new_gas_efficiency['scenario'][i]
-
-                gces.loc[implement_year:] = gce
-                mcfs.loc[implement_year:] = mcf
-                ox_values.loc[implement_year:] = ox_value
-
-                # Can I do fancy ox for just baseline or scenario? 
-                # Have to go add the baseline part for solving it...
-                if do_fancy_ox:
-                    ox_values.loc[implement_year:] = None
-
-                new_landfill = Landfill(
-                    open_date=new_landfill_open_close_dates['scenario'][i][0], 
-                    close_date=new_landfill_open_close_dates['scenario'][i][1], 
-                    site_type=landfill_types['scenario'][lf_type], 
-                    mcf=mcfs,
-                    city_params_dict=city_params_dict,
-                    city_instance_attrs=scenario_parameters.city_instance_attrs,
-                    landfill_index=i, 
-                    fraction_of_waste=new_landfill_fracs[i], 
-                    gas_capture=False if new_gas_efficiency['scenario'][i] == 0 else True,
-                    scenario=scenario,
-                    gas_capture_efficiency=gces,
-                    flaring=new_landfill_flaring[i],
-                    cover=new_landfill_cover[i],
-                    leachate_circulate=new_landfill_leachate_circulate[i],
-                    fraction_of_waste_vector=fraction_df[f'Landfill_{i}'],
-                    advanced=True,
-                    latlon=new_landfill_latlons[i],
-                    area=new_landfill_areas[i],
-                    cover_type=new_covertypes[i],
-                    cover_thickness=new_coverthicknesses[i]
-                )
-                scenario_parameters.landfills[i] = new_landfill
-
-        scenario_parameters.implement_year = implement_year
 
         # Recalculate div_component_fractions
         # waste_fractions = scenario_parameters.waste_fractions
@@ -2446,82 +2379,84 @@ class City:
         #     recycling=calculate_component_fractions(waste_fractions['scenario'], 'recycling'),
         # )
 
-        def calculate_component_fractions_df(waste_fractions_df: pd.DataFrame, div_type: str, div_components: dict) -> pd.DataFrame:
-            components = self.div_components[div_type]
-            # Filter the DataFrame to include only the relevant components
-            filtered_df = waste_fractions_df[components]
-            # Calculate the sum of the components along the rows (by year)
-            total = filtered_df.sum(axis=1)
-            # Normalize the fractions by dividing each component by the total for that year
-            normalized_df = filtered_df.div(total, axis=0).fillna(0)
-            return normalized_df
+        def calculate_component_fractions(waste_fractions: dict, div_type: str, implement_year: int, years) -> pd.DataFrame:
+            # Extract the waste types from WasteFractions objects
+            baseline_df = pd.DataFrame(waste_fractions['baseline'].model_dump(), index=[0])
+            scenario_df = pd.DataFrame(waste_fractions['scenario'].model_dump(), index=[0])
 
-        # Calculate normalized fractions for each diversion type
-        compost_df = calculate_component_fractions_df(fraction_df, 'compost')
-        anaerobic_df = calculate_component_fractions_df(fraction_df, 'anaerobic')
-        combustion_df = calculate_component_fractions_df(fraction_df, 'combustion')
-        recycling_df = calculate_component_fractions_df(fraction_df, 'recycling')
+            # Components are the subset of columns we're interested in
+            components = list(self.div_components[div_type])
+            
+            # Filter only the relevant columns (components) for both baseline and scenario
+            baseline_df = baseline_df[components]
+            scenario_df = scenario_df[components]
 
-        # Create an instance of DivComponentFractions with the resulting DataFrames
-        div_component_fractions = DivComponentFractions(
-            compost=compost_df,
-            anaerobic=anaerobic_df,
-            combustion=combustion_df,
-            recycling=recycling_df
+            # Normalize each row (for baseline and scenario)
+            baseline_normalized = baseline_df.div(baseline_df.sum(axis=1), axis=0)
+            scenario_normalized = scenario_df.div(scenario_df.sum(axis=1), axis=0)
+
+            # Create a mask for the years before and after the implement year
+            mask = years < implement_year
+
+            # Create a DataFrame with years as the index and assign baseline or scenario fractions
+            result_df = pd.DataFrame(index=years, columns=components)
+            
+            # Assign baseline values for years before implement_year, scenario values after
+            result_df.loc[mask, :] = np.tile(baseline_normalized.reindex(columns=result_df.columns).iloc[0].values, (mask.sum(), 1))
+            result_df.loc[~mask, :] = np.tile(scenario_normalized.reindex(columns=result_df.columns).iloc[0].values, ((~mask).sum(), 1))
+            
+            return result_df
+
+        # Call the function for each diversion type
+        scenario_parameters.div_component_fractions = DivComponentFractionsDF(
+            compost=calculate_component_fractions(scenario_parameters.waste_fractions, 'compost', implement_year, years),
+            anaerobic=calculate_component_fractions(scenario_parameters.waste_fractions, 'anaerobic', implement_year, years),
+            combustion=calculate_component_fractions(scenario_parameters.waste_fractions, 'combustion', implement_year, years),
+            recycling=calculate_component_fractions(scenario_parameters.waste_fractions, 'recycling', implement_year, years),
         )
-
-        # Assign the resulting DivComponentFractions object to scenario_parameters
-        scenario_parameters.div_component_fractions = div_component_fractions
-
         scenario_parameters.non_compostable_not_targeted_total = sum(
             [self.non_compostable_not_targeted[x] * \
-             getattr(scenario_parameters.div_component_fractions.compost, x) for x in self.div_components['compost']])
-        self._calculate_diverted_masses(scenario=scenario) # This function could be moved to cityparameters class, and then it doesn't need scenario argument
-
-        non_compostable_not_targeted_total = sum(
-            [self.non_compostable_not_targeted[x] * \
-             getattr(scenario_parameters.div_component_fractions['baseline'].compost, x) for x in self.div_components['compost']])
-        scenario_parameters.non_compostable_not_targeted_total = pd.Series(non_compostable_not_targeted_total, index=years)
-        scenario_parameters.non_compostable_not_targeted_total.loc[implement_year:] = sum(
-            [self.non_compostable_not_targeted[x] * \
-             getattr(scenario_parameters.div_component_fractions['scenario'].compost, x) for x in self.div_components['compost']])
+            getattr(scenario_parameters.div_component_fractions.compost, x) for x in self.div_components['compost']])
+        scenario_parameters.non_compostable_not_targeted_total = pd.Series(scenario_parameters.non_compostable_not_targeted_total, index=years)
+        self._calculate_diverted_masses(scenario=scenario)
         
+        # Split the years for baseline and scenario
+        baseline_years = years[years < implement_year]
+        scenario_years = years[years >= implement_year]
+
+        scenario_parameters.waste_fractions = pd.concat([
+            pd.DataFrame(new_waste_fractions['baseline'].model_dump(), index=baseline_years),
+            pd.DataFrame(new_waste_fractions['scenario'].model_dump(), index=scenario_years)
+        ])
+
         #scenario_parameters.repopulate_attr_dicts()
-        self._check_masses_v2(scenario=scenario, advanced=True, dst=True)
+        self._check_masses_v2(scenario=scenario, advanced_baseline=False, advanced_dst=True)
 
         if scenario_parameters.input_problems:
             print(f'Invalid new value')
             return
 
-        net = self._calculate_net_masses(scenario=scenario, advanced=True, advanced_dst=True)
-        for year in net:
-            n = net[year]
-            for mass in vars(n).values():
-                if mass < 0:
-                    print(f'Invalid new value')
-                    return
+        self._calculate_net_masses(scenario=scenario, advanced_dst=True)
+        if (scenario_parameters.net_masses < 0).any().any():
+            print(f'Invalid new value')
+            return
 
-        scenario_parameters.divs_df._dst_implement_advanced(
-            implement_year=implement_year, 
-            scenario_div_masses=scenario_parameters.divs, 
-            baseline_div_masses=self.baseline_parameters.divs, 
-            start_year=1960, 
-            end_year=2073, 
-            year_of_data_pop=scenario_parameters.year_of_data_pop, 
-            growth_rate_historic=scenario_parameters.growth_rate_historic, 
-            growth_rate_future=scenario_parameters.growth_rate_future,
-            components=self.div_components
+        scenario_parameters.divs_df = DivsDF.create_advanced_baseline(
+            scenario_parameters.divs, 
+            scenario_parameters.year_of_data_pop, 
+            scenario_parameters.growth_rate_historic, 
+            scenario_parameters.growth_rate_future
         )
 
         # combine these two loops maybe...though it still does six things, maybe doesn't matter
         scenario_parameters.repopulate_attr_dicts()
         for i, landfill in enumerate(scenario_parameters.landfills):
             # Might be able to do this more efficienctly...i'm looping over the pre implementation years twice sort of
-            landfill.waste_mass_df.dst_implement_advanced(
-                waste_generated_df=scenario_parameters.waste_generated_df.df,
+            landfill.waste_mass_df = LandfillWasteMassDF.create_advanced(
+                waste_generated_df=scenario_parameters.waste_generated_df,
                 divs_df=scenario_parameters.divs_df, 
                 fraction_of_waste_series=landfill.fraction_of_waste_vector,
-            )
+            ).df
 
             #landfill.waste_mass_df.loc[:(implement_year-1), :] = self.baseline_parameters.landfills[i].waste_mass_df.loc[:(implement_year-1), :]
             #landfill.waste_mass_df.to_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/scratch_paper/new' + str(i) + '.csv')
@@ -2534,7 +2469,7 @@ class City:
         self.sum_landfill_emissions(scenario=scenario)
 
         # ADD WASTE BURNING EMISSIONS
-        if waste_burning is not None:
+        if (waste_burning['baseline'] > 0) or (waste_burning['scenario'] > 0):
             self.scenario_parameters[scenario - 1].waste_burning_emissions = waste_burning * new_waste_mass * 3.7 * 1000 / 1000 / 1000 # g ch4 / kg waste to ton ch4 / ton waste
             self.scenario_parameters[scenario - 1].total_emissions += self.scenario_parameters[scenario - 1].waste_burning_emissions
 
@@ -2549,17 +2484,17 @@ class City:
         new_landfill_open_close_dates: List,
         scenario: int,
         new_baseline: int,
-        fraction_waste_timeline: Dict,
+        landfill_split_timeline: Dict,
         new_gas_efficiency: List, # 0 means no gas capture, blank means figure out the efficiency for me
         new_landfill_fracs: List = None,
         new_landfill_flaring: List = None,
         new_landfill_cover: List = None,
-        new_landfill_leachate_circulate: List = None,
+        leachate_circulate: List = None,
         new_landfill_latlons: List = None,
         new_landfill_areas: List = None,
         new_covertypes: List = None,
         new_coverthicknesses: List = None,
-        waste_burning: float = None,
+        waste_burning: float = 0.0,
         do_fancy_ox: bool = False,
     ) -> None:
             
@@ -2567,7 +2502,12 @@ class City:
         scenario_parameters = copy.deepcopy(self.baseline_parameters)
         self.scenario_parameters[scenario - 1] = scenario_parameters
         scenario_parameters.div_fractions = new_div_fractions
+
+        years = pd.Index(range(1960, 2074))
+        waste_fractions_dict = new_waste_fractions.model_dump()
+        new_waste_fractions = pd.DataFrame(waste_fractions_dict, index=years)
         scenario_parameters.waste_fractions = new_waste_fractions
+        
         scenario_parameters._singapore_k(advanced_baseline=True)
 
         # REMOVE THIS LATER
@@ -2576,22 +2516,22 @@ class City:
             new_waste_mass -= waste_burning * new_waste_mass
 
         # New waste masses
-        waste_masses = {waste: frac * new_waste_mass for waste, frac in new_waste_fractions.model_dump().items()}
-        scenario_parameters.waste_masses = WasteMasses(**waste_masses)
+        waste_masses = {}
+        waste_masses = pd.DataFrame({col: new_waste_fractions.at[2000, col] * new_waste_mass for col in new_waste_fractions.columns})
+        scenario_parameters.waste_masses = waste_masses #WasteMasses(**waste_masses)
 
         # Update waste generated
         scenario_parameters.waste_generated_df = WasteGeneratedDF.create(
-            new_waste_mass, 
-            new_waste_fractions, 
-            new_landfill_open_close_dates[i][0], 
-            new_landfill_open_close_dates[i][1], 
+            waste_masses,
+            1960, 
+            2073, 
             scenario_parameters.year_of_data_pop, 
             scenario_parameters.growth_rate_historic, 
             scenario_parameters.growth_rate_future
-        )
+        ).df
 
         # Create a DataFrame for fraction_waste_timeline
-        fraction_df = pd.DataFrame(fraction_waste_timeline).transpose()
+        fraction_df = pd.DataFrame(landfill_split_timeline).transpose()
         fraction_df.columns = [f'Landfill_{i}' for i in range(fraction_df.shape[1])]
         fraction_df.index.name = 'Year'
 
@@ -2599,13 +2539,13 @@ class City:
         city_params_dict = self.update_cityparams_dict(scenario_parameters)
         #mcfs = [1, 0.7, 0.4] # Should this include ameliorated?
         #mcf_ameliorated = [0.7, 0.4, 0.1]
-        mcfs = {}
+        mcf_options = {}
         #mcfs['ameliorated'] = {}
-        mcfs['not_ameliorated'] = {}
+        mcf_options['not_ameliorated'] = {}
         #mcfs['ameliorated']['gas_capture'] = [0.18, 0, 0]
         #mcfs['ameliorated']['no_gas_capture'] = [0.1, 0, 0]
-        mcfs['not_ameliorated']['gas_capture'] = [0.22, 0.1, 0]
-        mcfs['not_ameliorated']['no_gas_capture'] = [0.1, 0.05, 0]
+        mcf_options['not_ameliorated']['gas_capture'] = [0.22, 0.1, 0]
+        mcf_options['not_ameliorated']['no_gas_capture'] = [0.1, 0.05, 0]
         gas_capture_efficiencies = {}
         gas_capture_efficiencies['ameliorated'] = [0.5, 0.3, 0]
         gas_capture_efficiencies['not_ameliorated'] = [0.6, 0.45, 0]
@@ -2614,18 +2554,18 @@ class City:
             'ox_cap': {'landfill': 0.22, 'controlled_dumpsite': 0.1, 'dumpsite': 0}
         }
         landfill_types = ['landfill', 'controlled_dumpsite', 'dumpsite']
-
+    
         for i, lf_type in enumerate(new_landfill_types):
             # Make the MCF, oxidation, and efficiency vectors
             years = pd.Index(range(1960, 2074))
             # Handle no gas capture first
             if new_gas_efficiency[i] == 0:
-                mcf = mcfs['not_ameliorated']['no_gas_capture'][lf_type]
+                mcf = mcf_options['not_ameliorated']['no_gas_capture'][lf_type]
                 ox_value = self.ox_options['ox_nocap'][landfill_types[lf_type]]
                 gas_eff = 0
             # If there is gas capture, use the number or figure it out
             else:
-                mcf = mcfs['not_ameliorated']['gas_capture'][lf_type]
+                mcf = mcf_options['not_ameliorated']['gas_capture'][lf_type]
                 ox_value = self.ox_options['ox_cap'][landfill_types[lf_type]]
                 gas_eff = new_gas_efficiency[i] if new_gas_efficiency[i] is not None else gas_capture_efficiencies['not_ameliorated'][lf_type]
             oxs = [ox_value for year in years]
@@ -2643,14 +2583,13 @@ class City:
                 city_params_dict=city_params_dict,
                 city_instance_attrs=scenario_parameters.city_instance_attrs,
                 landfill_index=i, 
-                fraction_of_waste=new_landfill_fracs[i], 
+                #fraction_of_waste=new_landfill_fracs[i], 
                 gas_capture=False if new_gas_efficiency[i] == 0 else True,
                 scenario=scenario,
                 new_baseline=True,
                 gas_capture_efficiency=pd.Series(gas_effs, index=years),
                 flaring=new_landfill_flaring[i],
-                cover=new_landfill_cover[i],
-                leachate_circulate=new_landfill_leachate_circulate[i],
+                leachate_circulate=leachate_circulate[i],
                 fraction_of_waste_vector=fraction_df[f'Landfill_{i}'],
                 advanced=True,
                 latlon=new_landfill_latlons[i],
@@ -2665,11 +2604,11 @@ class City:
         waste_fractions = scenario_parameters.waste_fractions
 
         def calculate_component_fractions(waste_fractions: WasteFractions, div_type: str) -> WasteFractions:
-            components = self.div_components[div_type]
-            filtered_fractions = {waste: getattr(waste_fractions, waste) for waste in components}
-            total = sum(filtered_fractions.values())
-            normalized_fractions = {waste: fraction / total for waste, fraction in filtered_fractions.items()}
-            return WasteFractions(**{waste: normalized_fractions.get(waste, 0) for waste in waste_fractions.model_fields})
+            components = list(self.div_components[div_type])
+            filtered_fractions = waste_fractions.loc[2000, components]
+            total = filtered_fractions.sum()
+            normalized_fractions = filtered_fractions / total
+            return WasteFractions(**normalized_fractions.to_dict())
 
         scenario_parameters.div_component_fractions = DivComponentFractions(
             compost=calculate_component_fractions(waste_fractions, 'compost'),
@@ -2680,27 +2619,23 @@ class City:
         scenario_parameters.non_compostable_not_targeted_total = sum(
             [self.non_compostable_not_targeted[x] * \
             getattr(scenario_parameters.div_component_fractions.compost, x) for x in self.div_components['compost']])
+        scenario_parameters.non_compostable_not_targeted_total = pd.Series(scenario_parameters.non_compostable_not_targeted_total, index=years)
         self._calculate_diverted_masses(scenario=scenario) # This function could be moved to cityparameters class, and then it doesn't need scenario argument
 
         #scenario_parameters.repopulate_attr_dicts()
-        self._check_masses_v2(scenario=scenario, advanced=True)
+        self._check_masses_v2(scenario=scenario, advanced_baseline=True)
 
         if scenario_parameters.input_problems:
             print(f'Invalid new value')
             return
 
-        net = self._calculate_net_masses(scenario=scenario, advanced=True)
-        for year in net:
-            n = net[year]
-            for mass in vars(n).values():
-                if mass < 0:
-                    print(f'Invalid new value')
-                    return
+        self._calculate_net_masses(scenario=scenario, advanced_baseline=True)
+        if (scenario_parameters.net_masses < 0).any().any():
+            print(f'Invalid new value')
+            return
 
-        scenario_parameters.divs_df = DivsDF.create(
+        scenario_parameters.divs_df = DivsDF.create_advanced_baseline(
             scenario_parameters.divs, 
-            1960, 
-            2073, 
             scenario_parameters.year_of_data_pop, 
             scenario_parameters.growth_rate_historic, 
             scenario_parameters.growth_rate_future
@@ -2711,10 +2646,10 @@ class City:
         for i, landfill in enumerate(scenario_parameters.landfills):
             # Might be able to do this more efficienctly...i'm looping over the pre implementation years twice sort of
             landfill.waste_mass_df = LandfillWasteMassDF.create_advanced(
-                waste_generated_df=scenario_parameters.waste_generated_df.df,
+                waste_generated_df=scenario_parameters.waste_generated_df,
                 divs_df=scenario_parameters.divs_df, 
                 fraction_of_waste_series=landfill.fraction_of_waste_vector,
-            )
+            ).df
 
         #scenario_parameters.repopulate_attr_dicts() # does this need to come sooner? Does anything in the above functions rely on the attr dicts?
         for landfill in scenario_parameters.landfills:
@@ -2724,6 +2659,6 @@ class City:
         self.sum_landfill_emissions(scenario=scenario)
 
         # ADD WASTE BURNING EMISSIONS
-        if waste_burning is not None:
+        if waste_burning > 0:
             self.scenario_parameters[scenario - 1].waste_burning_emissions = waste_burning * new_waste_mass * 3.7 * 1000 / 1000 / 1000 # g ch4 / kg waste to ton ch4 / ton waste
             self.scenario_parameters[scenario - 1].total_emissions += self.scenario_parameters[scenario - 1].waste_burning_emissions

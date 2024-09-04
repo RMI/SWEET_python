@@ -25,7 +25,7 @@ class Landfill:
             gas_capture_efficiency: pd.Series = None,
             flaring: int = None,
             cover: int = None,
-            leachate_circulated: int = None,
+            leachate_circulate: int = None,
             fraction_of_waste_vector: pd.DataFrame = None,
             ameliorated: int = None,
             advanced: bool = False,
@@ -34,6 +34,7 @@ class Landfill:
             area: float = None,
             cover_type: str = None, # remember that these need to be in meters and square meters. 
             cover_thickness: float = None,
+            do_fancy_ox: bool = False,
     ):
         """
         Initializes a Landfill object.
@@ -69,33 +70,40 @@ class Landfill:
         self.gas_capture_efficiency = gas_capture_efficiency
         self.flaring = flaring
         self.cover = cover
-        self.leachate_circulated = leachate_circulated
+        self.leachate_circulate = leachate_circulate
         self.ameliorated = ameliorated
         self.oxidation_factor = oxidation_factor
         self.advanced = advanced
         self.cover_thickness = cover_thickness
+        self.latlon = latlon
+        self.area = area
+        self.cover_type = cover_type
+        self.fraction_of_waste_vector = fraction_of_waste_vector
+        self.do_fancy_ox = do_fancy_ox
+
         
-        if cover_thickness is not None:
-            # Get oxidation potential
-            site = Site(lat=latlon[0], lon=latlon[1])  # Make sure this handles negative longitudes correctly
-            weather_profile = WeatherProfile()
-            weather_model = WeatherModel(site=site, weather_profile=weather_profile)
+        # if (self.cover_thickness != 0) and (self.cover_thickness is not None):
+        #     # Get oxidation potential
+        #     site = Site(lat=self.latlon[0], lon=self.latlon[1])  # Make sure this handles negative longitudes correctly
+        #     weather_profile = WeatherProfile()
+        #     # This might recreate the jpypes every time, gotta think about that.
+        #     weather_model = WeatherModel(site=site, weather_profile=weather_profile)
 
-            # Simulate weather data
-            weather_model.simulate_weather()
+        #     # Simulate weather data
+        #     weather_model.simulate_weather()
 
-            # THIS NEEDS UPDATING TO WORK
-            material = materials[0]
+        #     # THIS NEEDS UPDATING TO WORK
+        #     material = materials[0]
 
-            material.calculate_properties()
+        #     material.calculate_properties()
 
-            cover = Cover(material=material, site=site, weather_profile=weather_profile, weather_model=weather_model)
+        #     cover = Cover(material=material, site=site, weather_profile=weather_profile, weather_model=weather_model)
 
-            # Calculate the oxidation potential by converting micrograms ch4 / g soil / day to ton ch4 / year
-            #self.oxidation_potential = self.ch4_convert_ton_to_m3(cover.calculate_oxidation_rate() * area * cover_thickness * cover.soil_density * 365.25 / 1e6)
-            self.oxidation_potential = cover.calculate_oxidation_rate() * area * cover_thickness * cover.soil_density * 365.25 / 1e6
+        #     # Calculate the oxidation potential by converting micrograms ch4 / g soil / day to ton ch4 / year
+        #     #self.oxidation_potential = self.ch4_convert_ton_to_m3(cover.calculate_oxidation_rate() * area * cover_thickness * cover.soil_density * 365.25 / 1e6)
+        #     self.oxidation_potential = cover.calculate_oxidation_rate() * area * cover_thickness * cover.soil_density * 365.25 / 1e6
 
-        if not self.gas_capture_efficiency:
+        if self.gas_capture_efficiency is None:
             self.gas_capture_efficiency = defaults_2019.gas_capture_efficiency[site_type]
 
         # if not self.oxidation_factor:
@@ -128,6 +136,7 @@ class Landfill:
         #         fraction_of_waste_vector
         #     )
         if advanced is True:
+            # = self.city_params_dict['net_masses'] * self.fraction_of_waste
             pass
         else:
             # self.waste_mass_df = LandfillWasteMassDF.create(
@@ -232,6 +241,7 @@ class Landfill:
             ox_value = self.ox_options[tag_gas][self.site_type]
             values = [ox_value for year in years]
             series = pd.Series(values, index=years)
+            self.oxidation_factor = series
         else:
             # Do the advanced DST. Landfill types can change, also have to account for new landfills
             years = pd.Index(range(1960, 2074))
@@ -239,8 +249,7 @@ class Landfill:
             ox_value = self.ox_options[tag_gas][self.site_type]
             values = [ox_value for year in years]
             series = pd.Series(values, index=years)
-
-
+            self.oxidation_factor = series
 
     def estimate_emissions(self) -> tuple:
         """
@@ -250,8 +259,8 @@ class Landfill:
             baseline (bool, optional): If True, estimates baseline emissions. If False, uses new values. Defaults to True.
         """
 
-        if self.cover_thickness is not None:
-            self.oxidation_factor = 0
+        # if self.cover_thickness is not None:
+        #     self.oxidation_factor = 0
 
         # Oxidation factor for simple DST
         ox_nocap = {'landfill': 0.1, 'controlled_dumpsite': 0.05, 'dumpsite': 0}
@@ -278,7 +287,7 @@ class Landfill:
         self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions()
         end_time = time.time()
 
-        if self.cover_thickness is not None:
+        if self.do_fancy_ox:
             available_ch4 = self.ch4.at[2023, 'total'] - self.captured.at[2023, 'total']
             self.oxidation_factor = self.oxidation_potential / available_ch4
             if self.oxidation_facotr < 0:

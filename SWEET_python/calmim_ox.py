@@ -50,36 +50,36 @@ class CoverMaterial:
         z6 = 0.12867 - 0.492412 * x3 + 0.787425 * x5 - 0.235254 * x3 * x5
         self.theta_residual = max(0.161487 + 0.101111 * z6, 0.01)
 
-    def get_rain():
-        # Path to JAR file
-        jar_path = 'ARS_GlobalRainSIM.Jar'
+    # def get_rain():
+    #     # Path to JAR file
+    #     jar_path = 'ARS_GlobalRainSIM.Jar'
 
-        # Start the JVM
-        if not jpype.isJVMStarted():
-            jpype.startJVM(classpath=[jar_path])
+    #     # Start the JVM
+    #     if not jpype.isJVMStarted():
+    #         jpype.startJVM(classpath=[jar_path])
 
-        # Import the RainSIM class directly
-        RainSIM = jpype.JClass('RainSIM')
+    #     # Import the RainSIM class directly
+    #     RainSIM = jpype.JClass('RainSIM')
 
-        # Instantiate the RainSIM class
-        rain_sim = RainSIM()
+    #     # Instantiate the RainSIM class
+    #     rain_sim = RainSIM()
 
-        # Call the getRain method (assuming the method signature is as follows)
-        lat = 40.7128
-        lon = -74.0060
-        min_val = 0.0
-        max_val = 100.0
+    #     # Call the getRain method (assuming the method signature is as follows)
+    #     lat = 40.7128
+    #     lon = -74.0060
+    #     min_val = 0.0
+    #     max_val = 100.0
 
-        # The method likely returns an array or list, so let's call it
-        rain_data = rain_sim.getRain(JDouble(lat), JDouble(lon), JDouble(min_val), JDouble(max_val))
+    #     # The method likely returns an array or list, so let's call it
+    #     rain_data = rain_sim.getRain(JDouble(lat), JDouble(lon), JDouble(min_val), JDouble(max_val))
 
-        # Convert the Java array to a Python list for easier manipulation
-        rain_data_list = list(rain_data)
+    #     # Convert the Java array to a Python list for easier manipulation
+    #     rain_data_list = list(rain_data)
 
-        print("Rain data:", rain_data_list)
+    #     print("Rain data:", rain_data_list)
 
-        # Shutdown the JVM
-        jpype.shutdownJVM()
+    #     # Shutdown the JVM
+    #     #jpype.shutdownJVM()
 
 
 # Initialize the materials
@@ -121,35 +121,35 @@ materials = [
 
 #%%
 
-# Determine the base directory (current directory where this script is run)
-launch_dir = os.path.dirname(__file__)
+# # Determine the base directory (current directory where this script is run)
+# launch_dir = os.path.dirname(__file__)
 
-# Determine if the script is running from the WasteMAP directory or the SWEET_python directory
-if os.path.basename(launch_dir) == 'SWEET_python':
-    # We're already in the SWEET_python directory, so the JARs should be here
-    jar_dir = launch_dir
-elif os.path.basename(launch_dir) == 'WasteMAP':
-    # We're in the WasteMAP directory, the JARs should be one directory up and then in SWEET_python/SWEET_python
-    jar_dir = os.path.abspath(os.path.join(launch_dir, '../SWEET_python/SWEET_python'))
-else:
-    print('unexpected directory structure')
+# # Determine if the script is running from the WasteMAP directory or the SWEET_python directory
+# if os.path.basename(launch_dir) == 'SWEET_python':
+#     # We're already in the SWEET_python directory, so the JARs should be here
+#     jar_dir = launch_dir
+# elif os.path.basename(launch_dir) == 'WasteMAP':
+#     # We're in the WasteMAP directory, the JARs should be one directory up and then in SWEET_python/SWEET_python
+#     jar_dir = os.path.abspath(os.path.join(launch_dir, '../SWEET_python/SWEET_python'))
+# else:
+#     print('unexpected directory structure')
 
-# Construct the full paths to the JAR files
-jar_paths = [
-    os.path.join(jar_dir, 'ARS_GlobalRainSIM.Jar'),
-    os.path.join(jar_dir, 'GlobalTempSim10.Jar')
-]
+# # Construct the full paths to the JAR files
+# jar_paths = [
+#     os.path.join(jar_dir, 'ARS_GlobalRainSIM.Jar'),
+#     os.path.join(jar_dir, 'GlobalTempSim10.Jar')
+# ]
 
-# Start the JVM if not already started, with the constructed classpath
-if not jpype.isJVMStarted():
-    jpype.startJVM(classpath=jar_paths)
+# # Start the JVM if not already started, with the constructed classpath
+# if not jpype.isJVMStarted():
+#     jpype.startJVM(classpath=jar_paths)
 
-# Start the JVM with the classpath for both .jar files
-#jpype.startJVM(classpath=['ARS_GlobalRainSIM.Jar', 'GlobalTempSim10.Jar'])
+# # Start the JVM with the classpath for both .jar files
+# #jpype.startJVM(classpath=['ARS_GlobalRainSIM.Jar', 'GlobalTempSim10.Jar'])
 
-# Import the Java classes from the JAR files
-RainSIM = jpype.JClass('RainSIM')
-TempSim = jpype.JClass('TempSim')
+# # Import the Java classes from the JAR files
+# RainSIM = jpype.JClass('RainSIM')
+# TempSim = jpype.JClass('TempSim')
 
 @dataclass
 class WeatherProfile:
@@ -190,8 +190,8 @@ class WeatherModel:
         self.weather_data = np.zeros((9, self.days))
         self.weather_holder = np.zeros((2, self.days))
         self.solar_abs = np.zeros((self.days, self.hours))
-        self.rain_sim = RainSIM()
-        self.temp_sim = TempSim()
+        # self.rain_sim = RainSIM()
+        # self.temp_sim = TempSim()
 
     def simulate_rain_only(self):
         print("RainSIM Started")
@@ -213,8 +213,55 @@ class WeatherModel:
         #self.weather_profile.weather_data = self.weather_data
 
     def simulate_weather(self):
-        print("Weather Simulation Started")
-        self.weather_holder = self.temp_sim.getDailyTemps(self.site.lat, self.site.lon, False)
+        # Determine the base directory (current directory where this script is run)
+        launch_dir = os.path.dirname(__file__)
+
+        # Determine if the script is running from the WasteMAP directory or the SWEET_python directory
+        if os.path.basename(launch_dir) == 'SWEET_python':
+            # We're already in the SWEET_python directory, so the JARs should be here
+            jar_dir = launch_dir
+        elif os.path.basename(launch_dir) == 'WasteMAP':
+            # We're in the WasteMAP directory, the JARs should be one directory up and then in SWEET_python/SWEET_python
+            jar_dir = os.path.abspath(os.path.join(launch_dir, '../SWEET_python/SWEET_python'))
+        else:
+            print('unexpected directory structure')
+
+        # Construct the full paths to the JAR files
+        jar_paths = [
+            os.path.join(jar_dir, 'ARS_GlobalRainSIM.Jar'),
+            os.path.join(jar_dir, 'GlobalTempSim10.Jar')
+        ]
+
+        # Start the JVM if not already started, with the constructed classpath
+        if not jpype.isJVMStarted():
+            jpype.startJVM(classpath=jar_paths)
+
+        # Start the JVM with the classpath for both .jar files
+        #jpype.startJVM(classpath=['ARS_GlobalRainSIM.Jar', 'GlobalTempSim10.Jar'])
+
+        # Import the Java classes from the JAR files
+        RainSIM = jpype.JClass('RainSIM')
+        TempSim = jpype.JClass('TempSim')
+
+        print("RainSIM Started")
+        
+        # Fetch rain data
+        rain_data = RainSIM.getRain(self.site.lat, self.site.lon, 0.0, 100.0)
+        
+        # Log the length to understand the size
+        print(f"Length of rain_data: {len(rain_data)}")
+        
+        # Trim the padding. index 399 is cumulative, if i need that. 
+        if len(rain_data) > 366:
+            rain_data = rain_data[:366]
+        
+        # Assign the truncated or full rain data to the weather data array
+        self.weather_data[self.precip] = rain_data
+        
+        print("Rain Simulation Completed")
+
+        print("Temperature Simulation Started")
+        self.weather_holder = TempSim.getDailyTemps(self.site.lat, self.site.lon, False)
 
         print(f"Length of temp data: {len(self.weather_holder[0])}")
         # Adjust the length to remove padding
@@ -224,9 +271,12 @@ class WeatherModel:
         self.weather_data[self.max] = self.weather_holder[0]
         self.weather_data[self.min] = self.weather_holder[1]
         print("Temperature Simulation Completed")
-        self.simulate_rain_only()
+        #self.simulate_rain_only()
         self.process_monthly_to_daily_weather_data()
         self.weather_profile.weather_data = self.weather_data
+
+        if jpype.isJVMStarted():
+            jpype.shutdownJVM()
 
     def process_monthly_to_daily_weather_data(self):
         avg_temp_loop = 0.0
@@ -439,26 +489,26 @@ class Cover:
     
 #%%
 
-# Example usage:
-site = Site(lat=40.7128, lon=-74.0060)  # New York City
-weather_profile = WeatherProfile()
-weather_model = WeatherModel(site=site, weather_profile=weather_profile)
+# # Example usage:
+# site = Site(lat=40.7128, lon=-74.0060)  # New York City
+# weather_profile = WeatherProfile()
+# weather_model = WeatherModel(site=site, weather_profile=weather_profile)
 
-# Simulate weather data
-weather_model.simulate_weather()
+# # Simulate weather data
+# weather_model.simulate_weather()
 
-material = materials[0]
+# material = materials[0]
 
-material.calculate_properties()
+# material.calculate_properties()
 
-cover = Cover(material=material, site=site, weather_profile=weather_profile, weather_model=weather_model)
-oxidation_rate = cover.calculate_oxidation_rate()
+# cover = Cover(material=material, site=site, weather_profile=weather_profile, weather_model=weather_model)
+# oxidation_rate = cover.calculate_oxidation_rate()
 
-print(f"Oxidation Rate: {oxidation_rate}")
+# print(f"Oxidation Rate: {oxidation_rate}")
 
 # Shut down the JVM after all operations that require it are completed.
-if jpype.isJVMStarted():
-    jpype.shutdownJVM()
+# if jpype.isJVMStarted():
+#     jpype.shutdownJVM()
 
 #%%
 

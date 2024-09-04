@@ -213,7 +213,10 @@ class SWEET:
                 ch4_produce = ks[waste].loc[np.arange(open_date, year)] * defaults_2019.L_0[waste] * waste_masses * exp_term * mcf.loc[np.arange(open_date, year)]
                 # This np sum could maybe be replaced with pandas
                 ch4_produced_year[waste] = np.sum(ch4_produce)
-                ch4_capture = ch4_produce * gas_capture_efficiency
+                if isinstance(gas_capture_efficiency, pd.Series):
+                    ch4_capture = ch4_produce * gas_capture_efficiency.at[year]
+                else:
+                    ch4_capture = ch4_produce * gas_capture_efficiency
                 if (len(ch4_produce) == 0) and (len(ch4_capture) == 0):
                     ch4_year[waste] = 0
                 else:
@@ -226,7 +229,10 @@ class SWEET:
 
             qs[year] = ch4_year
             ch4_produced[year] = ch4_produced_year
-            captured[year] = np.sum([ch4_produced_year[w] * gas_capture_efficiency for w in components]) / 365 / 24
+            if isinstance(gas_capture_efficiency, pd.Series):
+                captured[year] = np.sum([ch4_produced_year[w] * gas_capture_efficiency.at[year] for w in components]) / 365 / 24
+            else:
+                captured[year] = np.sum([ch4_produced_year[w] * gas_capture_efficiency for w in components]) / 365 / 24
 
         q_df = pd.DataFrame(qs).T
         q_df['total'] = q_df.sum(axis=1)
