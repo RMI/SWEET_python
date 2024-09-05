@@ -229,27 +229,27 @@ class Landfill:
             return key.item()
         return key
     
-    def _determine_ox_vector(self) -> pd.DataFrame:
-        if self.cover_thickness is not None:
-            return
-        implementation_year = self.city_params_dict['implementation_year']
+    # def _determine_ox_vector(self) -> pd.DataFrame:
+    #     if self.cover_thickness is not None:
+    #         return
+    #     implementation_year = self.city_params_dict['implementation_year']
 
-        # Do the simple DST. Landfill types don't change. 
-        if not self.advanced:
-            years = pd.Index(range(1960, 2074))
-            tag_gas = 'ox_nocap' if not self.gas_capture else 'ox_cap'
-            ox_value = self.ox_options[tag_gas][self.site_type]
-            values = [ox_value for year in years]
-            series = pd.Series(values, index=years)
-            self.oxidation_factor = series
-        else:
-            # Do the advanced DST. Landfill types can change, also have to account for new landfills
-            years = pd.Index(range(1960, 2074))
-            tag_gas = 'ox_nocap' if not self.gas_capture else 'ox_cap'
-            ox_value = self.ox_options[tag_gas][self.site_type]
-            values = [ox_value for year in years]
-            series = pd.Series(values, index=years)
-            self.oxidation_factor = series
+    #     # Do the simple DST. Landfill types don't change. 
+    #     if not self.advanced:
+    #         years = pd.Index(range(1960, 2074))
+    #         tag_gas = 'ox_nocap' if not self.gas_capture else 'ox_cap'
+    #         ox_value = self.ox_options[tag_gas][self.site_type]
+    #         values = [ox_value for year in years]
+    #         series = pd.Series(values, index=years)
+    #         self.oxidation_factor = series
+    #     else:
+    #         # Do the advanced DST. Landfill types can change, also have to account for new landfills
+    #         years = pd.Index(range(1960, 2074))
+    #         tag_gas = 'ox_nocap' if not self.gas_capture else 'ox_cap'
+    #         ox_value = self.ox_options[tag_gas][self.site_type]
+    #         values = [ox_value for year in years]
+    #         series = pd.Series(values, index=years)
+    #         self.oxidation_factor = series
 
     def estimate_emissions(self) -> tuple:
         """

@@ -169,6 +169,8 @@ Unit: m3 CH4/year
 
 #         return self.m_df, self.q_df, self.ch4_df, self.captured
 
+pd.set_option('display.max_rows', None)
+
 class SWEET:
     def __init__(self, city_instance_attrs: dict, city_params_dict: dict, landfill_instance_attrs: dict):
         self.landfill_instance_attrs = landfill_instance_attrs
@@ -189,7 +191,7 @@ class SWEET:
         oxidation_factor = self.landfill_instance_attrs['oxidation_factor']
         components = self.city_instance_attrs['components']
 
-        years = np.arange(open_date, close_date)
+        years = np.arange(1960, 2074)
         t = years - year_of_data_pop
         growth_rates = np.where(years < year_of_data_pop, growth_rate_historic, growth_rate_future) ** t
 
@@ -221,7 +223,10 @@ class SWEET:
                     ch4_year[waste] = 0
                 else:
                     try:
-                        ch4_year[waste] = np.sum((ch4_produce - ch4_capture) * (1 - oxidation_factor) + ch4_capture * 0.02)
+                        if isinstance(oxidation_factor, pd.Series):
+                            ch4_year[waste] = np.sum((ch4_produce - ch4_capture) * (1 - oxidation_factor.loc[ch4_produce.index]) + ch4_capture * 0.02)
+                        else:
+                            ch4_year[waste] = np.sum((ch4_produce - ch4_capture) * (1 - oxidation_factor) + ch4_capture * 0.02)
                     except:
                         print('break point')
                 # else:
