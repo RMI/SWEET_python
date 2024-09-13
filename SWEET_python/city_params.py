@@ -690,7 +690,7 @@ class City:
         # Create city-level dataframes
         start_year = 1960
         end_year = 2073
-        years = range(start_year, end_year)
+        years = range(start_year, end_year + 1)
         
         waste_masses_df = city_parameters.waste_fractions.multiply(city_parameters.waste_mass, axis=0)
         city_parameters.waste_generated_df = WasteGeneratedDF.create(waste_masses_df, start_year, end_year, city_parameters.year_of_data_pop, city_parameters.growth_rate_historic, city_parameters.growth_rate_future).df
@@ -2189,7 +2189,7 @@ class City:
         new_covertypes: Dict = None,
         new_coverthicknesses: Dict = None,
         waste_burning: Dict = None,
-        do_fancy_ox: bool = False,
+        fancy_ox: bool = False,
     ) -> None:
         
         scenario_parameters = copy.deepcopy(self.baseline_parameters)
@@ -2362,7 +2362,7 @@ class City:
                 area=new_landfill_areas['scenario'][i],
                 cover_type=new_covertypes['scenario'][i],
                 cover_thickness=new_coverthicknesses['scenario'][i],
-                oxidation_factor=ox_value_series if not do_fancy_ox else None,
+                oxidation_factor=ox_value_series if not fancy_ox else None,
             )
             scenario_parameters.landfills.append(new_landfill)
 
@@ -2508,7 +2508,7 @@ class City:
         new_covertypes: List = None,
         new_coverthicknesses: List = None,
         waste_burning: float = 0.0,
-        do_fancy_ox: bool = False,
+        fancy_ox: bool = False,
     ) -> None:
             
         # Uhhhh, so, use landfill indexes 2+ if not keeping the normal baseline landfills. 
@@ -2590,8 +2590,8 @@ class City:
             mcfs = [mcf for year in years]
             gas_effs = [gas_eff for year in years]
 
-            if do_fancy_ox:
-                oxs = None
+            # if fancy_ox:
+            #     oxs = None
             
 
             new_landfill = Landfill(
@@ -2615,7 +2615,7 @@ class City:
                 area=new_landfill_areas[i],
                 cover_type=new_covertypes[i],
                 cover_thickness=new_coverthicknesses[i],
-                oxidation_factor=pd.Series(oxs, index=years) if not do_fancy_ox else None,
+                oxidation_factor=pd.Series(oxs, index=years) if not fancy_ox else None,
             )
             scenario_parameters.landfills.append(new_landfill)
 

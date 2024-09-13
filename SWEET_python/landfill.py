@@ -34,7 +34,7 @@ class Landfill:
             area: float = None,
             cover_type: str = None, # remember that these need to be in meters and square meters. 
             cover_thickness: float = None,
-            do_fancy_ox: bool = False,
+            fancy_ox: bool = False,
     ):
         """
         Initializes a Landfill object.
@@ -79,7 +79,7 @@ class Landfill:
         self.area = area
         self.cover_type = cover_type
         self.fraction_of_waste_vector = fraction_of_waste_vector
-        self.do_fancy_ox = do_fancy_ox
+        self.fancy_ox = fancy_ox
 
         
         # if (self.cover_thickness != 0) and (self.cover_thickness is not None):
@@ -284,10 +284,11 @@ class Landfill:
             )
         
         start_time = time.time()
-        self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions()
+        self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions2()
         end_time = time.time()
+        print(f"Time taken to estimate emissions in Landfill: {end_time - start_time} seconds")
 
-        if self.do_fancy_ox:
+        if self.fancy_ox:
             available_ch4 = self.ch4.at[2023, 'total'] - self.captured.at[2023, 'total']
             self.oxidation_factor = self.oxidation_potential / available_ch4
             if self.oxidation_facotr < 0:
@@ -295,7 +296,7 @@ class Landfill:
             elif self.oxidation_factor > 1:
                 self.oxidation_factor = 1
             self.model.landfill_instance_attrs = self.model_dump()
-            self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions()
+            self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions2()
 
         #print(f"Time taken to estimate emissions in Landfill: {end_time - start_time} seconds")
 
