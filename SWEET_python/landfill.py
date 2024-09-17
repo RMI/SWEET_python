@@ -5,21 +5,21 @@ from model_v2 import SWEET
 from typing import List, Dict, Union, Any, Set, Optional, Tuple
 import time
 import numpy as np
-from calmim_ox import Site, WeatherModel, WeatherProfile, Cover, CoverMaterial, materials
+from calmim_ox import Site, WeatherModel, WeatherProfile, Cover, CoverMaterial, materials, attach_thread
 
 
 class Landfill:
     def __init__(
             self,
-            open_date: int, 
-            close_date: int, 
-            site_type: str, 
+            open_date: int,
+            close_date: int,
+            site_type: str,
             mcf: pd.Series,
             city_params_dict: dict,
             city_instance_attrs: dict,
-            landfill_index: int = 0, 
-            fraction_of_waste: float = 1, 
-            gas_capture: bool = False, 
+            landfill_index: int = 0,
+            fraction_of_waste: float = 1,
+            gas_capture: bool = False,
             scenario: int = 0,
             new_baseline: int = None,
             gas_capture_efficiency: pd.Series = None,
@@ -81,27 +81,41 @@ class Landfill:
         self.fraction_of_waste_vector = fraction_of_waste_vector
         self.fancy_ox = fancy_ox
 
+        self.doing_fancy_ox = self.fancy_ox
+        if isinstance(self.doing_fancy_ox, dict):
+            if self.doing_fancy_ox['baseline'] or self.doing_fancy_ox['scenario']:
+                self.doing_fancy_ox = True
+            else:
+                self.doing_fancy_ox = False
         
-        # if (self.cover_thickness != 0) and (self.cover_thickness is not None):
-        #     # Get oxidation potential
-        #     site = Site(lat=self.latlon[0], lon=self.latlon[1])  # Make sure this handles negative longitudes correctly
-        #     weather_profile = WeatherProfile()
-        #     # This might recreate the jpypes every time, gotta think about that.
-        #     weather_model = WeatherModel(site=site, weather_profile=weather_profile)
+        if self.doing_fancy_ox:
+            print("Starting fancy oxidation calculations")
 
-        #     # Simulate weather data
-        #     weather_model.simulate_weather()
+            # # Attach thread to JVM
+            # attach_thread()
+            # print("Thread attached to JVM")
 
-        #     # THIS NEEDS UPDATING TO WORK
-        #     material = materials[0]
+            # Get oxidation potential
+            site = Site(lat=self.latlon[0], lon=self.latlon[1])  # Make sure this handles negative longitudes correctly
+            weather_profile = WeatherProfile()
+            # This might recreate the jpypes every time, gotta think about that.
+            weather_model = WeatherModel(site=site, weather_profile=weather_profile)
 
-        #     material.calculate_properties()
+            # Simulate weather data
+            print("Starting weather simulation")
+            weather_model.simulate_weather()
+            print("Weather simulation completed")
 
-        #     cover = Cover(material=material, site=site, weather_profile=weather_profile, weather_model=weather_model)
+            # THIS NEEDS UPDATING TO WORK
+            material = materials[0]
 
-        #     # Calculate the oxidation potential by converting micrograms ch4 / g soil / day to ton ch4 / year
-        #     #self.oxidation_potential = self.ch4_convert_ton_to_m3(cover.calculate_oxidation_rate() * area * cover_thickness * cover.soil_density * 365.25 / 1e6)
-        #     self.oxidation_potential = cover.calculate_oxidation_rate() * area * cover_thickness * cover.soil_density * 365.25 / 1e6
+            material.calculate_properties()
+
+            cover = Cover(material=material, site=site, weather_profile=weather_profile, weather_model=weather_model)
+
+            # Calculate the oxidation potential by converting micrograms ch4 / g soil / day to ton ch4 / year
+            #self.oxidation_potential = self.ch4_convert_ton_to_m3(cover.calculate_oxidation_rate() * area * cover_thickness * cover.soil_density * 365.25 / 1e6)
+            self.oxidation_potential = cover.calculate_oxidation_rate() * area * cover_thickness * cover.soil_density * 365.25 / 1e6
 
         if self.gas_capture_efficiency is None:
             self.gas_capture_efficiency = defaults_2019.gas_capture_efficiency[site_type]
@@ -288,7 +302,7 @@ class Landfill:
         end_time = time.time()
         print(f"Time taken to estimate emissions in Landfill: {end_time - start_time} seconds")
 
-        if self.fancy_ox:
+        if self.doing_fancy_ox:
             available_ch4 = self.ch4.at[2023, 'total'] - self.captured.at[2023, 'total']
             self.oxidation_factor = self.oxidation_potential / available_ch4
             if self.oxidation_facotr < 0:

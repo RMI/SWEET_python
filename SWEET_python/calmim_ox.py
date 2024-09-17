@@ -6,6 +6,35 @@ import numpy as np
 import math
 import os
 
+def initialize_jvm():
+    # Determine the base directory (current directory where this script is located)
+    launch_dir = os.path.abspath(os.path.dirname(__file__))
+
+    #jar_dir = os.path.join(launch_dir, 'jars')  # Replace 'jars' with the correct directory
+    jar_dir = launch_dir
+
+    # Construct the full paths to the JAR files
+    jar_paths = [
+        os.path.join(jar_dir, 'ARS_GlobalRainSIM.Jar'),
+        os.path.join(jar_dir, 'GlobalTempSim10.Jar')
+    ]
+
+    # Verify that the JAR files exist
+    for jar in jar_paths:
+        if not os.path.isfile(jar):
+            raise FileNotFoundError(f"JAR file not found: {jar}")
+
+    print(f"Initializing JVM with classpath: {jar_paths}")
+
+    # Start the JVM if not already started
+    if not jpype.isJVMStarted():
+        jpype.startJVM(classpath=jar_paths)
+        print("JVM started successfully.")
+
+# Call initialize_jvm() upon module import
+initialize_jvm()
+
+
 @dataclass
 class Site:
     lat: float
@@ -151,6 +180,34 @@ materials = [
 # RainSIM = jpype.JClass('RainSIM')
 # TempSim = jpype.JClass('TempSim')
 
+class RainSIMSingleton:
+    _instance = None
+
+    @staticmethod
+    def get_instance():
+        if RainSIMSingleton._instance is None:
+            if not jpype.isJVMStarted():
+                raise RuntimeError("JVM is not started")
+            RainSIMClass = jpype.JClass('RainSIM')
+            RainSIMSingleton._instance = RainSIMClass()
+        return RainSIMSingleton._instance
+
+class TempSimSingleton:
+    _instance = None
+
+    @staticmethod
+    def get_instance():
+        if TempSimSingleton._instance is None:
+            if not jpype.isJVMStarted():
+                raise RuntimeError("JVM is not started")
+            TempSimClass = jpype.JClass('TempSim')
+            TempSimSingleton._instance = TempSimClass()
+        return TempSimSingleton._instance
+    
+def attach_thread():
+    if not jpype.isThreadAttachedToJVM():
+        jpype.attachThreadToJVM()
+
 @dataclass
 class WeatherProfile:
     weather_data: np.ndarray
@@ -178,6 +235,20 @@ class Site:
     def __init__(self, lat, lon):
         self.lat = lat
         self.lon = lon
+
+from threading import Thread
+
+def jpype_call_in_thread(func, *args, **kwargs):
+    result = []
+
+    def target():
+        attach_thread()
+        result.append(func(*args, **kwargs))
+
+    thread = Thread(target=target)
+    thread.start()
+    thread.join()
+    return result[0]
 
 class WeatherModel:
     days = 366
@@ -213,40 +284,27 @@ class WeatherModel:
         #self.weather_profile.weather_data = self.weather_data
 
     def simulate_weather(self):
-        # Determine the base directory (current directory where this script is run)
-        launch_dir = os.path.dirname(__file__)
-
-        # Determine if the script is running from the WasteMAP directory or the SWEET_python directory
-        if os.path.basename(launch_dir) == 'SWEET_python':
-            # We're already in the SWEET_python directory, so the JARs should be here
-            jar_dir = launch_dir
-        elif os.path.basename(launch_dir) == 'WasteMAP':
-            # We're in the WasteMAP directory, the JARs should be one directory up and then in SWEET_python/SWEET_python
-            jar_dir = os.path.abspath(os.path.join(launch_dir, '../SWEET_python/SWEET_python'))
-        else:
-            print('unexpected directory structure')
-
-        # Construct the full paths to the JAR files
-        jar_paths = [
-            os.path.join(jar_dir, 'ARS_GlobalRainSIM.Jar'),
-            os.path.join(jar_dir, 'GlobalTempSim10.Jar')
-        ]
-
-        # Start the JVM if not already started, with the constructed classpath
-        if not jpype.isJVMStarted():
-            jpype.startJVM(classpath=jar_paths)
 
         # Start the JVM with the classpath for both .jar files
         #jpype.startJVM(classpath=['ARS_GlobalRainSIM.Jar', 'GlobalTempSim10.Jar'])
 
         # Import the Java classes from the JAR files
-        RainSIM = jpype.JClass('RainSIM')
-        TempSim = jpype.JClass('TempSim')
+        # RainSIM = jpype.JClass('RainSIM')
+        # TempSim = jpype.JClass('TempSim')
+
+        # rain_sim = RainSIM()
+        # temp_sim = TempSim()
+
+        # Attach the current thread to the JVM
+        attach_thread()
+
+        rain_sim = RainSIMSingleton.get_instance()
+        temp_sim = TempSimSingleton.get_instance()
 
         print("RainSIM Started")
         
         # Fetch rain data
-        rain_data = RainSIM.getRain(self.site.lat, self.site.lon, 0.0, 100.0)
+        rain_data = jpype_call_in_thread(rain_sim.getRain(self.site.lat, self.site.lon, 0.0, 100.0))
         
         # Log the length to understand the size
         print(f"Length of rain_data: {len(rain_data)}")
@@ -261,7 +319,7 @@ class WeatherModel:
         print("Rain Simulation Completed")
 
         print("Temperature Simulation Started")
-        self.weather_holder = TempSim.getDailyTemps(self.site.lat, self.site.lon, False)
+        self.weather_holder = temp_sim.getDailyTemps(self.site.lat, self.site.lon, False)
 
         print(f"Length of temp data: {len(self.weather_holder[0])}")
         # Adjust the length to remove padding
@@ -275,8 +333,8 @@ class WeatherModel:
         self.process_monthly_to_daily_weather_data()
         self.weather_profile.weather_data = self.weather_data
 
-        if jpype.isJVMStarted():
-            jpype.shutdownJVM()
+        # if jpype.isJVMStarted():
+        #     jpype.shutdownJVM()
 
     def process_monthly_to_daily_weather_data(self):
         avg_temp_loop = 0.0

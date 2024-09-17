@@ -44,6 +44,7 @@ class CityParameters(BaseModel):
     temp: Optional[float] = None 
     net_masses: Optional[pd.DataFrame] = None
     temperature: Optional[float] = None
+    waste_burning_emissions: Optional[pd.DataFrame] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -1182,13 +1183,38 @@ class City:
         if scenario == 0:
             parameters = self.baseline_parameters
             organic_emissions = parameters.organic_emissions
-            landfill_emissions = [x.emissions.map(self.convert_methane_m3_to_ton_co2e) for x in parameters.non_zero_landfills]
+            #landfill_emissions = [x.emissions.map(self.convert_methane_m3_to_ton_co2e) for x in parameters.non_zero_landfills]
+            years_union = parameters.non_zero_landfills[0].emissions.index
+            # Union the index of each subsequent landfill with the years_union
+            for x in parameters.non_zero_landfills[1:]:
+                years_union = years_union.union(x.emissions.index)
+            landfill_emissions = [
+                x.emissions.reindex(years_union, fill_value=0).map(self.convert_methane_m3_to_ton_co2e) 
+                for x in parameters.non_zero_landfills
+            ]
         else:
             parameters = self.scenario_parameters[scenario - 1]
             organic_emissions = parameters.organic_emissions
-            landfill_emissions = [x.emissions.map(self.convert_methane_m3_to_ton_co2e) for x in parameters.landfills]
+            #landfill_emissions = [x.emissions.map(self.convert_methane_m3_to_ton_co2e) for x in parameters.landfills]
+            years_union = parameters.landfills[0].emissions.index
+            # Union the index of each subsequent landfill with the years_union
+            for x in parameters.landfills[1:]:
+                years_union = years_union.union(x.emissions.index)
+            landfill_emissions = [
+                x.emissions.reindex(years_union, fill_value=0).map(self.convert_methane_m3_to_ton_co2e) 
+                for x in parameters.landfills
+            ]
 
         # Concatenate all emissions dataframes
+        #all_emissions = sum(landfill_emissions)
+
+        # Reindex each landfill DataFrame to the full range of years, filling missing values with zeros
+        # landfill_emissions = [
+        #     x.emissions.reindex(years_union, fill_value=0).map(self.convert_methane_m3_to_ton_co2e) 
+        #     for x in parameters.landfills
+        # ]
+
+        # Sum the emissions dataframes
         all_emissions = sum(landfill_emissions)
 
         # Group by the year index and sum the emissions for each year
@@ -2189,7 +2215,7 @@ class City:
         new_covertypes: Dict = None,
         new_coverthicknesses: Dict = None,
         waste_burning: Dict = None,
-        fancy_ox: bool = False,
+        fancy_ox: Dict = {'baseline': False, 'scenario': False},
     ) -> None:
         
         scenario_parameters = copy.deepcopy(self.baseline_parameters)
@@ -2212,11 +2238,34 @@ class City:
         waste_mass_series.loc[implement_year:] = new_waste_mass['scenario']
 
         # Adjust for waste burning
+        waste_burned = {}
         if waste_burning['baseline'] > 0:
-            years.loc[:implement_year-1] -= waste_burning['baseline'] * years.loc[:implement_year]
+            waste_burned['baseline'] = waste_burning['baseline'] * waste_mass_series.loc[:implement_year-1]
+            waste_mass_series.loc[:implement_year-1] -= waste_burned['baseline']
+
+            # Adjust the waste burning for growth rates to get real time series
+            t = waste_mass_series.loc[implement_year:].index.values - scenario_parameters.year_of_data_pop
+
+            # Create growth rate array, using growth_rate_historic for years before year_of_data_pop and growth_rate_future after
+            growth_rate = np.where(waste_mass_series.loc[implement_year:].index.values < scenario_parameters.year_of_data_pop, scenario_parameters.growth_rate_historic, scenario_parameters.growth_rate_future)
+            growth_factors = growth_rate ** t
+
+            # Apply growth factors
+            waste_burned['baseline'] = waste_burned['baseline'].multiply(growth_factors, axis=0)
 
         if waste_burning['scenario'] > 0:
-            years.loc[implement_year:] -= waste_burning['scenario'] * years.loc[implement_year + 1:]
+            waste_burned['scenario'] = waste_burning['scenario'] * waste_mass_series.loc[implement_year:]
+            waste_mass_series.loc[implement_year:] -= waste_burned['scenario']
+
+            # Adjust the waste burning for growth rates to get real time series
+            t = waste_mass_series.loc[implement_year:].index.values - scenario_parameters.year_of_data_pop
+
+            # Create growth rate array, using growth_rate_historic for years before year_of_data_pop and growth_rate_future after
+            growth_rate = np.where(waste_mass_series.loc[implement_year:].index.values < scenario_parameters.year_of_data_pop, scenario_parameters.growth_rate_historic, scenario_parameters.growth_rate_future)
+            growth_factors = growth_rate ** t
+
+            # Apply growth factors
+            waste_burned['scenario'] = waste_burned['scenario'].multiply(growth_factors, axis=0)
 
         # New waste masses
         # waste_masses = {}
@@ -2341,6 +2390,8 @@ class City:
             gas_eff_series.loc[years < implement_year] = gas_eff['baseline']
             gas_eff_series.loc[years >= implement_year] = gas_eff['scenario']
 
+            doing_fancy_ox = fancy_ox['baseline'] or fancy_ox['scenario']
+
             new_landfill = Landfill(
                 open_date=new_landfill_open_close_dates['scenario'][i][0], 
                 close_date=new_landfill_open_close_dates['scenario'][i][1], 
@@ -2358,11 +2409,12 @@ class City:
                 leachate_circulate=leachate_circulate['scenario'][i],
                 fraction_of_waste_vector=fraction_df[f'Landfill_{i}'],
                 advanced=True,
-                latlon=new_landfill_latlons['scenario'][i],
-                area=new_landfill_areas['scenario'][i],
-                cover_type=new_covertypes['scenario'][i],
-                cover_thickness=new_coverthicknesses['scenario'][i],
-                oxidation_factor=ox_value_series if not fancy_ox else None,
+                latlon=new_landfill_latlons['scenario'][i] if doing_fancy_ox else None,
+                area=new_landfill_areas['scenario'][i] if doing_fancy_ox else None,
+                cover_type=new_covertypes['scenario'][i] if doing_fancy_ox else None,
+                cover_thickness=new_coverthicknesses['scenario'][i] if doing_fancy_ox else None,
+                oxidation_factor=ox_value_series if not doing_fancy_ox else None,
+                fancy_ox=fancy_ox
             )
             scenario_parameters.landfills.append(new_landfill)
 
@@ -2482,9 +2534,19 @@ class City:
         self.sum_landfill_emissions(scenario=scenario)
 
         # ADD WASTE BURNING EMISSIONS
-        if (waste_burning['baseline'] > 0) or (waste_burning['scenario'] > 0):
-            self.scenario_parameters[scenario - 1].waste_burning_emissions = waste_burning * new_waste_mass * 3.7 * 1000 / 1000 / 1000 # g ch4 / kg waste to ton ch4 / ton waste
-            self.scenario_parameters[scenario - 1].total_emissions += self.scenario_parameters[scenario - 1].waste_burning_emissions
+        if waste_burning['baseline'] > 0:
+            scenario_parameters.waste_burning_emissions = waste_burned['baseline'] * 3.7 * 1000 / 1000 / 1000 # g ch4 / kg waste to ton ch4 / ton waste
+            scenario_parameters.waste_burning_emissions = scenario_parameters.waste_burning_emissions.reindex(
+                scenario_parameters.total_emissions.index, fill_value=0
+            )
+            scenario_parameters.total_emissions['total'] += scenario_parameters.waste_burning_emissions
+        
+        if waste_burning['scenario'] > 0:
+            scenario_parameters.waste_burning_emissions = waste_burned['scenario'] * 3.7 * 1000 / 1000 / 1000 # g ch4 / kg waste to ton ch4 / ton waste
+            scenario_parameters.waste_burning_emissions = scenario_parameters.waste_burning_emissions.reindex(
+                scenario_parameters.total_emissions.index, fill_value=0
+            )
+            scenario_parameters.total_emissions['total'] += scenario_parameters.waste_burning_emissions
 
 
     def advanced_baseline(
@@ -2525,8 +2587,21 @@ class City:
 
         # REMOVE THIS LATER
         new_waste_mass = scenario_parameters.waste_mass
-        if waste_burning is not None:
-            new_waste_mass -= waste_burning * new_waste_mass
+        # Adjust for waste burning
+        waste_burned = {}
+        if waste_burning > 0:
+            waste_burned = pd.DataFrame(waste_burning * new_waste_mass, index=years)
+            new_waste_mass -= waste_burned
+
+            # Adjust the waste burning for growth rates to get real time series
+            t = years - scenario_parameters.year_of_data_pop
+
+            # Create growth rate array, using growth_rate_historic for years before year_of_data_pop and growth_rate_future after
+            growth_rate = np.where(years < scenario_parameters.year_of_data_pop, scenario_parameters.growth_rate_historic, scenario_parameters.growth_rate_future)
+            growth_factors = growth_rate ** t
+
+            # Apply growth factors
+            waste_burned = waste_burned.multiply(growth_factors, axis=0)
 
         # New waste masses
         waste_masses = {}
@@ -2593,7 +2668,6 @@ class City:
             # if fancy_ox:
             #     oxs = None
             
-
             new_landfill = Landfill(
                 open_date=new_landfill_open_close_dates[i][0], 
                 close_date=new_landfill_open_close_dates[i][1], 
@@ -2611,11 +2685,12 @@ class City:
                 leachate_circulate=leachate_circulate[i],
                 fraction_of_waste_vector=fraction_df[f'Landfill_{i}'],
                 advanced=True,
-                latlon=new_landfill_latlons[i],
-                area=new_landfill_areas[i],
-                cover_type=new_covertypes[i],
-                cover_thickness=new_coverthicknesses[i],
+                latlon=new_landfill_latlons[i] if fancy_ox else None,
+                area=new_landfill_areas[i] if fancy_ox else None,
+                cover_type=new_covertypes[i] if fancy_ox else None,
+                cover_thickness=new_coverthicknesses[i] if fancy_ox else None,
                 oxidation_factor=pd.Series(oxs, index=years) if not fancy_ox else None,
+                fancy_ox=fancy_ox
             )
             scenario_parameters.landfills.append(new_landfill)
 
@@ -2679,5 +2754,5 @@ class City:
 
         # ADD WASTE BURNING EMISSIONS
         if waste_burning > 0:
-            self.scenario_parameters[scenario - 1].waste_burning_emissions = waste_burning * new_waste_mass * 3.7 * 1000 / 1000 / 1000 # g ch4 / kg waste to ton ch4 / ton waste
-            self.scenario_parameters[scenario - 1].total_emissions += self.scenario_parameters[scenario - 1].waste_burning_emissions
+            scenario_parameters.waste_burning_emissions = waste_burned * 3.7 * 1000 / 1000 / 1000 # g ch4 / kg waste to ton ch4 / ton waste
+            scenario_parameters.total_emissions['total'] += scenario_parameters.waste_burning_emissions

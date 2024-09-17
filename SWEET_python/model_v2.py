@@ -281,11 +281,11 @@ class SWEET:
         oxidation_factor = self.landfill_instance_attrs['oxidation_factor']
         components = self.city_instance_attrs['components']
 
-        years = np.arange(1960, 2074)
+        #years = np.arange(1960, 2074)
 
         # Precompute factors outside of the loop for all years
         #growth_rates = np.where(years < year_of_data_pop, growth_rate_historic, growth_rate_future) ** (years - year_of_data_pop)
-        year_range = np.arange(open_date, close_date + 1)
+        year_range = np.arange(open_date, 2074)
 
         qs = {}
         ch4_produced = {}
@@ -298,7 +298,7 @@ class SWEET:
 
         # Vectorized calculation for each component
         for waste in components:
-            years_back_matrix = years[None, :] - year_range[:, None]  # Matrix of (years - year_range)
+            years_back_matrix = year_range[None, :] - year_range[:, None]  # Matrix of (years - year_range)
             mask = years_back_matrix <= 0
 
             # Precompute exponential decay term for all years at once
@@ -306,7 +306,7 @@ class SWEET:
             exp_term = np.exp(-ks_values * (years_back_matrix - 0.5))
 
             # Vectorized waste mass, L_0, and MCF computation
-            waste_masses = waste_mass_df.loc[open_date:close_date, waste].values[:, None]
+            waste_masses = waste_mass_df.loc[open_date:, waste].values[:, None]
             mcf_values = mcf.loc[year_range].values[:, None]
             ch4_produce = ks_values * defaults_2019.L_0[waste] * waste_masses * exp_term * mcf_values
             
@@ -317,14 +317,14 @@ class SWEET:
 
             # Gas capture and oxidation factor
             if isinstance(gas_capture_efficiency, pd.Series):
-                gas_capture_efficiency_values = gas_capture_efficiency.loc[years].values
+                gas_capture_efficiency_values = gas_capture_efficiency.loc[year_range].values
             else:
-                gas_capture_efficiency_values = np.full(len(years), gas_capture_efficiency)
+                gas_capture_efficiency_values = np.full(len(year_range), gas_capture_efficiency)
 
             if isinstance(oxidation_factor, pd.Series):
-                oxidation_factor_values = oxidation_factor.loc[years].values
+                oxidation_factor_values = oxidation_factor.loc[year_range].values
             else:
-                oxidation_factor_values = np.full(len(years), oxidation_factor)
+                oxidation_factor_values = np.full(len(year_range), oxidation_factor)
 
             ch4_capture = ch4_produce * gas_capture_efficiency_values
 
@@ -344,9 +344,9 @@ class SWEET:
         start_time = time.time()
 
         # Convert results to DataFrames
-        q_df = pd.DataFrame(qs, index=years)
+        q_df = pd.DataFrame(qs, index=year_range)
         q_df['total'] = q_df.sum(axis=1)
-        ch4_df = pd.DataFrame(ch4_produced, index=years)
+        ch4_df = pd.DataFrame(ch4_produced, index=year_range)
 
         end_time = time.time()
         print(f"Model post-processing: {end_time - start_time} seconds")
