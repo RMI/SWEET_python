@@ -8,13 +8,18 @@ import os
 from importlib.resources import files
 
 def initialize_jvm():
-    # Get the directory where calmim_ox.py is located
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+    # # Get the directory where calmim_ox.py is located
+    # script_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # Construct the full paths to the JAR files
+    # # Construct the full paths to the JAR files
+    # jar_paths = [
+    #     os.path.join(script_dir, 'ARS_GlobalRainSIM.Jar'),
+    #     os.path.join(script_dir, 'GlobalTempSim10.Jar')
+    # ]
+
     jar_paths = [
-        os.path.join(script_dir, 'ARS_GlobalRainSIM.Jar'),
-        os.path.join(script_dir, 'GlobalTempSim10.Jar')
+        '/app/SWEET_python/SWEET_python/ARS_GlobalRainSIM.Jar',
+        '/app/SWEET_python/SWEET_python/GlobalTempSim10.Jar'
     ]
 
     # Verify that the JAR files exist
