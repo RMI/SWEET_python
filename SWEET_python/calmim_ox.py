@@ -8,15 +8,19 @@ import os
 
 def initialize_jvm():
     # Determine the base directory (current directory where this script is located)
-    launch_dir = os.path.abspath(os.path.dirname(__file__))
+    # launch_dir = os.path.abspath(os.path.dirname(__file__))
 
-    #jar_dir = os.path.join(launch_dir, 'jars')  # Replace 'jars' with the correct directory
-    jar_dir = launch_dir
+    # jar_dir = launch_dir
 
-    # Construct the full paths to the JAR files
+    # # Construct the full paths to the JAR files
+    # jar_paths = [
+    #     os.path.join(jar_dir, 'SWEET_python/SWEET_python/ARS_GlobalRainSIM.Jar'),
+    #     os.path.join(jar_dir, 'SWEET_python/SWEET_python/GlobalTempSim10.Jar')
+    # ]
+
     jar_paths = [
-        os.path.join(jar_dir, 'ARS_GlobalRainSIM.Jar'),
-        os.path.join(jar_dir, 'GlobalTempSim10.Jar')
+        'SWEET_python/SWEET_python/ARS_GlobalRainSIM.Jar',
+        'SWEET_python/SWEET_python/GlobalTempSim10.Jar'
     ]
 
     # Verify that the JAR files exist
