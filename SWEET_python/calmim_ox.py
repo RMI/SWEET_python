@@ -5,24 +5,16 @@ from jpype.types import *
 import numpy as np
 import math
 import os
+from importlib.resources import files
 
 def initialize_jvm():
-    # Determine the base directory (current directory where this script is located)
-    # launch_dir = os.path.abspath(os.path.dirname(__file__))
+    # Get the directory where calmim_ox.py is located
+    script_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # jar_dir = launch_dir
-
-    # # Construct the full paths to the JAR files
-    # jar_paths = [
-    #     os.path.join(jar_dir, 'SWEET_python/SWEET_python/ARS_GlobalRainSIM.Jar'),
-    #     os.path.join(jar_dir, 'SWEET_python/SWEET_python/GlobalTempSim10.Jar')
-    # ]
-
-    print(os.getcwd())
-    
+    # Construct the full paths to the JAR files
     jar_paths = [
-        'SWEET_python/SWEET_python/ARS_GlobalRainSIM.Jar',
-        'SWEET_python/SWEET_python/GlobalTempSim10.Jar'
+        os.path.join(script_dir, 'ARS_GlobalRainSIM.Jar'),
+        os.path.join(script_dir, 'GlobalTempSim10.Jar')
     ]
 
     # Verify that the JAR files exist
