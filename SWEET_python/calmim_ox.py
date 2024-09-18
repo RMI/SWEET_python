@@ -18,6 +18,8 @@ def initialize_jvm():
     #     os.path.join(jar_dir, 'SWEET_python/SWEET_python/GlobalTempSim10.Jar')
     # ]
 
+    print(os.getcwd())
+    
     jar_paths = [
         'SWEET_python/SWEET_python/ARS_GlobalRainSIM.Jar',
         'SWEET_python/SWEET_python/GlobalTempSim10.Jar'
