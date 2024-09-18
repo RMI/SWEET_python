@@ -304,7 +304,7 @@ class WeatherModel:
         print("RainSIM Started")
         
         # Fetch rain data
-        rain_data = jpype_call_in_thread(rain_sim.getRain(self.site.lat, self.site.lon, 0.0, 100.0))
+        rain_data = jpype_call_in_thread(rain_sim.getRain, self.site.lat, self.site.lon, 0.0, 100.0)
         
         # Log the length to understand the size
         print(f"Length of rain_data: {len(rain_data)}")
@@ -319,7 +319,7 @@ class WeatherModel:
         print("Rain Simulation Completed")
 
         print("Temperature Simulation Started")
-        self.weather_holder = temp_sim.getDailyTemps(self.site.lat, self.site.lon, False)
+        self.weather_holder = jpype_call_in_thread(temp_sim.getDailyTemps, self.site.lat, self.site.lon, True)
 
         print(f"Length of temp data: {len(self.weather_holder[0])}")
         # Adjust the length to remove padding
