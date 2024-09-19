@@ -35,7 +35,7 @@ def initialize_jvm():
         print("JVM started successfully.")
 
 # Call initialize_jvm() upon module import
-initialize_jvm()
+#initialize_jvm()
 
 
 @dataclass
