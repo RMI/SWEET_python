@@ -6,6 +6,7 @@ import numpy as np
 import math
 import os
 from importlib.resources import files
+from pathlib import Path
 
 def initialize_jvm():
     # # Get the directory where calmim_ox.py is located
@@ -18,17 +19,23 @@ def initialize_jvm():
     # ]
 
     # Get the current working directory
-    current_directory = os.getcwd()
+    current_directory = Path.cwd()
     print("Current Directory:", current_directory)
 
     # List the contents of the current directory
-    contents = os.listdir(current_directory)
+    contents = list(current_directory.iterdir())
     print("Directory Contents:", contents)
 
-    jar_paths = [
-        '/app/SWEET_python/SWEET_python/ARS_GlobalRainSIM.Jar',
-        '/app/SWEET_python/SWEET_python/GlobalTempSim10.Jar'
-    ]
+    if current_directory.name == 'WasteMAP':
+        jar_paths = [
+            current_directory.parent / 'SWEET_python' / 'SWEET_python' / 'ARS_GlobalRainSIM.Jar',
+            current_directory.parent / 'SWEET_python' / 'SWEET_python' / 'GlobalTempSim10.Jar',
+        ]
+    else:
+        jar_paths = [
+            '/app/SWEET_python/SWEET_python/ARS_GlobalRainSIM.Jar',
+            '/app/SWEET_python/SWEET_python/GlobalTempSim10.Jar'
+        ]
 
     # Verify that the JAR files exist
     for jar in jar_paths:
