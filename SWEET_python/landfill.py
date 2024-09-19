@@ -300,7 +300,7 @@ class Landfill:
         start_time = time.time()
         self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions2()
         end_time = time.time()
-        print(f"Time taken to estimate emissions in Landfill: {end_time - start_time} seconds")
+        #print(f"Time taken to estimate emissions in Landfill: {end_time - start_time} seconds")
 
         if self.doing_fancy_ox:
             available_ch4 = self.ch4.at[2023, 'total'] - self.captured.at[2023, 'total']

@@ -17,6 +17,14 @@ def initialize_jvm():
     #     os.path.join(script_dir, 'GlobalTempSim10.Jar')
     # ]
 
+    # Get the current working directory
+    current_directory = os.getcwd()
+    print("Current Directory:", current_directory)
+
+    # List the contents of the current directory
+    contents = os.listdir(current_directory)
+    print("Directory Contents:", contents)
+
     jar_paths = [
         '/app/SWEET_python/SWEET_python/ARS_GlobalRainSIM.Jar',
         '/app/SWEET_python/SWEET_python/GlobalTempSim10.Jar'

@@ -292,7 +292,7 @@ class SWEET:
         captured = {}
 
         end_time = time.time()
-        print(f"Model setup: {end_time - start_time} seconds")
+        #print(f"Model setup: {end_time - start_time} seconds")
 
         start_time = time.time()
 
@@ -339,7 +339,7 @@ class SWEET:
             captured[waste] = captured_total
 
         end_time = time.time()
-        print(f"Model run: {end_time - start_time} seconds")
+        #print(f"Model run: {end_time - start_time} seconds")
 
         start_time = time.time()
 
@@ -349,6 +349,6 @@ class SWEET:
         ch4_df = pd.DataFrame(ch4_produced, index=year_range)
 
         end_time = time.time()
-        print(f"Model post-processing: {end_time - start_time} seconds")
+        #print(f"Model post-processing: {end_time - start_time} seconds")
 
         return None, q_df, ch4_df, captured
