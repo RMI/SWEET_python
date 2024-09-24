@@ -31,6 +31,11 @@ def initialize_jvm():
             current_directory.parent / 'SWEET_python' / 'SWEET_python' / 'ARS_GlobalRainSIM.Jar',
             current_directory.parent / 'SWEET_python' / 'SWEET_python' / 'GlobalTempSim10.Jar',
         ]
+    elif current_directory.name == 'RMI':
+        jar_paths = [
+            current_directory / 'SWEET_python' / 'SWEET_python' / 'ARS_GlobalRainSIM.Jar',
+            current_directory / 'SWEET_python' / 'SWEET_python' / 'GlobalTempSim10.Jar',
+        ]
     else:
         jar_paths = [
             '/app/SWEET_python/SWEET_python/ARS_GlobalRainSIM.Jar',
@@ -323,6 +328,7 @@ class WeatherModel:
         
         # Fetch rain data
         rain_data = jpype_call_in_thread(rain_sim.getRain, self.site.lat, self.site.lon, 0.0, 100.0)
+        #rain_data = [5.0] * 366
         
         # Log the length to understand the size
         print(f"Length of rain_data: {len(rain_data)}")
@@ -338,6 +344,9 @@ class WeatherModel:
 
         print("Temperature Simulation Started")
         self.weather_holder = jpype_call_in_thread(temp_sim.getDailyTemps, self.site.lat, self.site.lon, True)
+        #max_temps = [25.0] * 366  # Assuming max temp of 25°C each day
+        #min_temps = [15.0] * 366  # Assuming min temp of 15°C each day
+        #self.weather_holder = [max_temps, min_temps]
 
         print(f"Length of temp data: {len(self.weather_holder[0])}")
         # Adjust the length to remove padding

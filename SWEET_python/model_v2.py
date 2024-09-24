@@ -247,9 +247,9 @@ class SWEET:
             qs[year] = ch4_year
             ch4_produced[year] = ch4_produced_year
             if isinstance(gas_capture_efficiency, pd.Series):
-                captured[year] = np.sum([ch4_produced_year[w] * gas_capture_efficiency.at[year] for w in components]) / 365 / 24
+                captured[year] = np.sum([ch4_produced_year[w] * gas_capture_efficiency.at[year] for w in components]) # / 365 / 24
             else:
-                captured[year] = np.sum([ch4_produced_year[w] * gas_capture_efficiency for w in components]) / 365 / 24
+                captured[year] = np.sum([ch4_produced_year[w] * gas_capture_efficiency for w in components]) # / 365 / 24
 
         end_time = time.time()
         print(f"Model run: {end_time - start_time} seconds")
@@ -335,7 +335,7 @@ class SWEET:
             qs[waste] = ch4_year_total
 
             # Total methane captured for each year
-            captured_total = np.sum(ch4_produced[waste] * gas_capture_efficiency_values) / 365 / 24
+            captured_total = ch4_produced[waste] * gas_capture_efficiency_values # / 365 / 24
             captured[waste] = captured_total
 
         end_time = time.time()
@@ -347,8 +347,9 @@ class SWEET:
         q_df = pd.DataFrame(qs, index=year_range)
         q_df['total'] = q_df.sum(axis=1)
         ch4_df = pd.DataFrame(ch4_produced, index=year_range)
+        captured_df = pd.DataFrame(captured, index=year_range)
 
         end_time = time.time()
         #print(f"Model post-processing: {end_time - start_time} seconds")
 
-        return None, q_df, ch4_df, captured
+        return None, q_df, ch4_df, captured_df

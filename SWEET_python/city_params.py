@@ -1,3 +1,8 @@
+import sys
+
+sys.path.append('/app/SWEET_python/SWEET_python')
+sys.path.append('/app/SWEET_python')
+
 from pydantic import BaseModel, validator
 from typing import List, Dict, Union, Any, Set, Optional
 import pandas as pd

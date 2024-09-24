@@ -303,8 +303,9 @@ class Landfill:
         #print(f"Time taken to estimate emissions in Landfill: {end_time - start_time} seconds")
 
         if self.doing_fancy_ox:
-            available_ch4 = self.ch4.at[2023, 'total'] - self.captured.at[2023, 'total']
+            available_ch4 = self.ch4.loc[2023, :].sum() - self.captured.loc[2023, :].sum()
             self.oxidation_factor = self.oxidation_potential / available_ch4
+            print(f"Oxidation factor: {self.oxidation_factor}")
             if self.oxidation_facotr < 0:
                 self.oxidation_factor = 0
             elif self.oxidation_factor > 1:
