@@ -306,7 +306,7 @@ class Landfill:
             available_ch4 = self.ch4.loc[2023, :].sum() - self.captured.loc[2023, :].sum()
             self.oxidation_factor = self.oxidation_potential / available_ch4
             print(f"Oxidation factor: {self.oxidation_factor}")
-            if self.oxidation_facotr < 0:
+            if self.oxidation_factor < 0:
                 self.oxidation_factor = 0
             elif self.oxidation_factor > 1:
                 self.oxidation_factor = 1
