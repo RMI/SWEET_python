@@ -107,7 +107,7 @@ class Landfill:
             print("Weather simulation completed")
 
             # THIS NEEDS UPDATING TO WORK
-            material = materials[0]
+            material = materials[5]
 
             material.calculate_properties()
 
@@ -115,7 +115,7 @@ class Landfill:
 
             # Calculate the oxidation potential by converting micrograms ch4 / g soil / day to ton ch4 / year
             #self.oxidation_potential = self.ch4_convert_ton_to_m3(cover.calculate_oxidation_rate() * area * cover_thickness * cover.soil_density * 365.25 / 1e6)
-            self.oxidation_potential = cover.calculate_oxidation_rate() * area * cover_thickness * cover.soil_density * 365.25 / 1e6
+            self.oxidation_potential = cover.calculate_oxidation_rate() * area * cover_thickness * cover.soil_density * 100 * 100 * 365.25 / 1000 / 1000
 
         if self.gas_capture_efficiency is None:
             self.gas_capture_efficiency = defaults_2019.gas_capture_efficiency[site_type]
@@ -303,13 +303,20 @@ class Landfill:
         #print(f"Time taken to estimate emissions in Landfill: {end_time - start_time} seconds")
 
         if self.doing_fancy_ox:
-            available_ch4 = self.ch4.loc[2023, :].sum() - self.captured.loc[2023, :].sum()
-            self.oxidation_factor = self.oxidation_potential / available_ch4
+            available_ch4 = (self.ch4.loc[2023, :].sum() - self.captured.loc[2023, :].sum())
+            density_kg_per_m3 = 0.657
+            available_ch4 = available_ch4 * density_kg_per_m3
+            available_ch4 = available_ch4 / 1000
+            self.oxidation_factor = self.oxidation_potential / available_ch4 * .5
             print(f"Oxidation factor: {self.oxidation_factor}")
             if self.oxidation_factor < 0:
                 self.oxidation_factor = 0
             elif self.oxidation_factor > 1:
                 self.oxidation_factor = 1
+            
+            if self.oxidation_factor > 0.25:
+                self.oxidation_factor = 0.25
+            
             self.model.landfill_instance_attrs = self.model_dump()
             self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions2()
 

@@ -327,8 +327,8 @@ class WeatherModel:
         print("RainSIM Started")
         
         # Fetch rain data
-        rain_data = jpype_call_in_thread(rain_sim.getRain, self.site.lat, self.site.lon, 0.0, 100.0)
-        #rain_data = [5.0] * 366
+        #rain_data = jpype_call_in_thread(rain_sim.getRain, self.site.lat, self.site.lon, 0.0, 100.0)
+        rain_data = [5.0] * 366
         
         # Log the length to understand the size
         print(f"Length of rain_data: {len(rain_data)}")
@@ -343,10 +343,10 @@ class WeatherModel:
         print("Rain Simulation Completed")
 
         print("Temperature Simulation Started")
-        self.weather_holder = jpype_call_in_thread(temp_sim.getDailyTemps, self.site.lat, self.site.lon, True)
-        #max_temps = [25.0] * 366  # Assuming max temp of 25°C each day
-        #min_temps = [15.0] * 366  # Assuming min temp of 15°C each day
-        #self.weather_holder = [max_temps, min_temps]
+        #self.weather_holder = jpype_call_in_thread(temp_sim.getDailyTemps, self.site.lat, self.site.lon, True)
+        max_temps = [25.0] * 366  # Assuming max temp of 25°C each day
+        min_temps = [15.0] * 366  # Assuming min temp of 15°C each day
+        self.weather_holder = [max_temps, min_temps]
 
         print(f"Length of temp data: {len(self.weather_holder[0])}")
         # Adjust the length to remove padding
@@ -568,7 +568,7 @@ class Cover:
         moistfrac = 0.852 / (1.0 + math.exp(calc1))
 
         o2correction = self.o2_concentration / 20.0
-        frac = o2correction * tempfrac * moistfrac
+        frac = o2correction * tempfrac # * moistfrac
 
         return oxidation_rate * frac
     
