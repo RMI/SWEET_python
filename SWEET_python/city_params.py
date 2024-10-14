@@ -2260,18 +2260,22 @@ class City:
                 axis=1
             ).T.groupby(level=0).sum().T
         except:
-            compost = pd.DataFrame(divs.compost.model_dump(), index=np.arange(1960, 2074))
-            anaerobic = pd.DataFrame(divs.anaerobic.model_dump(), index=np.arange(1960, 2074))
-            combustion = pd.DataFrame(divs.combustion.model_dump(), index=np.arange(1960, 2074))
-            recycling = pd.DataFrame(divs.recycling.model_dump(), index=np.arange(1960, 2074))
-            combined_diversions = pd.concat([compost, anaerobic, combustion, recycling], axis=1).T.groupby(level=0).sum().T
+            diverted = {
+                waste: divs.compost.model_dump().get(waste, 0) +
+                    divs.anaerobic.model_dump().get(waste, 0) +
+                    divs.combustion.model_dump().get(waste, 0) +
+                    divs.recycling.model_dump().get(waste, 0)
+                for waste in parameters.waste_masses.model_dump()
+            }
 
         try:
-            net = parameters.waste_generated_df - combined_diversions
+            parameters.net_masses = parameters.waste_generated_df - combined_diversions
         except:
-            net = parameters.waste_generated_df.df - combined_diversions
-
-        parameters.net_masses = net
+            net = {
+                waste: parameters.waste_masses.model_dump()[waste] - diverted.get(waste, 0)
+                for waste in parameters.waste_masses.model_dump()
+            }
+            parameters.net_masses = pd.Series(net)
 
         # return net
 
@@ -2990,22 +2994,23 @@ class City:
 
 #%%
 
-# # Initialize the City instance
-# city = City(city_name="ExampleCity")
+# Initialize the City instance
+city = City(city_name="ExampleCity")
 
-# # Example input parameters
-# country = "Argentina"
-# population = 872680
-# precipitation = 800.0  # in mm/year
+# Example input parameters
+#country = "Argentina"
+country = "Netherlands"
+population = 872680
+precipitation = 800.0  # in mm/year
 
-# # Initialize baseline scenario
-# city.dst_baseline_blank(country, population, precipitation)
+# Initialize baseline scenario
+city.dst_baseline_blank(country, population, precipitation)
 
-# # Access baseline parameters
-# baseline = city.baseline_parameters
-# print(f"Baseline Population: {baseline.population}")
-# print(f"Baseline Precipitation Zone: {baseline.precip_zone}")
-# print(f"Baseline Waste Mass: {baseline.waste_mass.iloc[0]} tons/year")
+# Access baseline parameters
+baseline = city.baseline_parameters
+print(f"Baseline Population: {baseline.population}")
+print(f"Baseline Precipitation Zone: {baseline.precip_zone}")
+print(f"Baseline Waste Mass: {baseline.waste_mass.iloc[0]} tons/year")
 
 
 # %%
