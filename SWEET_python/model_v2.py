@@ -27,8 +27,12 @@ Version: 0.1
 
 import pandas as pd
 import numpy as np
-import defaults_2019
 import time
+try:
+    import defaults_2019
+except:
+    import SWEET_python.defaults_2019 as defaults_2019
+
 
 # Based on EPA's SWEET excel model for calculating methane emissions from municipal solid waste 
 # (https://globalmethane.org/resources/details.aspx?resourceid=5176)

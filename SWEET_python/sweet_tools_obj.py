@@ -504,8 +504,8 @@ class City:
         # Basic information
         #idx = row[0]
         row = row[1]
-        self.data_source = row['data_source']
-        self.country = row['country_original']
+        self.data_source = row['population_data_source']
+        self.country = row['country']
         self.iso3 = row['iso']
         self.region = defaults_2019.region_lookup[self.country]
         self.year_of_data_pop = row['population_year']

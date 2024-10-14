@@ -1,11 +1,17 @@
-import defaults_2019
-from class_defs import *
 import pandas as pd
-from model_v2 import SWEET
 from typing import List, Dict, Union, Any, Set, Optional, Tuple
 import time
 import numpy as np
-from calmim_ox import Site, WeatherModel, WeatherProfile, Cover, CoverMaterial, materials, attach_thread
+try:
+    import defaults_2019
+    from class_defs import *
+    from model_v2 import SWEET
+    from calmim_ox import Site, WeatherModel, WeatherProfile, Cover, CoverMaterial, materials, attach_thread
+except:
+    import SWEET_python.defaults_2019 as defaults_2019
+    from SWEET_python.class_defs import *
+    from SWEET_python.model_v2 import SWEET
+    from SWEET_python.calmim_ox import Site, WeatherModel, WeatherProfile, Cover, CoverMaterial, materials, attach_thread
 
 
 class Landfill:
