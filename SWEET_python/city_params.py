@@ -3012,5 +3012,4 @@ print(f"Baseline Population: {baseline.population}")
 print(f"Baseline Precipitation Zone: {baseline.precip_zone}")
 print(f"Baseline Waste Mass: {baseline.waste_mass.iloc[0]} tons/year")
 
-
 # %%
