@@ -509,7 +509,14 @@ class City:
         self.iso3 = row['iso']
         self.region = defaults_2019.region_lookup[self.country]
         self.year_of_data_pop = row['population_year']
-        self.year_of_data_msw = row['msw_year']
+        assert np.isnan(self.year_of_data_pop) == False, 'Population year is missing'
+        self.year_of_data_msw = row['msw_collected_year']
+        if np.isnan(self.year_of_data_msw):
+            self.year_of_data_msw = row['msw_generated_year']
+        if np.isnan(self.year_of_data_msw):
+            self.year_of_data_msw = row['data_collection_year'].iloc[0]
+        self.year_of_data_msw = int(self.year_of_data_msw)
+
         # name_backtranslator = {value: key for key, value in defaults_2019.replace_city.items()}
         # if self.data_source != 'World Bank':
         #     self.year_of_data_pop = row['year']
@@ -633,10 +640,14 @@ class City:
 
         # Get waste total
         try:
-            self.waste_mass_load = float(row['waste_tonnes_per_year']) # unit is tons
+            self.waste_mass_load = float(row['msw_collected_metric_tons_per_year']) # unit is tons
+            if np.isnan(self.waste_mass_load):
+                self.waste_mass_load = float(row['msw_generated_metric_tons_per_year'])
             self.waste_per_capita = self.waste_mass_load * 1000 / self.population / 365 #unit is kg/person/day
         except:
-            self.waste_mass_load = float(row['waste_tonnes_per_year'].replace(',', ''))
+            self.waste_mass_load = float(row['msw_collected_metric_tons_per_year'].replace(',', ''))
+            if np.isnan(self.waste_mass_load):
+                self.waste_mass_load = float(row['msw_generated_metric_tons_per_year'].replace(',', ''))
             self.waste_per_capita = self.waste_mass_load * 1000 / self.population / 365
         if self.waste_mass_load != self.waste_mass_load:
             # Use per capita default
@@ -1043,7 +1054,9 @@ class City:
         for waste in self.net_masses_after_check.values():
             if waste < -1:
                 print(waste)
-            assert waste >= -1, 'Waste diversion is net negative'
+            if waste <= -1:
+                print('blah')
+            assert waste >= -1, 'Waste diversion is net negative ' + self.name
 
         # Baseline refers to loaded parameters, new refers to alternative scenario parameters determined by a user.
         self.new_divs = copy.deepcopy(self.divs)
