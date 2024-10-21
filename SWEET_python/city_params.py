@@ -2624,7 +2624,7 @@ class City:
             gas_eff_series.loc[years < implement_year] = gas_eff['baseline']
             gas_eff_series.loc[years >= implement_year] = gas_eff['scenario']
 
-            doing_fancy_ox = fancy_ox['baseline'] or fancy_ox['scenario']
+            doing_fancy_ox = fancy_ox
 
             new_landfill = Landfill(
                 open_date=new_landfill_open_close_dates['scenario'][i][0], 
@@ -2648,7 +2648,8 @@ class City:
                 cover_type=new_covertypes['scenario'][i] if doing_fancy_ox else None,
                 cover_thickness=new_coverthicknesses['scenario'][i] if doing_fancy_ox else None,
                 oxidation_factor=ox_value_series if not doing_fancy_ox else None,
-                fancy_ox=fancy_ox
+                fancy_ox=fancy_ox,
+                implementation_year=implement_year
             )
             scenario_parameters.landfills.append(new_landfill)
 

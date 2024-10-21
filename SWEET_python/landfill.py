@@ -41,6 +41,7 @@ class Landfill:
             cover_type: str = None, # remember that these need to be in meters and square meters. 
             cover_thickness: float = None,
             fancy_ox: bool = False,
+            implementation_year: int = None
     ):
         """
         Initializes a Landfill object.
@@ -86,13 +87,14 @@ class Landfill:
         self.cover_type = cover_type
         self.fraction_of_waste_vector = fraction_of_waste_vector
         self.fancy_ox = fancy_ox
+        self.implementation_year = implementation_year
 
         self.doing_fancy_ox = self.fancy_ox
-        if isinstance(self.doing_fancy_ox, dict):
-            if self.doing_fancy_ox['baseline'] or self.doing_fancy_ox['scenario']:
-                self.doing_fancy_ox = True
-            else:
-                self.doing_fancy_ox = False
+        # if isinstance(self.doing_fancy_ox, dict):
+        #     if self.doing_fancy_ox['baseline'] or self.doing_fancy_ox['scenario']:
+        #         self.doing_fancy_ox = True
+        #     else:
+        #         self.doing_fancy_ox = False
         
         if self.doing_fancy_ox:
             print("Starting fancy oxidation calculations")
@@ -313,15 +315,23 @@ class Landfill:
             density_kg_per_m3 = 0.657
             available_ch4 = available_ch4 * density_kg_per_m3
             available_ch4 = available_ch4 / 1000
-            self.oxidation_factor = self.oxidation_potential / available_ch4 * .5
-            print(f"Oxidation factor: {self.oxidation_factor}")
-            if self.oxidation_factor < 0:
-                self.oxidation_factor = 0
-            elif self.oxidation_factor > 1:
-                self.oxidation_factor = 1
+            oxidation_factor = self.oxidation_potential / available_ch4 * .5
+            print(f"Oxidation factor: {oxidation_factor}")
             
-            if self.oxidation_factor > 0.25:
-                self.oxidation_factor = 0.25
+            if oxidation_factor < 0:
+                oxidation_factor = 0
+            elif oxidation_factor > 1:
+                oxidation_factor = 1
+            if oxidation_factor > 0.25:
+                oxidation_factor = 0.25
+
+            if isinstance(self.oxidation_factor, pd.Series):
+                self.oxidation_factor.loc[self.implementation_year:] = oxidation_factor
+            else:
+                years = pd.Index(range(1960, 2074))
+                ox_series = pd.Series(self.oxidation_factor, index=years)
+                ox_series.loc[self.implementation_year:] = oxidation_factor
+                self.oxidation_factor = ox_series
             
             self.model.landfill_instance_attrs = self.model_dump()
             self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions2()

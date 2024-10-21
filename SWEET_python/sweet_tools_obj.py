@@ -370,6 +370,7 @@ class City:
 
         # WasteMAP is set up to use up to three landfills.
         # Determine how much waste goes to each landfill type.
+        # This doesn't work right
         self.split_fractions = {}
         try:
             if self.iso3 in defaults_2019.fraction_open_dumped_country:
