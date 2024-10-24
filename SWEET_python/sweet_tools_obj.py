@@ -3168,7 +3168,7 @@ class City:
         #     landfill.estimate_emissions(baseline=False)
         for i, landfill in enumerate(self.non_zero_landfills):
             landfill.estimate_emissions(baseline=False)
-            landfill.waste_mass.to_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/scratch_paper/old' + str(i) + '.csv')
+            #landfill.waste_mass.to_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/scratch_paper/old' + str(i) + '.csv')
 
         self.organic_emissions_new = self.estimate_diversion_emissions(baseline=False)
         self.landfill_emissions_new, self.diversion_emissions_new, self.total_emissions_new = self.sum_landfill_emissions(baseline=False)
