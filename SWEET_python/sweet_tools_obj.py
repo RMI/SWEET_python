@@ -74,6 +74,7 @@ class City:
         self.waste_mass = db.loc[self.name, 'Waste Generation Rate (tons/year)'].values[0]
         self.data_source = db.loc[self.name, 'Input Data Source'].values[0]
         self.population = db.loc[self.name, 'Population'].values[0]
+
         try:
             self.year_of_data_pop = db.loc[self.name, 'Year of Data Collection'].values[0]
         except:
