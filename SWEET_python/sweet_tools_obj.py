@@ -35,6 +35,7 @@ from SWEET_python import city_manual_baselines
 import matplotlib.pyplot as plt
 #matplotlib.use('TkAgg')
 import pycountry
+import math
 
 # This file contains classes for calculating the methane emissions of cities from municipal solid waste.
 # The City class contains information about a city, including its population, waste generation rate,
@@ -73,7 +74,11 @@ class City:
         self.waste_mass = db.loc[self.name, 'Waste Generation Rate (tons/year)'].values[0]
         self.data_source = db.loc[self.name, 'Input Data Source'].values[0]
         self.population = db.loc[self.name, 'Population'].values[0]
-        self.year_of_data_pop = db.loc[self.name, 'Year of Data Collection (Population)'].values[0]
+
+        try:
+            self.year_of_data_pop = db.loc[self.name, 'Year of Data Collection'].values[0]
+        except:
+            self.year_of_data_pop = db.loc[self.name, 'Year of Data Collection (Population)'].values[0]
 
         # Waste composition
         self.waste_fractions = {}
@@ -369,6 +374,7 @@ class City:
 
         # WasteMAP is set up to use up to three landfills.
         # Determine how much waste goes to each landfill type.
+        # This doesn't work right
         self.split_fractions = {}
         try:
             if self.iso3 in defaults_2019.fraction_open_dumped_country:
@@ -515,6 +521,7 @@ class City:
         if np.isnan(self.year_of_data_msw):
             self.year_of_data_msw = row['data_collection_year'].iloc[0]
         self.year_of_data_msw = int(self.year_of_data_msw)
+
         # name_backtranslator = {value: key for key, value in defaults_2019.replace_city.items()}
         # if self.data_source != 'World Bank':
         #     self.year_of_data_pop = row['year']
@@ -1052,7 +1059,9 @@ class City:
         for waste in self.net_masses_after_check.values():
             if waste < -1:
                 print(waste)
-            assert waste >= -1, 'Waste diversion is net negative'
+            if waste <= -1:
+                print('blah')
+            assert waste >= -1, 'Waste diversion is net negative ' + self.name
 
         # Baseline refers to loaded parameters, new refers to alternative scenario parameters determined by a user.
         self.new_divs = copy.deepcopy(self.divs)
@@ -1391,23 +1400,23 @@ class City:
                                                     compost_waste_fractions[x] for x in self.div_components['compost']])
             compost = {}
             # Determine mass of composted waste types
-            if new and sum(self.div_component_fractions['compost'].values()) != 0:
-                for waste in self.div_components['compost']:
-                    compost[waste] = (
-                        compost_total * 
-                        (1 - self.non_compostable_not_targeted_total) *
-                        self.div_component_fractions['compost'][waste] *
-                        (1 - self.unprocessable[waste])
-                        )
-                compost_waste_fractions = self.div_component_fractions['compost']
-            else:
-                for waste in self.div_components['compost']:
-                    compost[waste] = (
-                        compost_total * 
-                        (1 - self.non_compostable_not_targeted_total) *
-                        compost_waste_fractions[waste] *
-                        (1 - self.unprocessable[waste])
-                        )
+            # if new and sum(self.div_component_fractions['compost'].values()) != 0:
+            #     for waste in self.div_components['compost']:
+            #         compost[waste] = (
+            #             compost_total * 
+            #             (1 - self.non_compostable_not_targeted_total) *
+            #             self.div_component_fractions['compost'][waste] *
+            #             (1 - self.unprocessable[waste])
+            #             )
+            #     compost_waste_fractions = self.div_component_fractions['compost']
+            # else:
+            for waste in self.div_components['compost']:
+                compost[waste] = (
+                    compost_total * 
+                    (1 - self.non_compostable_not_targeted_total) *
+                    compost_waste_fractions[waste] *
+                    (1 - self.unprocessable[waste])
+                    )
 
         else:
             compost = {x: 0 for x in self.div_components['compost']}
@@ -1454,11 +1463,11 @@ class City:
             #self.divs['anaerobic'] = {x: anaerobic_total * anaerobic_waste_fractions[x] for x in self.anaerobic_components}
             
             # Determine masses of digested waste types
-            if new and sum(self.div_component_fractions['anaerobic'].values()) != 0:
-                anaerobic = {x: anaerobic_total * self.div_component_fractions['anaerobic'][x] for x in self.div_components['anaerobic']}
-                anaerobic_waste_fractions = self.div_component_fractions['anaerobic']
-            else:
-                anaerobic = {x: anaerobic_total * anaerobic_waste_fractions[x] for x in self.div_components['anaerobic']}
+            # if new and sum(self.div_component_fractions['anaerobic'].values()) != 0:
+            #     anaerobic = {x: anaerobic_total * self.div_component_fractions['anaerobic'][x] for x in self.div_components['anaerobic']}
+            #     anaerobic_waste_fractions = self.div_component_fractions['anaerobic']
+            # else:
+            anaerobic = {x: anaerobic_total * anaerobic_waste_fractions[x] for x in self.div_components['anaerobic']}
         else:
             #self.divs['anaerobic'] = {x: 0 for x in self.anaerobic_components}
             anaerobic = {x: 0 for x in self.div_components['anaerobic']}
@@ -1518,21 +1527,21 @@ class City:
         combustion_waste_fractions = {x: self.waste_fractions[x] / fraction_combustion_types for x in self.div_components['combustion']}
 
         # Masses of combusted waste types
-        if new and sum(self.div_component_fractions['combustion'].values()) != 0:
-            combustion = {x:
-                self.waste_mass * 
-                combustion_fraction * \
-                self.div_component_fractions['combustion'][x] * \
-                (1 - self.combustion_reject_rate) for x in self.div_components['combustion']
-            }
-            combustion_waste_fractions = self.div_component_fractions['combustion']
-        else:
-            combustion = {x:
-                self.waste_mass * 
-                combustion_fraction * \
-                combustion_waste_fractions[x] * \
-                (1 - self.combustion_reject_rate) for x in self.div_components['combustion']
-            }
+        # if new and sum(self.div_component_fractions['combustion'].values()) != 0:
+        #     combustion = {x:
+        #         self.waste_mass * 
+        #         combustion_fraction * \
+        #         self.div_component_fractions['combustion'][x] * \
+        #         (1 - self.combustion_reject_rate) for x in self.div_components['combustion']
+        #     }
+        #     combustion_waste_fractions = self.div_component_fractions['combustion']
+        # else:
+        combustion = {x:
+            self.waste_mass * 
+            combustion_fraction * \
+            combustion_waste_fractions[x] * \
+            (1 - self.combustion_reject_rate) for x in self.div_components['combustion']
+        }
 
         return combustion, combustion_waste_fractions
     
@@ -1631,22 +1640,22 @@ class City:
             #                   self.waste_mass for x in self.recycling_components}
 
             # Masses of recycled waste types
-            if new and sum(self.div_component_fractions['recycling'].values()) != 0:
-                recycling = {
-                    x: self.div_component_fractions['recycling'][x] * \
-                    recycling_fraction * \
-                    (recycling_reject_rates[x]) * \
-                    self.waste_mass for x in self.div_components['recycling']
-                }
-                recycling_waste_fractions = self.div_component_fractions['recycling']
-            else:
-                recycling = {
-                    x: self.waste_fractions[x] / \
-                    fraction_recyclable_types * \
-                    recycling_fraction * \
-                    (recycling_reject_rates[x]) * \
-                    self.waste_mass for x in self.div_components['recycling']
-                }
+            # if new and sum(self.div_component_fractions['recycling'].values()) != 0:
+            #     recycling = {
+            #         x: self.div_component_fractions['recycling'][x] * \
+            #         recycling_fraction * \
+            #         (recycling_reject_rates[x]) * \
+            #         self.waste_mass for x in self.div_components['recycling']
+            #     }
+            #     recycling_waste_fractions = self.div_component_fractions['recycling']
+            # else:
+            recycling = {
+                x: self.waste_fractions[x] / \
+                fraction_recyclable_types * \
+                recycling_fraction * \
+                (recycling_reject_rates[x]) * \
+                self.waste_mass for x in self.div_components['recycling']
+            }
             #recycling_vol_total = sum([recycling_vol[x] for x in recycling_vol.keys()])
         else:
             #self.divs['recycling'] = {x: 0 for x in self.recycling_components}
@@ -3158,11 +3167,211 @@ class City:
         # Run the model
         # for landfill in self.landfills:
         #     landfill.estimate_emissions(baseline=False)
-        for landfill in self.non_zero_landfills:
+        for i, landfill in enumerate(self.non_zero_landfills):
             landfill.estimate_emissions(baseline=False)
+            #landfill.waste_mass.to_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/scratch_paper/old' + str(i) + '.csv')
 
         self.organic_emissions_new = self.estimate_diversion_emissions(baseline=False)
         self.landfill_emissions_new, self.diversion_emissions_new, self.total_emissions_new = self.sum_landfill_emissions(baseline=False)
+
+    def singapore_k(self):
+        # Implementation of Singapore k value method
+
+        # Start with kc, which accounts for waste composition
+
+        # nb is non-biodegradable, bs is slow, bf is fast biodegradable
+        nb = self.waste_fractions['metal'] + self.waste_fractions['glass'] + self.waste_fractions['plastic'] + self.waste_fractions['other'] + self.waste_fractions['rubber']
+        bs = self.waste_fractions['wood'] + self.waste_fractions['paper_cardboard'] + self.waste_fractions['textiles']
+        bf = self.waste_fractions['food'] + self.waste_fractions['green']
+
+        # Lookup array order is bs, bf, nb. Multiply by 8
+        lookup_array = np.zeros((8, 8, 8))
+
+        lookup_array[0, 0, 7] = 0.3 # lower left corner
+        lookup_array[0, 0, 6] = 0.3 # this is all the bottom row
+        lookup_array[1, 0, 6] = 0.3
+        lookup_array[1, 0, 5] = 0.3
+        lookup_array[2, 0, 5] = 0.3
+        lookup_array[2, 0, 4] = 0.3
+        lookup_array[3, 0, 4] = 0.3
+        lookup_array[3, 0, 3] = 0.3
+        lookup_array[4, 0, 3] = 0.5
+        lookup_array[4, 0, 2] = 0.5
+        lookup_array[5, 0, 2] = 0.5
+        lookup_array[5, 0, 1] = 0.5
+        lookup_array[6, 0, 1] = 0.1
+        lookup_array[6, 0, 0] = 0.1
+        lookup_array[7, 0, 0] = 0.1 # lower right corner
+
+        lookup_array[0, 1, 6] = 0.3 # second row from bottom
+        lookup_array[0, 1, 5] = 0.3
+        lookup_array[1, 1, 5] = 0.3
+        lookup_array[1, 1, 4] = 0.3
+        lookup_array[2, 1, 4] = 0.3
+        lookup_array[2, 1, 3] = 0.3
+        lookup_array[3, 1, 3] = 0.3
+        lookup_array[3, 1, 2] = 0.3
+        lookup_array[4, 1, 2] = 0.5
+        lookup_array[4, 1, 1] = 0.1
+        lookup_array[5, 1, 1] = 0.1
+        lookup_array[5, 1, 0] = 0.1
+        lookup_array[6, 1, 0] = 0.1
+
+        lookup_array[0, 2, 5] = 0.3
+        lookup_array[0, 2, 4] = 0.3
+        lookup_array[1, 2, 4] = 0.3
+        lookup_array[1, 2, 3] = 0.3
+        lookup_array[2, 2, 3] = 0.7
+        lookup_array[2, 2, 2] = 0.7
+        lookup_array[3, 2, 2] = 0.7
+        lookup_array[3, 2, 1] = 0.7
+        lookup_array[4, 2, 1] = 0.1
+        lookup_array[4, 2, 0] = 0.1
+        lookup_array[5, 2, 0] = 0.1
+
+        lookup_array[0, 3, 4] = 0.3
+        lookup_array[0, 3, 3] = 0.3
+        lookup_array[1, 3, 3] = 0.3
+        lookup_array[1, 3, 2] = 0.3
+        lookup_array[2, 3, 2] = 0.7
+        lookup_array[2, 3, 1] = 0.7
+        lookup_array[3, 3, 1] = 0.7
+        lookup_array[3, 3, 0] = 0.7
+        lookup_array[4, 3, 0] = 0.1
+
+        lookup_array[0, 4, 3] = 0.3
+        lookup_array[0, 4, 2] = 0.3
+        lookup_array[1, 4, 2] = 0.3
+        lookup_array[1, 4, 1] = 0.5
+        lookup_array[2, 4, 1] = 0.5
+        lookup_array[2, 4, 0] = 0.5
+        lookup_array[3, 4, 0] = 0.5
+
+        lookup_array[0, 5, 2] = 0.7
+        lookup_array[0, 5, 1] = 0.7
+        lookup_array[1, 5, 1] = 0.7
+        lookup_array[1, 5, 0] = 0.7
+        lookup_array[2, 5, 0] = 0.5
+
+        lookup_array[0, 6, 1] = 0.5
+        lookup_array[0, 6, 0] = 0.5
+        lookup_array[1, 6, 0] = 0.5
+
+        lookup_array[0, 7, 0] = 0.5
+
+        nb_idx = int(nb * 8)
+        bs_idx = int(bs * 8)
+        bf_idx = int(bf * 8)
+
+        if nb_idx == 8:
+            nb_idx = 7
+        if bs_idx == 8:
+            bs_idx = 7
+        if bf_idx == 8:
+            bf_idx = 7
+
+        kc = lookup_array[bs_idx, bf_idx, nb_idx]
+        if kc == 0:
+            print('Invalid value for k')
+
+        # ft, accounts for temperature
+
+        tmin = 0
+        tmax = 55
+        topt = 35
+        t = self.temp + 10 # landfill is warmer than ambient
+
+        num = (t - tmax) * (t - tmin) ** 2
+        denom = (topt - tmin) * \
+            ((topt - tmin) * \
+            (t - topt) - \
+            (topt - tmax) * \
+            (topt + tmin - 2 * t))
+        
+        if denom != 0:
+            tf = num / denom
+        else:
+            print('Invalid value for temperature factor')
+
+        # fm, accounts for moisture
+        # read more on this to make sure it handles dumpsites correctly. 
+
+        if self.precip < 500:
+            fm = 0.1
+        elif self.precip >= 500 and self.precip < 1000:
+            fm = 0.3
+        elif self.precip >= 1000 and self.precip < 1500:
+            fm = 0.5
+        elif self.precip >= 1500 and self.precip < 2000:
+            fm = 0.8
+        elif self.precip >= 2000:
+            fm = 1
+
+        # if (nb >= 0) & (nb <= 0.25):
+        #     if (bs >= 0) & (bs <= 0.25):
+        #         if (bf >= 0) & (bf <= 0.25):
+        #             return 0.1
+        #         elif (bf > 0.25) & (bf <= 0.5):
+        #             return 0.2
+        #         elif (bf > 0.5) & (bf <= 0.75):
+        #             return 0.3
+        #         elif (bf > 0.75) & (bf <= 1):
+        #             return 0.4
+        #         else:
+        #             print('Invalid value for fast biodegradable fraction')
+        #     elif (bs > 0.25) & (bs <= 0.5):
+        #         if (bf >= 0) & (bf <= 0.25):
+        #             return 0.1
+        #         elif (bf > 0.25) & (bf <= 0.5):
+        #             return 0.2
+        #         elif (bf > 0.5) & (bf <= 0.75):
+        #             return 0.3
+        #         elif (bf > 0.75) & (bf <= 1):
+        #             return 0.4
+        #         else:
+        #             print('Invalid value for fast biodegradable fraction')
+        #     elif (bs > 0.5) & (bs <= 0.75):
+                
+        #     elif (bs > 0.75) & (bs <= 1):
+
+        #     else:
+        #         print('Invalid value for slow biodegradable fraction')
+        # elif (nb > 0.25) & (nb <= 0.5):
+        #     if (bs >= 0) & (bs <= 0.25):
+
+        #     elif (bs > 0.25) & (bs <= 0.5):
+
+        #     elif (bs > 0.5) & (bs <= 0.75):
+
+        #     elif (bs > 0.75) & (bs <= 1):
+
+        #     else:
+        #         print('Invalid value for slow biodegradable fraction')
+        # elif (nb > 0.5) & (nb <= 0.75):
+        #     if (bs >= 0) & (bs <= 0.25):
+
+        #     elif (bs > 0.25) & (bs <= 0.5):
+
+        #     elif (bs > 0.5) & (bs <= 0.75):
+
+        #     elif (bs > 0.75) & (bs <= 1):
+
+        #     else:
+        #         print('Invalid value for slow biodegradable fraction')
+        # elif (nb > 0.75) & (nb <= 1):
+        #     if (bs >= 0) & (bs <= 0.25):
+
+        #     elif (bs > 0.25) & (bs <= 0.5):
+
+        #     elif (bs > 0.5) & (bs <= 0.75):
+
+        #     elif (bs > 0.75) & (bs <= 1):
+
+        #     else:
+        #         print('Invalid value for slow biodegradable fraction')
+        # else:
+        #     print('Invalid value for non-biodegradable fraction')
+
 
 class CustomError(Exception):
     def __init__(self, code, message):
@@ -3222,6 +3431,7 @@ class Landfill:
         # This is due to paper coardboard thing
         #self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions_match_excel(baseline=baseline)
         self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions(baseline=baseline)
+        #self.waste_mass.to_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/scratch_paper/old.csv')
         # else:
         #     self.model = SWEET(self, self.city, baseline=False)
         #     self.waste_mass, self.emissions, self.ch4, self.captured = self.model.estimate_emissions(baseline=False)
