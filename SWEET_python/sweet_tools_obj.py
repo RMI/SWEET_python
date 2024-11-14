@@ -57,7 +57,7 @@ class City:
     
     def load_from_database(self, db):
         """
-        Loads model parameters from the RMI WasteMAP github repo data file. 
+        Loads model parameters from the RMI WasteMAP Github repo data file. 
 
         Args:
             db (pandas dataframe): Dataframe containing model parameters for all cities
@@ -72,7 +72,7 @@ class City:
         self.lat = db.loc[self.name, 'Latitude'].values[0]
         self.lon = db.loc[self.name, 'Longitude'].values[0]
         self.waste_mass = db.loc[self.name, 'Waste Generation Rate (tons/year)'].values[0]
-        self.data_source = db.loc[self.name, 'Input Data Source'].values[0]
+        self.data_source = db.loc[self.name, 'Data Source (MSW)'].values[0]
         self.population = db.loc[self.name, 'Population'].values[0]
 
         try:
