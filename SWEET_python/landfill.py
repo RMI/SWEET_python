@@ -37,9 +37,9 @@ class Landfill:
             advanced: bool = False,
             oxidation_factor: pd.Series = None,
             latlon: Tuple[float, float] = None,
-            area: float = None,
-            cover_type: str = None, # remember that these need to be in meters and square meters. 
-            cover_thickness: float = None,
+            areas: float = None,
+            cover_types: str = None, # remember that these need to be in meters and square meters. 
+            cover_thicknesses: float = None,
             fancy_ox: bool = False,
             implementation_year: int = None
     ):
@@ -81,10 +81,10 @@ class Landfill:
         self.ameliorated = ameliorated
         self.oxidation_factor = oxidation_factor
         self.advanced = advanced
-        self.cover_thickness = cover_thickness
+        self.cover_thickness = cover_thicknesses
         self.latlon = latlon
-        self.area = area
-        self.cover_type = cover_type
+        self.areas = areas
+        self.cover_types = cover_types
         self.fraction_of_waste_vector = fraction_of_waste_vector
         self.fancy_ox = fancy_ox
         self.implementation_year = implementation_year
@@ -114,16 +114,20 @@ class Landfill:
             weather_model.simulate_weather()
             print("Weather simulation completed")
 
-            # THIS NEEDS UPDATING TO WORK
-            material = materials[5]
+            self.oxidation_potentials = []
+            for i, c in enumerate(cover_types):
+                if c == 'none':
+                    self.oxidation_potentials.append(0)
+                else:
+                    material = materials[c]
 
-            material.calculate_properties()
+                    material.calculate_properties()
 
-            cover = Cover(material=material, site=site, weather_profile=weather_profile, weather_model=weather_model)
+                    cover = Cover(material=material, site=site, weather_profile=weather_profile, weather_model=weather_model)
 
-            # Calculate the oxidation potential by converting micrograms ch4 / g soil / day to ton ch4 / year
-            #self.oxidation_potential = self.ch4_convert_ton_to_m3(cover.calculate_oxidation_rate() * area * cover_thickness * cover.soil_density * 365.25 / 1e6)
-            self.oxidation_potential = cover.calculate_oxidation_rate() * area * cover_thickness * cover.soil_density * 100 * 100 * 365.25 / 1000 / 1000
+                    # Calculate the oxidation potential by converting micrograms ch4 / g soil / day to ton ch4 / year
+                    #self.oxidation_potential = self.ch4_convert_ton_to_m3(cover.calculate_oxidation_rate() * area * cover_thickness * cover.soil_density * 365.25 / 1e6)
+                    self.oxidation_potentials.append(cover.calculate_oxidation_rate() * areas[i] * cover_thicknesses[i] * cover.soil_density * 100 * 100 * 365.25 / 1000 / 1000)
 
         if self.gas_capture_efficiency is None:
             self.gas_capture_efficiency = defaults_2019.gas_capture_efficiency[site_type]
@@ -315,7 +319,7 @@ class Landfill:
             density_kg_per_m3 = 0.657
             available_ch4 = available_ch4 * density_kg_per_m3
             available_ch4 = available_ch4 / 1000
-            oxidation_factor = self.oxidation_potential / available_ch4 * .5
+            oxidation_factor = sum(self.oxidation_potentials) / available_ch4 * .5
             print(f"Oxidation factor: {oxidation_factor}")
             
             if oxidation_factor < 0:

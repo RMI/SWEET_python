@@ -2854,9 +2854,9 @@ class City:
                 fraction_of_waste_vector=fraction_df[f'Landfill_{i}'],
                 advanced=True,
                 latlon=new_landfill_latlons['scenario'][i] if doing_fancy_ox else None,
-                area=new_landfill_areas['scenario'][i] if doing_fancy_ox else None,
-                cover_type=new_covertypes['scenario'][i] if doing_fancy_ox else None,
-                cover_thickness=new_coverthicknesses['scenario'][i] if doing_fancy_ox else None,
+                areas=new_landfill_areas['scenario'][i] if doing_fancy_ox else None,
+                cover_types=new_covertypes['scenario'][i] if doing_fancy_ox else None,
+                cover_thicknesses=new_coverthicknesses['scenario'][i] if doing_fancy_ox else None,
                 oxidation_factor=ox_value_series if not doing_fancy_ox else None,
                 fancy_ox=fancy_ox,
                 implementation_year=implement_year
@@ -3140,9 +3140,9 @@ class City:
                 fraction_of_waste_vector=fraction_df[f'Landfill_{i}'],
                 advanced=True,
                 latlon=new_landfill_latlons[i] if fancy_ox else None,
-                area=new_landfill_areas[i] if fancy_ox else None,
-                cover_type=new_covertypes[i] if fancy_ox else None,
-                cover_thickness=new_coverthicknesses[i] if fancy_ox else None,
+                areas=new_landfill_areas[i] if fancy_ox else None,
+                cover_types=new_covertypes[i] if fancy_ox else None,
+                cover_thicknesses=new_coverthicknesses[i] if fancy_ox else None,
                 oxidation_factor=pd.Series(oxs, index=years) if not fancy_ox else None,
                 fancy_ox=fancy_ox
             )
