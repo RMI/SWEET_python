@@ -21,33 +21,33 @@ except:
     import SWEET_python.defaults_2019 as defaults_2019
     
 class CityParameters(BaseModel):
-    waste_fractions: pd.DataFrame #WasteFractions
-    div_fractions: pd.DataFrame #DiversionFractions
-    split_fractions: SplitFractions
-    div_component_fractions: DivComponentFractionsDF
-    precip: float
-    growth_rate_historic: float
-    growth_rate_future: float
-    waste_per_capita: float
-    precip_zone: str
+    waste_fractions: Optional[pd.DataFrame] = None #WasteFractions
+    div_fractions: Optional[pd.DataFrame] = None #DiversionFractions
+    split_fractions: Optional[SplitFractions] = None
+    div_component_fractions: Optional[DivComponentFractionsDF] = None
+    precip: Optional[float] = None
+    growth_rate_historic: Optional[float] = None
+    growth_rate_future: Optional[float] = None
+    waste_per_capita: Optional[float] = None
+    precip_zone: Optional[str] = None
     ks: Optional[DecompositionRates] = None
-    gas_capture_efficiency: pd.Series #float
-    mef_compost: float
-    waste_mass: pd.Series #float
+    gas_capture_efficiency: Optional[pd.Series] = None #float
+    mef_compost: Optional[float] = None
+    waste_mass: Optional[pd.Series] = None #float
     landfills: Optional[List[Landfill]] = None
     non_zero_landfills: Optional[List[Landfill]] = None
     non_compostable_not_targeted_total: Optional[pd.Series] = None
     waste_masses: Optional[WasteMasses] = None
     divs: Optional[DivMasses] = None
-    year_of_data_pop: Optional[int] = None
+    year_of_data_pop: Optional[Dict[str, Any]] = None
     scenario: Optional[int] = 0
     implement_year: Optional[int] = None
     organic_emissions: Optional[pd.DataFrame] = None
     landfill_emissions: Optional[pd.DataFrame] = None
     diversion_emissions: Optional[pd.DataFrame] = None
     total_emissions: Optional[pd.DataFrame] = None
-    adjusted_diversion_constituents: bool = False
-    input_problems: bool = False
+    adjusted_diversion_constituents: Optional[bool] = False
+    input_problems: Optional[bool] = False
     divs_df: Optional[pd.DataFrame] = None
     waste_generated_df: Optional[WasteGeneratedDF] = None
     city_instance_attrs: Optional[Dict[str, Any]] = None
@@ -682,7 +682,7 @@ class City:
             mef_compost=mef_compost,
             waste_mass=waste_mass,
             non_compostable_not_targeted_total=non_compostable_not_targeted_total,
-            year_of_data_pop=year_of_data_pop,
+            year_of_data_pop={'baseline': year_of_data_pop},
             scenario=scenario,
             city_instance_attrs=city_instance_attrs,
             population=city_data['Population'].values[0]
@@ -705,7 +705,7 @@ class City:
         years = range(start_year, end_year + 1)
         
         waste_masses_df = city_parameters.waste_fractions.multiply(city_parameters.waste_mass, axis=0)
-        city_parameters.waste_generated_df = WasteGeneratedDF.create(waste_masses_df, start_year, end_year, city_parameters.year_of_data_pop, city_parameters.growth_rate_historic, city_parameters.growth_rate_future).df
+        city_parameters.waste_generated_df = WasteGeneratedDF.create(waste_masses_df, start_year, end_year, city_parameters.year_of_data_pop['baseline'], city_parameters.growth_rate_historic, city_parameters.growth_rate_future).df
         
         # if scenario == 0:
         #     self.baseline_parameters = city_parameters
@@ -948,6 +948,7 @@ class City:
         Returns:
             None
         """
+
         # Initialize a new CityParameters instance with all required fields
         try:
             iso3 = pycountry.countries.search_fuzzy(country)[0].alpha_3
@@ -1268,6 +1269,91 @@ class City:
     #         combustion=div_component_fractions['combustion'],
     #         recycling=div_component_fractions['recycling'],
     #     )
+
+    def cityparams_obj_for_blank_site(
+        self, 
+        country: str, 
+        population: int,
+        precipitation: float,
+        waste_fractions: float,
+        waste_mass_year: dict,
+    ) -> None:
+        
+        """
+        Initializes the baseline scenario with given parameters for a blank/custom city.
+
+        Args:
+            country (str): The country name.
+            population (int): Population of the city.
+            precipitation (float): Average annual precipitation in mm/year.
+
+        Returns:
+            None
+        """
+
+        # Initialize a new CityParameters instance with all required fields
+        try:
+            iso3 = pycountry.countries.search_fuzzy(country)[0].alpha_3
+        except LookupError:
+            raise ValueError(f"Country '{country}' not found.")
+        
+        region = defaults_2019.region_lookup_iso3.get(iso3)
+        if region is None:
+            raise ValueError(f"Region for ISO3 code '{iso3}' not found.")
+
+        precip_zone = defaults_2019.get_precipitation_zone(precipitation)
+        
+        # Calculate growth rates
+        # REPLACE WITH ANDRES TABLE
+        population_1950 = 751_000_000
+        population_2020 = 4_300_000_000
+        population_2035 = 5_300_000_000
+        growth_rate_historic = (population_2020 / population_1950) ** (1 / (2020 - 1950))
+        growth_rate_future = (population_2035 / population_2020) ** (1 / (2035 - 2020))
+
+        year_of_data_pop = {
+            "baseline": waste_mass_year.baseline,
+            "scenario": waste_mass_year.scenario
+        }
+
+        # Calculate MEF for compost
+        try:
+            # 0 is food, 1 is green
+            food_frac = waste_fractions.baseline[0]
+            green_frac = waste_fractions.baseline[1]
+            mef_compost = (
+                (0.0055 * food_frac / (food_frac + green_frac) + 
+                 0.0139 * green_frac / (food_frac + green_frac)) * 
+                1.1023 * 0.7
+            )
+        except KeyError:
+            mef_compost = 0.0
+
+        city_instance_attrs = {
+            'city_name': self.city_name,
+            'country': country,
+            'components': self.components,
+            'div_components': self.div_components,
+            'waste_types': self.waste_types,
+            'unprocessable': self.unprocessable,
+            'non_compostable_not_targeted': self.non_compostable_not_targeted,
+            'combustion_reject_rate': self.combustion_reject_rate,
+            'recycling_reject_rates': self.recycling_reject_rates
+        }
+
+        # Assign to CityParameters
+        baseline = CityParameters(
+            precip=precipitation,
+            growth_rate_historic=growth_rate_historic,
+            growth_rate_future=growth_rate_future,
+            precip_zone=precip_zone,
+            mef_compost=mef_compost,
+            year_of_data_pop=year_of_data_pop,
+            scenario=0,
+            city_instance_attrs=city_instance_attrs,
+            population=population,
+        )
+        self.baseline_parameters = baseline
 
     def _calc_compost_vol(self, compost_fraction: float, new: bool = False) -> tuple:
         compost_total = compost_fraction * self.baseline_parameters.waste_mass
@@ -2183,7 +2269,7 @@ class City:
 
             return divs
 
-        if isinstance(waste_mass, dict):
+        if isinstance(waste_mass, Variant):
             waste_mass = waste_mass['scenario']
         if isinstance(waste_mass, pd.Series):
             waste_mass = waste_mass.iat[0]
@@ -2652,10 +2738,10 @@ class City:
             waste_masses_df = waste_masses_df,
             start_year=1960, 
             end_year=2073,
-            year_of_data_pop=scenario_parameters.year_of_data_pop, 
+            year_of_data_pop=scenario_parameters.year_of_data_pop['baseline'], 
             growth_rate_historic=scenario_parameters.growth_rate_historic, 
             growth_rate_future=scenario_parameters.growth_rate_future,
-            implement_year=implement_year
+            implement_year=scenario_parameters.year_of_data_pop['scenario']
         ).df
 
         # Create a DataFrame for fraction_waste_timeline
@@ -2864,9 +2950,10 @@ class City:
             print(f'Invalid new value')
             return
 
+        # This isn't set up yet for year of data pop scenario and implement year being different
         scenario_parameters.divs_df = DivsDF.implement_advanced(
             divs=scenario_parameters.divs, 
-            year_of_data_pop=scenario_parameters.year_of_data_pop, 
+            year_of_data_pop=scenario_parameters.year_of_data_pop['baseline'], 
             growth_rate_historic=scenario_parameters.growth_rate_historic, 
             growth_rate_future=scenario_parameters.growth_rate_future,
             implement_year=implement_year,
@@ -2980,7 +3067,7 @@ class City:
             waste_masses,
             1960, 
             2073, 
-            scenario_parameters.year_of_data_pop, 
+            scenario_parameters.year_of_data_pop['baseline'], 
             scenario_parameters.growth_rate_historic, 
             scenario_parameters.growth_rate_future
         ).df
@@ -3096,7 +3183,7 @@ class City:
 
         scenario_parameters.divs_df = DivsDF.create_advanced_baseline(
             scenario_parameters.divs, 
-            scenario_parameters.year_of_data_pop, 
+            scenario_parameters.year_of_data_pop['baseline'], 
             scenario_parameters.growth_rate_historic, 
             scenario_parameters.growth_rate_future
         )
