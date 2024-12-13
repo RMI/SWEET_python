@@ -1,7 +1,9 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Union
 import pandas as pd
 import numpy as np
+from typing import Annotated, List, Dict, TypeVar, Generic, Tuple
+from enum import Enum
 
 class WasteFractions(BaseModel):
     food: float = 0.0
@@ -523,3 +525,38 @@ class LandfillWasteMassDF(BaseModel):
         self.df = landfill_waste
         #self.df = pd.DataFrame(data, index=years)
 
+T = TypeVar("T")
+
+class Variant(BaseModel, Generic[T]):
+    baseline: T
+    scenario: Optional[T] = None
+
+    def __getitem__(self, item):
+        if item == "baseline":
+            return self.baseline
+        elif item == "scenario":
+            return self.scenario
+        else:
+            raise KeyError(f"Invalid key: {item}")
+
+    def __setitem__(self, key, value):
+        if key == "baseline":
+            self.baseline = value
+        elif key == "scenario":
+            self.scenario = value
+        else:
+            raise KeyError(f"Invalid key: {key}")
+
+
+Fraction = Annotated[float, Field(strict=True, ge=0, le=1)]
+
+
+class CoverType(int, Enum):
+    soil = 0
+    membrane = 1
+
+
+class LandfillType(int, Enum):
+    landfill = 0
+    controlledDump = 1
+    openDump = 2

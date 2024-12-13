@@ -2135,7 +2135,7 @@ class City:
 
         # Deal with waste mass that changes at implement_date first. 
         waste_mass = parameters.waste_mass
-        if isinstance(waste_mass, dict) and (waste_mass['scenario'] != waste_mass['baseline']):
+        if isinstance(waste_mass, Variant) and (waste_mass['scenario'] != waste_mass['baseline']):
             compost_masses = {'baseline': {}, 'scenario': {}}
             anaerobic_masses = {'baseline': {}, 'scenario': {}}
             combustion_masses = {'baseline': {}, 'scenario': {}}
