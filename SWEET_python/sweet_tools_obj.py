@@ -57,7 +57,7 @@ class City:
     
     def load_from_database(self, db):
         """
-        Loads model parameters from the RMI WasteMAP github repo data file. 
+        Loads model parameters from the RMI WasteMAP Github repo data file. 
 
         Args:
             db (pandas dataframe): Dataframe containing model parameters for all cities
@@ -72,7 +72,7 @@ class City:
         self.lat = db.loc[self.name, 'Latitude'].values[0]
         self.lon = db.loc[self.name, 'Longitude'].values[0]
         self.waste_mass = db.loc[self.name, 'Waste Generation Rate (tons/year)'].values[0]
-        self.data_source = db.loc[self.name, 'Input Data Source'].values[0]
+        self.data_source = db.loc[self.name, 'Data Source (Waste Mass)'].values[0]
         self.population = db.loc[self.name, 'Population'].values[0]
 
         try:
@@ -643,6 +643,8 @@ class City:
         self.lat = row['latitude']
         self.lon = row['longitude']
 
+        self.waste_mass_defaults = False
+
         # Get waste total
         try:
             self.waste_mass_load = float(row['msw_collected_metric_tons_per_year']) # unit is tons
@@ -656,6 +658,7 @@ class City:
             self.waste_per_capita = self.waste_mass_load * 1000 / self.population / 365
         if self.waste_mass_load != self.waste_mass_load:
             # Use per capita default
+            self.waste_mass_defaults = True
             if self.iso3 in defaults_2019.msw_per_capita_country:
                 self.waste_per_capita = defaults_2019.msw_per_capita_country[self.iso3]
                 self.year_of_data_msw = 2019
@@ -721,7 +724,9 @@ class City:
         #     print(waste_fractions)
 
         # Add zeros where there are no values unless all values are nan, in which case use defaults
+        self.waste_fractions_defaults = False
         if waste_fractions.isna().all():
+            self.waste_fractions_defaults = True
             if self.iso3 in defaults_2019.waste_fractions_country:
                 waste_fractions = defaults_2019.waste_fractions_country.loc[self.iso3, :]
             else:
@@ -733,6 +738,7 @@ class City:
             #waste_fractions['textiles'] = 0
         
         if (waste_fractions.sum() < .98) or (waste_fractions.sum() > 1.02):
+            self.waste_fractions_defaults = True
             #print('waste fractions do not sum to 1')
             if self.iso3 in defaults_2019.waste_fractions_country:
                 waste_fractions = defaults_2019.waste_fractions_country.loc[self.iso3, :]
@@ -813,18 +819,24 @@ class City:
         all_nan_div = all(np.isnan(value) for value in diversions)
 
         # First case to check: all diversions and landfills are 0. Use defaults.
+        self.diversion_defaults = False
+        self.landfill_split_defaults = False
         if all_nan_fill and all_nan_div:
             if self.iso3 in defaults_2019.fraction_composted_country:
                 self.compost_fraction = defaults_2019.fraction_composted_country[self.iso3]
+                self.diversion_defaults = True
             elif self.region in defaults_2019.fraction_composted:
                 self.compost_fraction = defaults_2019.fraction_composted[self.region]
+                self.diversion_defaults = True
             else:
                 self.compost_fraction = 0.0
 
             if self.iso3 in defaults_2019.fraction_incinerated_country:
                 self.combustion_fraction = defaults_2019.fraction_incinerated_country[self.iso3]
+                self.diversion_defaults = True
             elif self.region in defaults_2019.fraction_incinerated:
                 self.combustion_fraction = defaults_2019.fraction_incinerated[self.region]
+                self.diversion_defaults = True
             else:
                 self.combustion_fraction = 0.0
 
@@ -837,12 +849,14 @@ class City:
                         'landfill_wo_capture': defaults_2019.fraction_landfilled_country[self.iso3],
                         'dumpsite': defaults_2019.fraction_open_dumped_country[self.iso3]
                     }
+                    self.landfill_split_defaults = True
                 elif self.region in defaults_2019.fraction_open_dumped:
                     self.split_fractions = {
                         'landfill_w_capture': 0.0,
                         'landfill_wo_capture': defaults_2019.fraction_landfilled[self.region],
                         'dumpsite': defaults_2019.fraction_open_dumped[self.region]
                     }
+                    self.landfill_split_defaults = True
                 else:
                     if self.region in defaults_2019.landfill_default_regions:
                         self.split_fractions = {'landfill_w_capture': 0, 'landfill_wo_capture': 1, 'dumpsite': 0}
@@ -862,15 +876,19 @@ class City:
         elif all_nan_div and total_fill < .99:
             if self.iso3 in defaults_2019.fraction_composted_country:
                 self.compost_fraction = defaults_2019.fraction_composted_country[self.iso3]
+                self.diversion_defaults = True
             elif self.region in defaults_2019.fraction_composted:
                 self.compost_fraction = defaults_2019.fraction_composted[self.region]
+                self.diversion_defaults = True
             else:
                 self.compost_fraction = 0.0
 
             if self.iso3 in defaults_2019.fraction_incinerated_country:
                 self.combustion_fraction = defaults_2019.fraction_incinerated_country[self.iso3]
+                self.diversion_defaults = True
             elif self.region in defaults_2019.fraction_incinerated:
                 self.combustion_fraction = defaults_2019.fraction_incinerated[self.region]
+                self.diversion_defaults = True
             else:
                 self.combustion_fraction = 0.0
 
@@ -892,12 +910,14 @@ class City:
                         'landfill_wo_capture': defaults_2019.fraction_landfilled_country[self.iso3],
                         'dumpsite': defaults_2019.fraction_open_dumped_country[self.iso3]
                     }
+                    self.landfill_split_defaults = True
                 elif self.region in defaults_2019.fraction_open_dumped:
                     self.split_fractions = {
                         'landfill_w_capture': 0.0,
                         'landfill_wo_capture': defaults_2019.fraction_landfilled[self.region],
                         'dumpsite': defaults_2019.fraction_open_dumped[self.region]
                     }
+                    self.landfill_split_defaults = True
                 else:
                     if self.region in defaults_2019.landfill_default_regions:
                         self.split_fractions = {'landfill_w_capture': 0.0, 'landfill_wo_capture': 1.0, 'dumpsite': 0.0}
