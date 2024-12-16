@@ -2640,6 +2640,7 @@ class City:
         waste_burning: Dict = None,
         fancy_ox: Dict = {'baseline': False, 'scenario': False},
         new_waste_mass_per_capita: bool = False,
+        depths: Dict = None,
     ) -> None:
         
         scenario_parameters = copy.deepcopy(self.baseline_parameters)
@@ -2777,6 +2778,9 @@ class City:
             gas_eff = {}
             mcf['baseline'] = mcf_options[lf_type]
             mcf['scenario'] = mcf_options[lf_type]
+            for k, v in mcf.items():
+                if (depths[k][i] > 5) and (lf_type in (1, 2)):
+                    mcf[k] = 0.8
             # Handle no gas capture first
             if i >= len(new_gas_efficiency['baseline']):
                 ox_value['baseline'] = 0
@@ -3020,6 +3024,7 @@ class City:
         waste_burning: float = 0.0,
         fancy_ox: bool = False,
         new_waste_mass_per_capita: float = None,
+        depth: float = None,
     ) -> None:
         
         scenario_parameters = copy.deepcopy(self.baseline_parameters)
@@ -3101,6 +3106,8 @@ class City:
             # Make the MCF, oxidation, and efficiency vectors
             years = pd.Index(range(1960, 2074))
             mcf = mcf_options[lf_type]
+            if (depth > 5) and (lf_type in (1, 2)):
+                mcf = 0.8
             # Handle no gas capture first
             if new_gas_efficiency[i] == 0:
                 #mcf = mcf_options['not_ameliorated']['no_gas_capture'][lf_type]
@@ -3144,7 +3151,7 @@ class City:
                 cover_types=new_covertypes[i] if fancy_ox else None,
                 cover_thicknesses=new_coverthicknesses[i] if fancy_ox else None,
                 oxidation_factor=pd.Series(oxs, index=years) if not fancy_ox else None,
-                fancy_ox=fancy_ox
+                fancy_ox=fancy_ox,
             )
             scenario_parameters.landfills.append(new_landfill)
 
