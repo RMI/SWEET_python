@@ -2641,6 +2641,7 @@ class City:
         fancy_ox: Dict = {'baseline': False, 'scenario': False},
         new_waste_mass_per_capita: bool = False,
         depths: Dict = None,
+        k_values: Dict = None,
     ) -> None:
         
         scenario_parameters = copy.deepcopy(self.baseline_parameters)
@@ -3025,6 +3026,7 @@ class City:
         fancy_ox: bool = False,
         new_waste_mass_per_capita: float = None,
         depth: float = None,
+        k_values: List = None,
     ) -> None:
         
         scenario_parameters = copy.deepcopy(self.baseline_parameters)
