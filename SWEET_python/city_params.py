@@ -682,7 +682,7 @@ class City:
             mef_compost=mef_compost,
             waste_mass=waste_mass,
             non_compostable_not_targeted_total=non_compostable_not_targeted_total,
-            year_of_data_pop={'baseline': year_of_data_pop},
+            year_of_data_pop={'baseline': year_of_data_pop, 'scenario': year_of_data_pop},
             scenario=scenario,
             city_instance_attrs=city_instance_attrs,
             population=city_data['Population'].values[0]
@@ -710,7 +710,7 @@ class City:
             year_of_data_pop = city_parameters.year_of_data_pop['baseline']
         else:
             year_of_data_pop = city_parameters.year_of_data_pop
-            
+
         city_parameters.waste_generated_df = WasteGeneratedDF.create(waste_masses_df, start_year, end_year, year_of_data_pop, city_parameters.growth_rate_historic, city_parameters.growth_rate_future).df
         
         # if scenario == 0:
@@ -1321,6 +1321,9 @@ class City:
             "baseline": waste_mass_year.baseline,
             "scenario": waste_mass_year.scenario
         }
+
+        if year_of_data_pop['scenario'] is None:
+            year_of_data_pop['scenario'] = year_of_data_pop['baseline']
 
         # Calculate MEF for compost
         try:
@@ -2684,10 +2687,10 @@ class City:
             waste_mass_series.loc[:implement_year-1] -= waste_burned['baseline'].loc[:implement_year-1]
 
             # Adjust the waste burning for growth rates to get real time series
-            t = waste_mass_series.index.values - scenario_parameters.year_of_data_pop
+            t = waste_mass_series.index.values - scenario_parameters.year_of_data_pop['baseline']
 
             # Create growth rate array, using growth_rate_historic for years before year_of_data_pop and growth_rate_future after
-            growth_rate = np.where(waste_mass_series.index.values < scenario_parameters.year_of_data_pop, scenario_parameters.growth_rate_historic, scenario_parameters.growth_rate_future)
+            growth_rate = np.where(waste_mass_series.index.values < scenario_parameters.year_of_data_pop['baseline'], scenario_parameters.growth_rate_historic, scenario_parameters.growth_rate_future)
             growth_factors = growth_rate ** t
 
             # Apply growth factors
@@ -2699,10 +2702,10 @@ class City:
             waste_mass_series.loc[implement_year:] -= waste_burned['scenario'].loc[implement_year:]
 
             # Adjust the waste burning for growth rates to get real time series
-            t = waste_mass_series.index.values - scenario_parameters.year_of_data_pop
+            t = waste_mass_series.index.values - scenario_parameters.year_of_data_pop['scenario']
 
             # Create growth rate array, using growth_rate_historic for years before year_of_data_pop and growth_rate_future after
-            growth_rate = np.where(waste_mass_series.index.values < scenario_parameters.year_of_data_pop, scenario_parameters.growth_rate_historic, scenario_parameters.growth_rate_future)
+            growth_rate = np.where(waste_mass_series.index.values < scenario_parameters.year_of_data_pop['scenario'], scenario_parameters.growth_rate_historic, scenario_parameters.growth_rate_future)
             growth_factors = growth_rate ** t
 
             # Apply growth factors
@@ -2741,7 +2744,7 @@ class City:
 
         # Update waste generated
         # I have to put in the ability to change population and year of population data.
-        # And editable growth rates? Would need to split this into separate baseline and scenario dfs, then combine. 
+        # And editable growth rates? Would need to split this into separate baseline and scenario dfs, then combine.
         scenario_parameters.waste_generated_df = WasteGeneratedDF.create_advanced(
             waste_masses_df = waste_masses_df,
             start_year=1960, 
