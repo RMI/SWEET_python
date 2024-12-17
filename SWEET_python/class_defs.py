@@ -264,108 +264,63 @@ class DivsDF(BaseModel):
         
         return sum(divs_list)
     
-    # THIS NEEDS TO ACCOMODATE NEW_BASELINE, and i think can be rewritten to use df, be more efficient. same with the one below. 
-    def _dst_implement(
-            self, 
-            implement_year: int, 
-            scenario_div_masses: DivMasses, 
-            baseline_div_masses: DivMasses, 
-            start_year: int, 
-            end_year: int, 
-            year_of_data_pop: int, 
-            growth_rate_historic: float, 
-            growth_rate_future: float, 
-            components: List[str]
-        ) -> None:
-        
-        def _get_value_for_year(div_masses: WasteMasses, waste: str, year: int, year_of_data_pop: int, growth_rate_historic: float, growth_rate_future: float) -> float:
-            t = year - year_of_data_pop
-            growth_rate = growth_rate_historic if year < year_of_data_pop else growth_rate_future
-            return getattr(div_masses, waste) * (growth_rate ** t)
+    @classmethod
+    def create_simple(
+        cls, 
+        baseline_divs: DivMasses, 
+        scenario_divs: DivMasses,
+        start_year: int, 
+        end_year: int, 
+        implement_year: int,
+        year_of_data_pop: int, 
+        growth_rate_historic: float, 
+        growth_rate_future: float
+    ) -> 'DivsDF':
 
-        def _create_dynamic_dataframe(start_year: int, end_year: int, year_of_data_pop: int, baseline_div_masses: WasteMasses, scenario_div_masses: WasteMasses, implement_year: int, growth_rate_historic: float, growth_rate_future: float, components: List[str]) -> pd.DataFrame:
-            waste_types = components
-            years = list(range(start_year, end_year + 1))
-            data = {waste: [] for waste in waste_types}
-
-            for year in years:
-                for waste in waste_types:
-                    if year < implement_year:
-                        value = _get_value_for_year(baseline_div_masses, waste, year, year_of_data_pop, growth_rate_historic, growth_rate_future)
-                    else:
-                        value = _get_value_for_year(scenario_div_masses, waste, year, year_of_data_pop, growth_rate_historic, growth_rate_future)
-                    data[waste].append(value)
-
-            df = pd.DataFrame(data, index=years)
-            return df
-
-        self.compost = _create_dynamic_dataframe(start_year, end_year, year_of_data_pop, baseline_div_masses.compost, scenario_div_masses.compost, implement_year, growth_rate_historic, growth_rate_future, components['compost'])
-        self.anaerobic = _create_dynamic_dataframe(start_year, end_year, year_of_data_pop, baseline_div_masses.anaerobic, scenario_div_masses.anaerobic, implement_year, growth_rate_historic, growth_rate_future, components['anaerobic'])
-        self.combustion = _create_dynamic_dataframe(start_year, end_year, year_of_data_pop, baseline_div_masses.combustion, scenario_div_masses.combustion, implement_year, growth_rate_historic, growth_rate_future, components['combustion'])
-        self.recycling = _create_dynamic_dataframe(start_year, end_year, year_of_data_pop, baseline_div_masses.recycling, scenario_div_masses.recycling, implement_year, growth_rate_historic, growth_rate_future, components['recycling'])
-
-        return
-    
-    # # This sucks now...or at least still has dumb loop
-    # def _dst_implement_advanced(
-    #     self, 
-    #     implement_year: int, 
-    #     scenario_div_masses: DivMasses, 
-    #     baseline_div_masses: DivMasses, 
-    #     start_year: int, 
-    #     end_year: int, 
-    #     year_of_data_pop: int, 
-    #     growth_rate_historic: float, 
-    #     growth_rate_future: float, 
-    #     components: List[str]
-    # ) -> None:
-        
-    #     def _get_value_for_year(div_masses: WasteMasses, waste: str, year: int, year_of_data_pop: int, growth_rate_historic: float, growth_rate_future: float) -> float:
-    #         t = year - year_of_data_pop
-    #         growth_rate = growth_rate_historic if year < year_of_data_pop else growth_rate_future
-    #         return getattr(div_masses, waste) * (growth_rate ** t)
-
-    #     def _create_dynamic_dataframe(start_year: int, end_year: int, year_of_data_pop: int, baseline_div_masses: WasteMasses, scenario_div_masses: WasteMasses, implement_year: int, growth_rate_historic: float, growth_rate_future: float, components: List[str]) -> pd.DataFrame:
-    #         waste_types = components
-    #         years = list(range(start_year, end_year + 1))
-    #         data = {waste: [] for waste in waste_types}
-
-    #         for year in years:
-    #             for waste in waste_types:
-    #                 if year < implement_year:
-    #                     value = _get_value_for_year(baseline_div_masses, waste, year, year_of_data_pop, growth_rate_historic, growth_rate_future)
-    #                 else:
-    #                     value = _get_value_for_year(scenario_div_masses, waste, year, year_of_data_pop, growth_rate_historic, growth_rate_future)
-    #                 data[waste].append(value)
-
-    #         df = pd.DataFrame(data, index=years)
-    #         return df
-        
-    #     def _create_dynamic_dataframe_combustion(start_year: int, end_year: int, year_of_data_pop: int, baseline_div_masses: WasteMasses, scenario_div_masses: WasteMasses, implement_year: int, growth_rate_historic: float, growth_rate_future: float, components: List[str]) -> pd.DataFrame:
-
-    #         scenario_div_masses.index = scenario_div_masses.index.astype(int)
-
-    #         scenario_div_masses['years_from_ref'] = scenario_div_masses.index - year_of_data_pop
+        def create_div_df(baseline: WasteMasses, scenario: WasteMasses) -> pd.DataFrame:
+            # All waste types in order
+            waste_types = list(baseline.__fields__.keys())
             
-    #         # Apply growth rates
-    #         scenario_div_masses.loc[scenario_div_masses.index < year_of_data_pop, 'growth_rate'] = growth_rate_historic
-    #         scenario_div_masses.loc[scenario_div_masses.index >= year_of_data_pop, 'growth_rate'] = growth_rate_future
+            # Convert baseline and scenario WasteMasses to arrays
+            baseline_arr = np.array([getattr(baseline, w) for w in waste_types])
+            scenario_arr = np.array([getattr(scenario, w) for w in waste_types])
 
-    #         # Apply growth to all values in the rows
-    #         for col in scenario_div_masses.columns[:-2]:  # Exclude 'years_from_ref' and 'growth_rate' columns
-    #             scenario_div_masses[col] = scenario_div_masses[col] * (scenario_div_masses['growth_rate'] ** scenario_div_masses['years_from_ref'])
+            # Array of years
+            years = np.arange(start_year, end_year + 1)
+            # Compute time offsets
+            t = years - year_of_data_pop
 
-    #         # Drop the helper columns
-    #         scenario_div_masses.drop(columns=['years_from_ref', 'growth_rate'], inplace=True)
+            # Compute growth factors
+            # If year < year_of_data_pop -> use growth_rate_historic, else growth_rate_future
+            growth_factors = np.where(years < year_of_data_pop,
+                                      growth_rate_historic**t,
+                                      growth_rate_future**t)
 
-    #         return scenario_div_masses
+            # Mask for baseline vs scenario (before or after implement_year)
+            baseline_mask = years < implement_year
 
-    #     self.compost = _create_dynamic_dataframe(start_year, end_year, year_of_data_pop, baseline_div_masses.compost, scenario_div_masses.compost, implement_year, growth_rate_historic, growth_rate_future, components['compost'])
-    #     self.anaerobic = _create_dynamic_dataframe(start_year, end_year, year_of_data_pop, baseline_div_masses.anaerobic, scenario_div_masses.anaerobic, implement_year, growth_rate_historic, growth_rate_future, components['anaerobic'])
-    #     self.combustion = _create_dynamic_dataframe_combustion(start_year, end_year, year_of_data_pop, baseline_div_masses.combustion, scenario_div_masses.combustion, implement_year, growth_rate_historic, growth_rate_future, components['combustion'])
-    #     self.recycling = _create_dynamic_dataframe(start_year, end_year, year_of_data_pop, baseline_div_masses.recycling, scenario_div_masses.recycling, implement_year, growth_rate_historic, growth_rate_future, components['recycling'])
+            # Allocate array for results
+            values = np.empty((len(years), len(waste_types)), dtype=float)
+            # Assign baseline values where baseline_mask is True
+            values[baseline_mask, :] = baseline_arr * growth_factors[baseline_mask, None]
+            # Assign scenario values where baseline_mask is False
+            values[~baseline_mask, :] = scenario_arr * growth_factors[~baseline_mask, None]
 
-    #     return
+            # Create DataFrame
+            return pd.DataFrame(values, index=years, columns=waste_types)
+
+        # Create one DataFrame per diversion type
+        compost_df = create_div_df(baseline_divs.compost, scenario_divs.compost)
+        anaerobic_df = create_div_df(baseline_divs.anaerobic, scenario_divs.anaerobic)
+        combustion_df = create_div_df(baseline_divs.combustion, scenario_divs.combustion)
+        recycling_df = create_div_df(baseline_divs.recycling, scenario_divs.recycling)
+
+        return cls(
+            compost=compost_df,
+            anaerobic=anaerobic_df,
+            combustion=combustion_df,
+            recycling=recycling_df
+        )
     
     @classmethod
     def create_advanced_baseline(cls, divs: DivMasses, year_of_data_pop: int, growth_rate_historic: float, growth_rate_future: float):
