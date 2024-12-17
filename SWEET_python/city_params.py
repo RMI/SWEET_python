@@ -39,7 +39,7 @@ class CityParameters(BaseModel):
     non_compostable_not_targeted_total: Optional[pd.Series] = None
     waste_masses: Optional[WasteMasses] = None
     divs: Optional[DivMasses] = None
-    year_of_data_pop: Optional[Dict[str, Any]] = None
+    year_of_data_pop: Optional[Union[Dict[str, Any], int]] = None
     scenario: Optional[int] = 0
     implement_year: Optional[int] = None
     organic_emissions: Optional[pd.DataFrame] = None
@@ -705,7 +705,13 @@ class City:
         years = range(start_year, end_year + 1)
         
         waste_masses_df = city_parameters.waste_fractions.multiply(city_parameters.waste_mass, axis=0)
-        city_parameters.waste_generated_df = WasteGeneratedDF.create(waste_masses_df, start_year, end_year, city_parameters.year_of_data_pop['baseline'], city_parameters.growth_rate_historic, city_parameters.growth_rate_future).df
+
+        if isinstance(city_parameters.year_of_data_pop, dict):
+            year_of_data_pop = city_parameters.year_of_data_pop['baseline']
+        else:
+            year_of_data_pop = city_parameters.year_of_data_pop
+            
+        city_parameters.waste_generated_df = WasteGeneratedDF.create(waste_masses_df, start_year, end_year, year_of_data_pop, city_parameters.growth_rate_historic, city_parameters.growth_rate_future).df
         
         # if scenario == 0:
         #     self.baseline_parameters = city_parameters
