@@ -1485,7 +1485,7 @@ class City:
 
         parameters.organic_emissions = compost_emissions.add(anaerobic_emissions, fill_value=0)
 
-    def sum_landfill_emissions(self, scenario: int) -> None:
+    def sum_landfill_emissions(self, scenario: int, simple=False) -> None:
         """
         Aggregates emissions produced by the landfills for a specific scenario.
 
@@ -1505,7 +1505,19 @@ class City:
             for x in parameters.non_zero_landfills[1:]:
                 years_union = years_union.union(x.emissions.index)
             landfill_emissions_list = [
-                x.emissions.reindex(years_union, fill_value=0).map(self.convert_methane_m3_to_ton_co2e) 
+                x.emissions.reindex(years_union, fill_value=0).map(self.convert_methane_m3_to_ton_co2e) / 28
+                for x in parameters.non_zero_landfills
+            ]
+        elif simple:
+            parameters = self.scenario_parameters[scenario - 1]
+            organic_emissions = parameters.organic_emissions
+            #landfill_emissions = [x.emissions.map(self.convert_methane_m3_to_ton_co2e) for x in parameters.landfills]
+            years_union = parameters.non_zero_landfills[0].emissions.index
+            # Union the index of each subsequent landfill with the years_union
+            for x in parameters.non_zero_landfills[1:]:
+                years_union = years_union.union(x.emissions.index)
+            landfill_emissions_list = [
+                x.emissions.reindex(years_union, fill_value=0).map(self.convert_methane_m3_to_ton_co2e) / 28
                 for x in parameters.non_zero_landfills
             ]
         else:
@@ -1517,7 +1529,7 @@ class City:
             for x in parameters.landfills[1:]:
                 years_union = years_union.union(x.emissions.index)
             landfill_emissions_list = [
-                x.emissions.reindex(years_union, fill_value=0).map(self.convert_methane_m3_to_ton_co2e) 
+                x.emissions.reindex(years_union, fill_value=0).map(self.convert_methane_m3_to_ton_co2e) / 28
                 for x in parameters.landfills
             ]
 
@@ -1531,7 +1543,7 @@ class City:
         # ]
 
         # Sum the emissions dataframes
-        summed_landfill_emissions = sum(landfill_emissions_list) / 28  # Convert from co2e to ch4
+        summed_landfill_emissions = sum(landfill_emissions_list)
 
         # Group by the year index and sum the emissions for each year
         #summed_landfill_emissions = all_emissions.groupby(all_emissions.index).sum()
@@ -2636,7 +2648,7 @@ class City:
             landfill.estimate_emissions()
 
         self.estimate_diversion_emissions(scenario=scenario)
-        self.sum_landfill_emissions(scenario=scenario)
+        self.sum_landfill_emissions(scenario=scenario, simple=True)
 
     # def implement_dst_changes_advanced(
     #     self,
