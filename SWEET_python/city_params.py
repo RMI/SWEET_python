@@ -1555,7 +1555,7 @@ class City:
         summed_diversion_emissions = organic_emissions.reindex(columns=summed_landfill_emissions.columns, fill_value=0) / 28
 
         # Repeat with addition of diverted waste emissions
-        summed_emissions = sum([summed_landfill_emissions.loc[:, list(self.components)], summed_diversion_emissions])
+        summed_emissions = sum([summed_landfill_emissions.loc[:, list(self.components)], summed_diversion_emissions.loc[summed_landfill_emissions.index, :]])
         #summed_emissions = all_emissions.groupby(all_emissions.index).sum()
         #summed_emissions.drop('total', axis=1, inplace=True)
         #summed_emissions /= 28
