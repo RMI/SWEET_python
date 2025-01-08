@@ -123,11 +123,13 @@ class Landfill:
 
                     material.calculate_properties()
 
+                    # for attr, value in vars(material).items():
+                    #     print(f"{attr}: {value}")
+
                     cover = Cover(material=material, site=site, weather_profile=weather_profile, weather_model=weather_model)
 
                     # Calculate the oxidation potential by converting micrograms ch4 / g soil / day to ton ch4 / year
-                    #self.oxidation_potential = self.ch4_convert_ton_to_m3(cover.calculate_oxidation_rate() * area * cover_thickness * cover.soil_density * 365.25 / 1e6)
-                    self.oxidation_potentials.append(cover.calculate_oxidation_rate() * areas[i] * cover_thicknesses[i] * cover.soil_density * 100 * 100 * 365.25 / 1000 / 1000)
+                    self.oxidation_potentials.append(cover.calculate_oxidation_rate() * areas[i] * cover_thicknesses[i] * 86400 * 365.25 / 1e6) # g/m³/sec * m² * m * sec/day * day/year /1e6 = tons/year
 
         if self.gas_capture_efficiency is None:
             self.gas_capture_efficiency = defaults_2019.gas_capture_efficiency[site_type]

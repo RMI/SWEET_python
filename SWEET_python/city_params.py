@@ -2816,12 +2816,6 @@ class City:
         #mcfs = [1, 0.7, 0.4] # Should this include ameliorated?
         #mcf_ameliorated = [0.7, 0.4, 0.1]
         mcf_options = [1, 0.6, 0.4]
-        # mcf_options['ameliorated'] = {}
-        # mcf_options['not_ameliorated'] = {}
-        # mcf_options['ameliorated']['gas_capture'] = [0.18, 0, 0]
-        # mcf_options['ameliorated']['no_gas_capture'] = [0.1, 0, 0]
-        # mcf_options['not_ameliorated']['gas_capture'] = [0.22, 0.1, 0]
-        # mcf_options['not_ameliorated']['no_gas_capture'] = [0.1, 0.05, 0]
         gas_capture_efficiencies = {}
         gas_capture_efficiencies['ameliorated'] = [0.5, 0.3, 0]
         gas_capture_efficiencies['not_ameliorated'] = [0.6, 0.45, 0]
@@ -2837,41 +2831,45 @@ class City:
             mcf = {}
             ox_value = {}
             gas_eff = {}
-            mcf['baseline'] = mcf_options[lf_type]
+
+            # Get MCF
+            old_lf_type = new_landfill_types['baseline'][i]
+            mcf['baseline'] = mcf_options[old_lf_type]
             mcf['scenario'] = mcf_options[lf_type]
+
             for k, v in mcf.items():
                 if (depths[k][i] > 5) and (lf_type in (1, 2)):
                     mcf[k] = 0.8
-            # Handle no gas capture first
+
+            # Handle baseline first
             if i >= len(new_gas_efficiency['baseline']):
                 ox_value['baseline'] = 0
                 gas_eff['baseline'] = 0
             elif new_gas_efficiency['baseline'][i] == 0.0:
-                #mcf['baseline'] = mcf_options['not_ameliorated']['no_gas_capture'][lf_type]
-                ox_value['baseline'] = self.ox_options['ox_nocap'][landfill_types[lf_type]]
+                ox_value['baseline'] = self.ox_options['ox_nocap'][landfill_types[old_lf_type]]
                 gas_eff['baseline'] = 0
             # If there is gas capture, use the number or figure it out
             elif new_gas_efficiency['baseline'][i] > 0.0:
-                #mcf['baseline'] = mcf_options['not_ameliorated']['gas_capture'][lf_type]
-                ox_value['baseline'] = self.ox_options['ox_cap'][landfill_types[lf_type]]
-                gas_eff ['baseline']= new_gas_efficiency['baseline'][i] if new_gas_efficiency['baseline'][i] is not None else gas_capture_efficiencies['not_ameliorated'][lf_type]
+                ox_value['baseline'] = self.ox_options['ox_cap'][landfill_types[old_lf_type]]
+                gas_eff ['baseline']= new_gas_efficiency['baseline'][i] if new_gas_efficiency['baseline'][i] is not None else gas_capture_efficiencies['not_ameliorated'][old_lf_type]
             else:
                 print('invalid gas efficiency value')
 
+            # For scenario, handle no gas capture first
             if new_gas_efficiency['scenario'][i] == 0:
-                #mcf['scenario'] = mcf_options['not_ameliorated']['no_gas_capture'][lf_type]
                 ox_value['scenario'] = self.ox_options['ox_nocap'][landfill_types[lf_type]]
                 gas_eff['scenario'] = 0
             # If there is gas capture, use the number or figure it out
             elif new_gas_efficiency['scenario'][i] > 0.0:
-                if (new_landfill_types['scenario'][i] < new_landfill_types['baseline'][i]) or i >= len(new_landfill_types['baseline']):
+                if (new_landfill_types['scenario'][i] < new_landfill_types['baseline'][i]):
                     ameliorated=True
-                    #mcf['scenario'] = mcf_options['ameliorated']['gas_capture'][lf_type]
-                    ox_value['scenario'] = self.ox_options['ox_cap'][landfill_types[lf_type]]
+                    if lf_type == 0:
+                        ox_value['scenario'] = 0.18
+                    else:
+                        ox_value['scenario'] = self.ox_options['ox_cap'][landfill_types[lf_type]]
                     gas_eff ['scenario']= new_gas_efficiency['baseline'][i] if new_gas_efficiency['baseline'][i] is not None else gas_capture_efficiencies['ameliorated'][lf_type]
                 else:
                     ameliorated=False
-                    #mcf['scenario'] = mcf_options['not_ameliorated']['no_gas_capture'][lf_type]
                     ox_value['scenario'] = self.ox_options['ox_cap'][landfill_types[lf_type]]
                     gas_eff ['scenario']= new_gas_efficiency['baseline'][i] if new_gas_efficiency['baseline'][i] is not None else gas_capture_efficiencies['not_ameliorated'][lf_type]
             else:

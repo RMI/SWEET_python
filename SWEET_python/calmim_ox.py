@@ -89,12 +89,15 @@ class CoverMaterial:
     theta_residual: float = None
     max_ox_rate: float = 400 # micrograms per gram per day
 
+    def cm_to_kpa(self, cm):
+        return cm * 0.0980665
+
     def calculate_properties(self):
         # Calculate alpha
         self.alpha = self.saturated_conductivity * 360.0 / 0.0102 / 10.0 * 0.0011824 + 0.014675
         
         # Calculate air entry potential
-        self.air_entry_potential = -1.0 / abs(self.alpha)
+        self.air_entry_potential = self.cm_to_kpa(-1.0 / abs(self.alpha))
         
         # Calculate theta residual
         x3 = -1.05976 + 0.0650437 * self.silt_percentage
@@ -287,39 +290,45 @@ class WeatherModel:
         # self.rain_sim = RainSIM()
         # self.temp_sim = TempSim()
 
-    def simulate_rain_only(self):
-        print("RainSIM Started")
+    # def simulate_rain_only(self):
+    #     print("RainSIM Started")
         
-        # Fetch rain data
-        rain_data = self.rain_sim.getRain(self.site.lat, self.site.lon, 0.0, 100.0)
+    #     # Fetch rain data
+    #     rain_data = self.rain_sim.getRain(self.site.lat, self.site.lon, 0.0, 100.0)
         
-        # Log the length to understand the size
-        print(f"Length of rain_data: {len(rain_data)}")
+    #     # Log the length to understand the size
+    #     print(f"Length of rain_data: {len(rain_data)}")
         
-        # Trim the padding. index 399 is cumulative, if i need that. 
-        if len(rain_data) > 366:
-            rain_data = rain_data[:366]
+    #     # Trim the padding. index 399 is cumulative, if i need that. 
+    #     if len(rain_data) > 366:
+    #         rain_data = rain_data[:366]
         
-        # Assign the truncated or full rain data to the weather data array
-        self.weather_data[self.precip] = rain_data
+    #     # Assign the truncated or full rain data to the weather data array
+    #     self.weather_data[self.precip] = rain_data
         
-        print("Rain Simulation Completed")
-        #self.weather_profile.weather_data = self.weather_data
+    #     print("Rain Simulation Completed")
+    #     #self.weather_profile.weather_data = self.weather_data
 
     def simulate_weather(self):
 
         # Start the JVM with the classpath for both .jar files
         #jpype.startJVM(classpath=['ARS_GlobalRainSIM.Jar', 'GlobalTempSim10.Jar'])
 
-        # Import the Java classes from the JAR files
-        # RainSIM = jpype.JClass('RainSIM')
-        # TempSim = jpype.JClass('TempSim')
+        main_cwd = Path.cwd()
+        os.chdir("/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/SWEET_python/SWEET_python")
+        if not jpype.isJVMStarted():
+            jpype.startJVM("-Djava.awt.headless=true", classpath=["ARS_GlobalRainSIM.Jar","GlobalTempSim10.Jar"])
+            print("JVM started successfully.")
 
-        # rain_sim = RainSIM()
-        # temp_sim = TempSim()
+        # Import the Java classes from the JAR files
+        RainSIM = jpype.JClass('RainSIM')
+        TempSim = jpype.JClass('TempSim')
+
+        rain_sim = RainSIM()
+        temp_sim = TempSim()
 
         # Attach the current thread to the JVM
-        attach_thread()
+        #attach_thread()
 
         rain_sim = RainSIMSingleton.get_instance()
         temp_sim = TempSimSingleton.get_instance()
@@ -328,7 +337,10 @@ class WeatherModel:
         
         # Fetch rain data
         #rain_data = jpype_call_in_thread(rain_sim.getRain, self.site.lat, self.site.lon, 0.0, 100.0)
-        rain_data = [5.0] * 366
+        #print("Python CWD:", os.getcwd())
+        #print("Files in CWD:", os.listdir(os.getcwd()))
+        rain_data = rain_sim.getRain(self.site.lat, self.site.lon, 0.0, 100.0)
+        #rain_data = [5.0] * 366
         
         # Log the length to understand the size
         print(f"Length of rain_data: {len(rain_data)}")
@@ -344,9 +356,10 @@ class WeatherModel:
 
         print("Temperature Simulation Started")
         #self.weather_holder = jpype_call_in_thread(temp_sim.getDailyTemps, self.site.lat, self.site.lon, True)
-        max_temps = [25.0] * 366  # Assuming max temp of 25°C each day
-        min_temps = [15.0] * 366  # Assuming min temp of 15°C each day
-        self.weather_holder = [max_temps, min_temps]
+        self.weather_holder = temp_sim.getDailyTemps(self.site.lat, self.site.lon, True)
+        #max_temps = [25.0] * 366  # Assuming max temp of 25°C each day
+        #min_temps = [15.0] * 366  # Assuming min temp of 15°C each day
+        #self.weather_holder = [max_temps, min_temps]
 
         print(f"Length of temp data: {len(self.weather_holder[0])}")
         # Adjust the length to remove padding
@@ -362,6 +375,9 @@ class WeatherModel:
 
         # if jpype.isJVMStarted():
         #     jpype.shutdownJVM()
+
+        # Change directory back
+        os.chdir(main_cwd)
 
     def process_monthly_to_daily_weather_data(self):
         avg_temp_loop = 0.0
@@ -398,6 +414,14 @@ class WeatherModel:
         return 100.0 * rh
 
     def calc_solar_data(self, lat, lon, alt):
+        self.EVAP = self.evap
+        self.MAX = self.max
+        self.MIN = self.min
+        self.AVGTEMP = self.avg_temp
+        self.D_SOLAR = self.d_solar
+        self.PRECIP = self.precip
+        self.DELTA_TEMP = self.delta_temp
+
         radian_lat = lat * math.pi / 180.0
         radian_lon = lon * math.pi / 180.0
         for day in range(self.days):
@@ -450,11 +474,55 @@ class WeatherModel:
                     sb = 0.0
                 st = sb + sd
                 st = max(st, 0.0)
+                max(st, 0.0)
+                if math.isnan(st):
+                    st = 0.0
                 albedo = 0.15
                 la = self.sb((self.weather_profile.weather_data[self.max][day] + self.weather_profile.weather_data[self.min][day]) / 2.0)
                 rabs = (1.0 - albedo) * st + 0.17000000000000004 * la
                 self.solar_abs[day][hour] = rabs
                 self.weather_profile.weather_solar_hourly[day][hour] = st
+
+        # Calculate daily averages after hourly loop
+        solar_avg = sum(self.weather_profile.weather_solar_hourly[day]) / self.hours
+        weather_data = self.weather_profile.weather_data
+        weather_data[self.D_SOLAR][day] = solar_avg
+
+        dSolarAbs = (1.0 - albedo) * (solar_avg)
+
+        # Calculate Evaporation (EVAP) and Potential Evapotranspiration (ETo)
+        avg_daily_temp = weather_data[self.AVGTEMP][day]
+        avg_daytime_temp = (weather_data[self.MAX][day] + avg_daily_temp) / 2.0
+        avg_night_temp = (weather_data[self.MIN][day] + avg_daily_temp) / 2.0
+
+        evap = 0.0135 * (avg_daytime_temp + 17.78) * dSolarAbs * 0.0864 * (238.8 / (595.5 - 0.055 * avg_daily_temp))
+        evap = (evap + 0.1585) / 0.944
+        weather_data[self.EVAP][day] = evap
+
+        # Call secEvap method
+        self.sec_evap(weather_data[self.EVAP][day], weather_data[self.EVAP][day] * 0.10, day)
+
+        # Calculate night time ETo estimate
+        min_ETo = 0.0135 * (avg_night_temp + 17.78) * dSolarAbs * 0.0864 * (238.8 / (595.5 - 0.055 * avg_daily_temp))
+        weather_data[self.EVAP][day] = (weather_data[self.EVAP][day] + 0.1585) / 0.944
+
+        radEvap = (dSolarAbs * 0.0864) / 2.45
+
+        # Calculate Soil Heat Input
+        htsum = 0.0
+        for hour in range(self.hours):
+            radET = ((1.0 - albedo) * self.weather_profile.weather_solar_hourly[day][hour]) * 0.0864 / 2.45
+            net_heat = radET - weather_data[self.EVAP][day]
+            if net_heat < 0:
+                net_heat = 0.0
+            net_heat = net_heat / 0.0864 * 2.45
+            net_heat = net_heat / 0.001297 / 100.0 / 100.0
+            self.weather_profile.soil_temp_add[day][hour] = net_heat
+            htsum += self.weather_profile.soil_temp_add[day][hour]
+
+        net_heat_t = radEvap - weather_data[self.EVAP][day]
+        if net_heat_t < 0:
+            net_heat_t = 0.0
 
     def get_et(self, day_of_year):
         et_calc = (279.575 + 0.9856 * day_of_year) * math.pi / 180.0
@@ -559,7 +627,7 @@ class Cover:
     def calculate_oxidation_rate(self):
         reference_ch4oxrate = self.material.max_ox_rate
         #oxidation_rate = -1.0 * reference_ch4oxrate * self.soil_density / 86400.0 * 2.54
-        oxidation_rate = reference_ch4oxrate * self.soil_density / 86400.0 * 2.54
+        oxidation_rate = reference_ch4oxrate * self.soil_density / 86400.0 # µg/cm³/sec
 
         kurtfraction = (self.temperature - 27.6) / 9.59
         tempfrac = 1.05 * math.exp(-0.5 * kurtfraction * kurtfraction)
@@ -568,7 +636,7 @@ class Cover:
         moistfrac = 0.852 / (1.0 + math.exp(calc1))
 
         o2correction = self.o2_concentration / 20.0
-        frac = o2correction * tempfrac # * moistfrac
+        frac = o2correction * tempfrac * moistfrac
 
         return oxidation_rate * frac
     
