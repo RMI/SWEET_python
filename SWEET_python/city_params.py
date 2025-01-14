@@ -2702,6 +2702,7 @@ class City:
         new_waste_mass_per_capita: bool = False,
         depths: Dict = None,
         k_values: Dict = None,
+        waste_mass_year: int = None,
     ) -> None:
         
         scenario_parameters = copy.deepcopy(self.baseline_parameters)
@@ -2727,15 +2728,15 @@ class City:
 
         years = pd.Index(range(1960, 2074))
         waste_mass_series = pd.Series(index=years)
-        waste_mass_series.loc[:implement_year-1] = new_waste_mass['baseline']
-        waste_mass_series.loc[implement_year:] = new_waste_mass['scenario']
+        waste_mass_series.loc[:waste_mass_year-1] = new_waste_mass['baseline']
+        waste_mass_series.loc[waste_mass_year:] = new_waste_mass['scenario']
 
         # Adjust for waste burning
         waste_burned = {}
         wb = None
         if waste_burning['baseline'] > 0:
             waste_burned['baseline'] = waste_burning['baseline'] * waste_mass_series
-            waste_mass_series.loc[:implement_year-1] -= waste_burned['baseline'].loc[:implement_year-1]
+            waste_mass_series.loc[:waste_mass_year-1] -= waste_burned['baseline'].loc[:waste_mass_year-1]
 
             # Adjust the waste burning for growth rates to get real time series
             t = waste_mass_series.index.values - scenario_parameters.year_of_data_pop['baseline']
@@ -2750,7 +2751,7 @@ class City:
 
         if waste_burning['scenario'] > 0:
             waste_burned['scenario'] = waste_burning['scenario'] * waste_mass_series
-            waste_mass_series.loc[implement_year:] -= waste_burned['scenario'].loc[implement_year:]
+            waste_mass_series.loc[waste_mass_year:] -= waste_burned['scenario'].loc[waste_mass_year:]
 
             # Adjust the waste burning for growth rates to get real time series
             t = waste_mass_series.index.values - scenario_parameters.year_of_data_pop['scenario']
@@ -2787,15 +2788,13 @@ class City:
             baseline_frac = new_waste_fractions['baseline'].model_dump()[waste]
             scenario_frac = new_waste_fractions['scenario'].model_dump()[waste]
             
-            waste_masses_df.loc[:implement_year-1, waste] = baseline_frac * waste_mass_series.loc[:implement_year-1]
-            waste_masses_df.loc[implement_year:, waste] = scenario_frac * waste_mass_series.loc[implement_year:]
+            waste_masses_df.loc[:waste_mass_year-1, waste] = baseline_frac * waste_mass_series.loc[:waste_mass_year-1]
+            waste_masses_df.loc[waste_mass_year:, waste] = scenario_frac * waste_mass_series.loc[waste_mass_year:]
 
         # Assign the DataFrame to scenario_parameters
         scenario_parameters.waste_masses = waste_masses_df
 
         # Update waste generated
-        # I have to put in the ability to change population and year of population data.
-        # And editable growth rates? Would need to split this into separate baseline and scenario dfs, then combine.
         scenario_parameters.waste_generated_df = WasteGeneratedDF.create_advanced(
             waste_masses_df = waste_masses_df,
             start_year=1960, 
@@ -2803,7 +2802,7 @@ class City:
             year_of_data_pop=scenario_parameters.year_of_data_pop['baseline'], 
             growth_rate_historic=scenario_parameters.growth_rate_historic, 
             growth_rate_future=scenario_parameters.growth_rate_future,
-            implement_year=scenario_parameters.year_of_data_pop['scenario']
+            implement_year=waste_mass_year
         ).df
 
         # Create a DataFrame for fraction_waste_timeline
@@ -2837,9 +2836,11 @@ class City:
             mcf['baseline'] = mcf_options[old_lf_type]
             mcf['scenario'] = mcf_options[lf_type]
 
-            for k, v in mcf.items():
-                if (depths[k][i] > 5) and (lf_type in (1, 2)):
-                    mcf[k] = 0.8
+            if (depths['baseline'][i] > 5) and (old_lf_type in (1, 2)):
+                mcf['baseline'] = 0.8
+
+            if (depths['scenario'][i] > 5) and (lf_type in (1, 2)):
+                mcf['scenario'] = 0.8
 
             # Handle baseline first
             if i >= len(new_gas_efficiency['baseline']):
@@ -2913,7 +2914,7 @@ class City:
                 new_baseline=False,
                 gas_capture_efficiency=gas_eff_series,
                 flaring=new_landfill_flaring['scenario'][i],
-                leachate_circulate=leachate_circulate['scenario'][i],
+                #leachate_circulate=leachate_circulate['scenario'][i],
                 fraction_of_waste_vector=fraction_df[f'Landfill_{i}'],
                 advanced=True,
                 latlon=new_landfill_latlons['scenario'][i] if doing_fancy_ox else None,
@@ -3198,12 +3199,12 @@ class City:
                 city_instance_attrs=scenario_parameters.city_instance_attrs,
                 landfill_index=i, 
                 #fraction_of_waste=new_landfill_fracs[i], 
-                gas_capture=False if new_gas_efficiency[i] == 0 else True,
+                gas_capture = False if new_gas_efficiency[i] == 0 else True,
                 scenario=scenario,
                 new_baseline=True,
                 gas_capture_efficiency=pd.Series(gas_effs, index=years),
                 flaring=new_landfill_flaring[i],
-                leachate_circulate=leachate_circulate[i],
+                #leachate_circulate=leachate_circulate[i],
                 fraction_of_waste_vector=fraction_df[f'Landfill_{i}'],
                 advanced=True,
                 latlon=new_landfill_latlons[i] if fancy_ox else None,
