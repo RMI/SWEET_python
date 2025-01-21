@@ -89,12 +89,15 @@ class CoverMaterial:
     theta_residual: float = None
     max_ox_rate: float = 400 # micrograms per gram per day
 
+    def cm_to_kpa(self, cm):
+        return cm * 0.0980665
+
     def calculate_properties(self):
         # Calculate alpha
         self.alpha = self.saturated_conductivity * 360.0 / 0.0102 / 10.0 * 0.0011824 + 0.014675
         
         # Calculate air entry potential
-        self.air_entry_potential = -1.0 / abs(self.alpha)
+        self.air_entry_potential = self.cm_to_kpa(-1.0 / abs(self.alpha))
         
         # Calculate theta residual
         x3 = -1.05976 + 0.0650437 * self.silt_percentage
@@ -135,41 +138,41 @@ class CoverMaterial:
 
 
 # Initialize the materials
-materials = [
-    CoverMaterial("sand", 93.6, 3.06, 3.34, True, 1.0, 1.627, 0.002703, 0.091, 0.039, 2.013529, 0.386, 0),
-    CoverMaterial("sandy clay", 47.2, 3.7, 49.1, True, 1.0, 1.444, 1.76E-4, 0.231, 0.113, 10.208511, 0.455, 0),
-    CoverMaterial("loamy sand", 82.74, 9.66, 7.6, True, 1.0, 1.584, 0.00176, 0.116, 0.051, 2.856075, 0.402, 0),
-    CoverMaterial("sandy loam", 65.6, 22.5, 11.9, True, 1.0, 1.533, 7.63E-4, 0.139, 0.062, 4.288265, 0.422, 0),
-    CoverMaterial("silty loam", 21.8, 62.7, 15.5, True, 1.0, 1.278, 1.37E-4, 0.276, 0.125, 6.857649, 0.518, 0),
-    CoverMaterial("loam", 42.9, 39.5, 17.6, True, 1.0, 1.395, 2.92E-4, 0.223, 0.102, 6.263467, 0.474, 0),
-    CoverMaterial("sandy clay loam", 60.1, 11.3, 28.6, True, 1.0, 1.471, 3.56E-4, 0.2, 0.095, 7.421883, 0.445, 0),
-    CoverMaterial("silty clay loam", 9.0, 55.0, 36.0, True, 1.0, 1.239, 5.17E-5, 0.321, 0.151, 10.357549, 0.532, 0),
-    CoverMaterial("clay loam", 34.7, 30.3, 35.0, True, 1.0, 1.354, 1.25E-4, 0.264, 0.125, 8.943137, 0.489, 0),
-    CoverMaterial("silty clay", 9.3, 43.89, 46.81, True, 1.0, 1.279, 3.05E-5, 0.312, 0.15, 13.001208, 0.517, 0),
-    CoverMaterial("clay", 10.0, 25.0, 65.0, True, 1.0, 1.262, 3.38E-5, 0.351, 0.172, 14.203435, 0.524, 0),
-    CoverMaterial("silt", 7.96, 63.62, 5.41, True, 1.0, 1.156, 1.06E-4, 0.332, 0.149, 6.715722, 0.564, 0),
-    CoverMaterial("rocks - pebbles", 93.6, 3.06, 3.34, True, 1.0, 1.627, 0.002703, 0.091, 0.039, 2.013529, 0.386, 0),
-    CoverMaterial("rocks - boulders (large)", 93.6, 3.06, 3.34, True, 1.0, 1.627, 0.002703, 0.091, 0.039, 2.013529, 0.386, 0),
-    CoverMaterial("geomembrane (hdpe)", 10.0, 25.0, 65.0, False, 1.0, 1.262, 3.38E-5, 0.351, 0.172, 14.203435, 0.524, 0),
-    CoverMaterial("geomembrane (ldpe)", 10.0, 25.0, 65.0, False, 1.0, 1.262, 3.38E-5, 0.351, 0.172, 14.203435, 0.524, 0),
-    CoverMaterial("geomembrane (edpm)", 10.0, 25.0, 65.0, False, 1.0, 1.262, 3.38E-5, 0.351, 0.172, 14.203435, 0.524, 0),
-    CoverMaterial("geotextile (woven)", 10.0, 25.0, 65.0, False, 1.0, 1.262, 3.38E-5, 0.351, 0.172, 14.203435, 0.524, 0),
-    CoverMaterial("adc foundry sands", 90.0, 5.0, 5.0, True, 0.1, 1.627, 0.003703, 0.1, 0.04, 3.0, 0.39, 0),
-    CoverMaterial("adc dredged materials", 7.96, 63.62, 5.41, True, 1.0, 1.156, 1.06E-4, 0.332, 0.149, 6.715722, 0.564, 0),
-    CoverMaterial("adc ash", 21.8, 62.7, 15.5, True, 0.0, 1.278, 1.37E-4, 0.276, 0.125, 6.857649, 0.518, 0),
-    CoverMaterial("adc contaminated soils (clay)", 10.0, 25.0, 65.0, True, 1.0, 1.262, 3.38E-5, 0.351, 0.172, 14.203435, 0.524, 0),
-    CoverMaterial("adc contaminated soils (sand)", 90.0, 5.0, 5.0, True, 0.0, 1.627, 0.003703, 0.1, 0.04, 3.0, 0.39, 0),
-    CoverMaterial("adc contaminated soils (general)", 42.9, 39.5, 17.6, True, 1.0, 1.395, 2.92E-4, 0.223, 0.102, 6.263467, 0.474, 0),
-    CoverMaterial("adc composted organic materials", 42.9, 39.5, 17.6, True, 5.0, 1.395, 2.92E-4, 0.223, 0.102, 6.263467, 0.474, 0),
-    CoverMaterial("adc tire shreds [small <2 in (50 mm)]", 90.0, 5.0, 5.0, True, 0.0, 1.08, 0.0513, 0.19, 0.06, 2.0, 0.51, 1),
-    CoverMaterial("adc tire shreds [large >2 in (50 mm)]", 90.0, 5.0, 5.0, True, 0.0, 1.627, 0.003703, 0.1, 0.04, 3.0, 0.39, 0),
-    CoverMaterial("adc spray applied cement products", 10.0, 25.0, 65.0, False, 1.0, 1.262, 3.38E-5, 0.351, 0.172, 14.203435, 0.524, 3),
-    CoverMaterial("adc spray applied foams", 10.0, 25.0, 65.0, False, 1.0, 1.262, 3.38E-5, 0.351, 0.172, 14.203435, 0.524, 4),
-    CoverMaterial("adc wood chips (all)", 90.0, 5.0, 5.0, True, 0.0, 1.08, 0.0813, 0.22, 0.06, 2.0, 0.33, 4),
-    CoverMaterial("adc sludge", 10.0, 80.0, 10.0, True, 1.0, 1.2, 0.00106, 0.452, 0.15, 8.7, 0.564, 5),
-    CoverMaterial("adc temporary tarp", 10.0, 25.0, 65.0, False, 1.0, 1.262, 2.38E-6, 0.351, 0.172, 14.203435, 0.524, 0),
-    CoverMaterial("adc energy resource exploration and production wastes", 42.9, 39.5, 17.6, True, 5.0, 1.395, 2.92E-4, 0.223, 0.102, 6.263467, 0.474, 6)
-]
+materials = {
+    'sand': CoverMaterial("sand", 93.6, 3.06, 3.34, True, 1.0, 1.627, 0.002703, 0.091, 0.039, 2.013529, 0.386, 0),
+    'sandy clay': CoverMaterial("sandy clay", 47.2, 3.7, 49.1, True, 1.0, 1.444, 1.76E-4, 0.231, 0.113, 10.208511, 0.455, 0),
+    'loamy sand': CoverMaterial("loamy sand", 82.74, 9.66, 7.6, True, 1.0, 1.584, 0.00176, 0.116, 0.051, 2.856075, 0.402, 0),
+    'sandy loam': CoverMaterial("sandy loam", 65.6, 22.5, 11.9, True, 1.0, 1.533, 7.63E-4, 0.139, 0.062, 4.288265, 0.422, 0),
+    'silty loam': CoverMaterial("silty loam", 21.8, 62.7, 15.5, True, 1.0, 1.278, 1.37E-4, 0.276, 0.125, 6.857649, 0.518, 0),
+    'loam': CoverMaterial("loam", 42.9, 39.5, 17.6, True, 1.0, 1.395, 2.92E-4, 0.223, 0.102, 6.263467, 0.474, 0),
+    'sandy clay loam': CoverMaterial("sandy clay loam", 60.1, 11.3, 28.6, True, 1.0, 1.471, 3.56E-4, 0.2, 0.095, 7.421883, 0.445, 0),
+    'silty clay loam': CoverMaterial("silty clay loam", 9.0, 55.0, 36.0, True, 1.0, 1.239, 5.17E-5, 0.321, 0.151, 10.357549, 0.532, 0),
+    'clay loam': CoverMaterial("clay loam", 34.7, 30.3, 35.0, True, 1.0, 1.354, 1.25E-4, 0.264, 0.125, 8.943137, 0.489, 0),
+    'silty clay': CoverMaterial("silty clay", 9.3, 43.89, 46.81, True, 1.0, 1.279, 3.05E-5, 0.312, 0.15, 13.001208, 0.517, 0),
+    'clay': CoverMaterial("clay", 10.0, 25.0, 65.0, True, 1.0, 1.262, 3.38E-5, 0.351, 0.172, 14.203435, 0.524, 0),
+    'silt': CoverMaterial("silt", 7.96, 63.62, 5.41, True, 1.0, 1.156, 1.06E-4, 0.332, 0.149, 6.715722, 0.564, 0),
+    'rocks - pebbles': CoverMaterial("rocks - pebbles", 93.6, 3.06, 3.34, True, 1.0, 1.627, 0.002703, 0.091, 0.039, 2.013529, 0.386, 0),
+    "rocks - boulders (large)": CoverMaterial("rocks - boulders (large)", 93.6, 3.06, 3.34, True, 1.0, 1.627, 0.002703, 0.091, 0.039, 2.013529, 0.386, 0),
+    "geomembrane (hdpe)": CoverMaterial("geomembrane (hdpe)", 10.0, 25.0, 65.0, False, 1.0, 1.262, 3.38E-5, 0.351, 0.172, 14.203435, 0.524, 0),
+    "geomembrane (ldpe)": CoverMaterial("geomembrane (ldpe)", 10.0, 25.0, 65.0, False, 1.0, 1.262, 3.38E-5, 0.351, 0.172, 14.203435, 0.524, 0),
+    "geomembrane (edpm)": CoverMaterial("geomembrane (edpm)", 10.0, 25.0, 65.0, False, 1.0, 1.262, 3.38E-5, 0.351, 0.172, 14.203435, 0.524, 0),
+    "geotextile (woven)": CoverMaterial("geotextile (woven)", 10.0, 25.0, 65.0, False, 1.0, 1.262, 3.38E-5, 0.351, 0.172, 14.203435, 0.524, 0),
+    "adc foundry sands": CoverMaterial("adc foundry sands", 90.0, 5.0, 5.0, True, 0.1, 1.627, 0.003703, 0.1, 0.04, 3.0, 0.39, 0),
+    "adc dredged materials": CoverMaterial("adc dredged materials", 7.96, 63.62, 5.41, True, 1.0, 1.156, 1.06E-4, 0.332, 0.149, 6.715722, 0.564, 0),
+    "adc ash": CoverMaterial("adc ash", 21.8, 62.7, 15.5, True, 0.0, 1.278, 1.37E-4, 0.276, 0.125, 6.857649, 0.518, 0),
+    "adc contaminated soils (clay)": CoverMaterial("adc contaminated soils (clay)", 10.0, 25.0, 65.0, True, 1.0, 1.262, 3.38E-5, 0.351, 0.172, 14.203435, 0.524, 0),
+    "adc contaminated soils (sand)": CoverMaterial("adc contaminated soils (sand)", 90.0, 5.0, 5.0, True, 0.0, 1.627, 0.003703, 0.1, 0.04, 3.0, 0.39, 0),
+    "adc contaminated soils (general)": CoverMaterial("adc contaminated soils (general)", 42.9, 39.5, 17.6, True, 1.0, 1.395, 2.92E-4, 0.223, 0.102, 6.263467, 0.474, 0),
+    "adc composted organic materials": CoverMaterial("adc composted organic materials", 42.9, 39.5, 17.6, True, 5.0, 1.395, 2.92E-4, 0.223, 0.102, 6.263467, 0.474, 0),
+    "adc tire shreds [small <2 in (50 mm)]": CoverMaterial("adc tire shreds [small <2 in (50 mm)]", 90.0, 5.0, 5.0, True, 0.0, 1.08, 0.0513, 0.19, 0.06, 2.0, 0.51, 1),
+    "adc tire shreds [large >2 in (50 mm)]": CoverMaterial("adc tire shreds [large >2 in (50 mm)]", 90.0, 5.0, 5.0, True, 0.0, 1.627, 0.003703, 0.1, 0.04, 3.0, 0.39, 0),
+    "adc spray applied cement products": CoverMaterial("adc spray applied cement products", 10.0, 25.0, 65.0, False, 1.0, 1.262, 3.38E-5, 0.351, 0.172, 14.203435, 0.524, 3),
+    "adc spray applied foams": CoverMaterial("adc spray applied foams", 10.0, 25.0, 65.0, False, 1.0, 1.262, 3.38E-5, 0.351, 0.172, 14.203435, 0.524, 4),
+    "adc wood chips (all)": CoverMaterial("adc wood chips (all)", 90.0, 5.0, 5.0, True, 0.0, 1.08, 0.0813, 0.22, 0.06, 2.0, 0.33, 4),
+    "adc sludge": CoverMaterial("adc sludge", 10.0, 80.0, 10.0, True, 1.0, 1.2, 0.00106, 0.452, 0.15, 8.7, 0.564, 5),
+    "adc temporary tarp": CoverMaterial("adc temporary tarp", 10.0, 25.0, 65.0, False, 1.0, 1.262, 2.38E-6, 0.351, 0.172, 14.203435, 0.524, 0),
+    "adc energy resource exploration and production wastes": CoverMaterial("adc energy resource exploration and production wastes", 42.9, 39.5, 17.6, True, 5.0, 1.395, 2.92E-4, 0.223, 0.102, 6.263467, 0.474, 6)
+}
 
 #%%
 
@@ -287,39 +290,45 @@ class WeatherModel:
         # self.rain_sim = RainSIM()
         # self.temp_sim = TempSim()
 
-    def simulate_rain_only(self):
-        print("RainSIM Started")
+    # def simulate_rain_only(self):
+    #     print("RainSIM Started")
         
-        # Fetch rain data
-        rain_data = self.rain_sim.getRain(self.site.lat, self.site.lon, 0.0, 100.0)
+    #     # Fetch rain data
+    #     rain_data = self.rain_sim.getRain(self.site.lat, self.site.lon, 0.0, 100.0)
         
-        # Log the length to understand the size
-        print(f"Length of rain_data: {len(rain_data)}")
+    #     # Log the length to understand the size
+    #     print(f"Length of rain_data: {len(rain_data)}")
         
-        # Trim the padding. index 399 is cumulative, if i need that. 
-        if len(rain_data) > 366:
-            rain_data = rain_data[:366]
+    #     # Trim the padding. index 399 is cumulative, if i need that. 
+    #     if len(rain_data) > 366:
+    #         rain_data = rain_data[:366]
         
-        # Assign the truncated or full rain data to the weather data array
-        self.weather_data[self.precip] = rain_data
+    #     # Assign the truncated or full rain data to the weather data array
+    #     self.weather_data[self.precip] = rain_data
         
-        print("Rain Simulation Completed")
-        #self.weather_profile.weather_data = self.weather_data
+    #     print("Rain Simulation Completed")
+    #     #self.weather_profile.weather_data = self.weather_data
 
     def simulate_weather(self):
 
         # Start the JVM with the classpath for both .jar files
         #jpype.startJVM(classpath=['ARS_GlobalRainSIM.Jar', 'GlobalTempSim10.Jar'])
 
-        # Import the Java classes from the JAR files
-        # RainSIM = jpype.JClass('RainSIM')
-        # TempSim = jpype.JClass('TempSim')
+        main_cwd = Path.cwd()
+        os.chdir("/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/SWEET_python/SWEET_python")
+        if not jpype.isJVMStarted():
+            jpype.startJVM("-Djava.awt.headless=true", classpath=["ARS_GlobalRainSIM.Jar","GlobalTempSim10.Jar"])
+            print("JVM started successfully.")
 
-        # rain_sim = RainSIM()
-        # temp_sim = TempSim()
+        # Import the Java classes from the JAR files
+        RainSIM = jpype.JClass('RainSIM')
+        TempSim = jpype.JClass('TempSim')
+
+        rain_sim = RainSIM()
+        temp_sim = TempSim()
 
         # Attach the current thread to the JVM
-        attach_thread()
+        #attach_thread()
 
         rain_sim = RainSIMSingleton.get_instance()
         temp_sim = TempSimSingleton.get_instance()
@@ -328,7 +337,10 @@ class WeatherModel:
         
         # Fetch rain data
         #rain_data = jpype_call_in_thread(rain_sim.getRain, self.site.lat, self.site.lon, 0.0, 100.0)
-        rain_data = [5.0] * 366
+        #print("Python CWD:", os.getcwd())
+        #print("Files in CWD:", os.listdir(os.getcwd()))
+        rain_data = rain_sim.getRain(self.site.lat, self.site.lon, 0.0, 100.0)
+        #rain_data = [5.0] * 366
         
         # Log the length to understand the size
         print(f"Length of rain_data: {len(rain_data)}")
@@ -344,9 +356,10 @@ class WeatherModel:
 
         print("Temperature Simulation Started")
         #self.weather_holder = jpype_call_in_thread(temp_sim.getDailyTemps, self.site.lat, self.site.lon, True)
-        max_temps = [25.0] * 366  # Assuming max temp of 25°C each day
-        min_temps = [15.0] * 366  # Assuming min temp of 15°C each day
-        self.weather_holder = [max_temps, min_temps]
+        self.weather_holder = temp_sim.getDailyTemps(self.site.lat, self.site.lon, True)
+        #max_temps = [25.0] * 366  # Assuming max temp of 25°C each day
+        #min_temps = [15.0] * 366  # Assuming min temp of 15°C each day
+        #self.weather_holder = [max_temps, min_temps]
 
         print(f"Length of temp data: {len(self.weather_holder[0])}")
         # Adjust the length to remove padding
@@ -362,6 +375,9 @@ class WeatherModel:
 
         # if jpype.isJVMStarted():
         #     jpype.shutdownJVM()
+
+        # Change directory back
+        os.chdir(main_cwd)
 
     def process_monthly_to_daily_weather_data(self):
         avg_temp_loop = 0.0
@@ -398,6 +414,14 @@ class WeatherModel:
         return 100.0 * rh
 
     def calc_solar_data(self, lat, lon, alt):
+        self.EVAP = self.evap
+        self.MAX = self.max
+        self.MIN = self.min
+        self.AVGTEMP = self.avg_temp
+        self.D_SOLAR = self.d_solar
+        self.PRECIP = self.precip
+        self.DELTA_TEMP = self.delta_temp
+
         radian_lat = lat * math.pi / 180.0
         radian_lon = lon * math.pi / 180.0
         for day in range(self.days):
@@ -450,11 +474,55 @@ class WeatherModel:
                     sb = 0.0
                 st = sb + sd
                 st = max(st, 0.0)
+                max(st, 0.0)
+                if math.isnan(st):
+                    st = 0.0
                 albedo = 0.15
                 la = self.sb((self.weather_profile.weather_data[self.max][day] + self.weather_profile.weather_data[self.min][day]) / 2.0)
                 rabs = (1.0 - albedo) * st + 0.17000000000000004 * la
                 self.solar_abs[day][hour] = rabs
                 self.weather_profile.weather_solar_hourly[day][hour] = st
+
+        # Calculate daily averages after hourly loop
+        solar_avg = sum(self.weather_profile.weather_solar_hourly[day]) / self.hours
+        weather_data = self.weather_profile.weather_data
+        weather_data[self.D_SOLAR][day] = solar_avg
+
+        dSolarAbs = (1.0 - albedo) * (solar_avg)
+
+        # Calculate Evaporation (EVAP) and Potential Evapotranspiration (ETo)
+        avg_daily_temp = weather_data[self.AVGTEMP][day]
+        avg_daytime_temp = (weather_data[self.MAX][day] + avg_daily_temp) / 2.0
+        avg_night_temp = (weather_data[self.MIN][day] + avg_daily_temp) / 2.0
+
+        evap = 0.0135 * (avg_daytime_temp + 17.78) * dSolarAbs * 0.0864 * (238.8 / (595.5 - 0.055 * avg_daily_temp))
+        evap = (evap + 0.1585) / 0.944
+        weather_data[self.EVAP][day] = evap
+
+        # Call secEvap method
+        self.sec_evap(weather_data[self.EVAP][day], weather_data[self.EVAP][day] * 0.10, day)
+
+        # Calculate night time ETo estimate
+        min_ETo = 0.0135 * (avg_night_temp + 17.78) * dSolarAbs * 0.0864 * (238.8 / (595.5 - 0.055 * avg_daily_temp))
+        weather_data[self.EVAP][day] = (weather_data[self.EVAP][day] + 0.1585) / 0.944
+
+        radEvap = (dSolarAbs * 0.0864) / 2.45
+
+        # Calculate Soil Heat Input
+        htsum = 0.0
+        for hour in range(self.hours):
+            radET = ((1.0 - albedo) * self.weather_profile.weather_solar_hourly[day][hour]) * 0.0864 / 2.45
+            net_heat = radET - weather_data[self.EVAP][day]
+            if net_heat < 0:
+                net_heat = 0.0
+            net_heat = net_heat / 0.0864 * 2.45
+            net_heat = net_heat / 0.001297 / 100.0 / 100.0
+            self.weather_profile.soil_temp_add[day][hour] = net_heat
+            htsum += self.weather_profile.soil_temp_add[day][hour]
+
+        net_heat_t = radEvap - weather_data[self.EVAP][day]
+        if net_heat_t < 0:
+            net_heat_t = 0.0
 
     def get_et(self, day_of_year):
         et_calc = (279.575 + 0.9856 * day_of_year) * math.pi / 180.0
@@ -559,7 +627,7 @@ class Cover:
     def calculate_oxidation_rate(self):
         reference_ch4oxrate = self.material.max_ox_rate
         #oxidation_rate = -1.0 * reference_ch4oxrate * self.soil_density / 86400.0 * 2.54
-        oxidation_rate = reference_ch4oxrate * self.soil_density / 86400.0 * 2.54
+        oxidation_rate = reference_ch4oxrate * self.soil_density / 86400.0 # µg/cm³/sec
 
         kurtfraction = (self.temperature - 27.6) / 9.59
         tempfrac = 1.05 * math.exp(-0.5 * kurtfraction * kurtfraction)
@@ -568,7 +636,7 @@ class Cover:
         moistfrac = 0.852 / (1.0 + math.exp(calc1))
 
         o2correction = self.o2_concentration / 20.0
-        frac = o2correction * tempfrac # * moistfrac
+        frac = o2correction * tempfrac * moistfrac
 
         return oxidation_rate * frac
     
