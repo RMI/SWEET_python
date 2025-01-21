@@ -51,7 +51,7 @@ class CityParameters(BaseModel):
     divs_df: Optional[pd.DataFrame] = None
     waste_generated_df: Optional[WasteGeneratedDF] = None
     city_instance_attrs: Optional[Dict[str, Any]] = None
-    population: Optional[int] = None
+    population: Optional[float] = None
     temp: Optional[float] = None 
     net_masses: Optional[pd.DataFrame] = None
     temperature: Optional[float] = None
@@ -382,7 +382,7 @@ class City:
             'combustion': {'food', 'green', 'wood', 'paper_cardboard', 'textiles', 'plastic', 'rubber'},
             'recycling': {'wood', 'paper_cardboard', 'textiles', 'plastic', 'rubber', 'metal', 'glass', 'other'}
         }
-        self.waste_types = {'food', 'green', 'wood', 'paper_cardboard', 'textiles', 'plastic', 'metal', 'glass', 'rubber', 'other'}
+        self.waste_types = ['food', 'green', 'wood', 'paper_cardboard', 'textiles', 'plastic', 'metal', 'glass', 'rubber', 'other']
         self.unprocessable = {'food': 0.0192, 'green': 0.042522, 'wood': 0.07896, 'paper_cardboard': 0.12}
         self.non_compostable_not_targeted = {'food': 0.1, 'green': 0.05, 'wood': 0.05, 'paper_cardboard': 0.1}
         self.combustion_reject_rate = 0.1
@@ -653,7 +653,7 @@ class City:
         waste_mass = city_data['Waste Generation Rate (tons/year)'].values[0]
         waste_mass = pd.Series(waste_mass, index=years)
 
-        year_of_data_pop = city_data['Year of Data Collection'].values[0]
+        year_of_data_pop = city_data['Year of Data Collection (Population)'].values[0]
 
         city_instance_attrs = {
             'city_name': self.city_name,
@@ -667,26 +667,34 @@ class City:
             'recycling_reject_rates': self.recycling_reject_rates
         }
 
-        city_parameters = CityParameters(
-            waste_fractions=waste_fractions,
-            div_fractions=div_fractions,
-            split_fractions=split_fractions,
-            div_component_fractions=div_component_fractions,
-            precip=float(city_data['Average Annual Precipitation (mm/year)'].values[0]),
-            growth_rate_historic=city_data['Population Growth Rate: Historic (%)'].values[0] / 100 + 1,
-            growth_rate_future=city_data['Population Growth Rate: Future (%)'].values[0] / 100 + 1,
-            waste_per_capita=city_data['Waste Generation Rate per Capita (kg/person/day)'].values[0],
-            precip_zone=city_data['Precipitation Zone'].values[0],
-            #ks=ks,
-            gas_capture_efficiency=gas_capture_efficiency,
-            mef_compost=mef_compost,
-            waste_mass=waste_mass,
-            non_compostable_not_targeted_total=non_compostable_not_targeted_total,
-            year_of_data_pop=year_of_data_pop,
-            scenario=scenario,
-            city_instance_attrs=city_instance_attrs,
-            population=city_data['Population'].values[0]
-        )
+        waste_masses = {x: waste_mass.at[2000] * waste_fractions.loc[2000, x] for x in self.waste_types}
+        waste_masses = WasteMasses(**waste_masses)
+
+        try:
+            city_parameters = CityParameters(
+                waste_fractions=waste_fractions,
+                div_fractions=div_fractions,
+                split_fractions=split_fractions,
+                div_component_fractions=div_component_fractions,
+                precip=float(city_data['Average Annual Precipitation (mm/year)'].values[0]),
+                growth_rate_historic=city_data['Population Growth Rate: Historic (%)'].values[0] / 100 + 1,
+                growth_rate_future=city_data['Population Growth Rate: Future (%)'].values[0] / 100 + 1,
+                waste_per_capita=city_data['Waste Generation Rate per Capita (kg/person/day)'].values[0],
+                precip_zone=city_data['Precipitation Zone'].values[0],
+                #ks=ks,
+                gas_capture_efficiency=gas_capture_efficiency,
+                mef_compost=mef_compost,
+                waste_mass=waste_mass,
+                waste_masses=waste_masses,
+                non_compostable_not_targeted_total=non_compostable_not_targeted_total,
+                year_of_data_pop=year_of_data_pop,
+                scenario=scenario,
+                city_instance_attrs=city_instance_attrs,
+                population=city_data['Population'].values[0]
+            )
+        except Exception as e:
+            x = 2*4
+            raise CustomError('city_params_error', f"Error creating CityParameters instance: {e}")
 
         # Filter out the 'landfills' and 'non_zero_landfills' attributes from CityParameters
         #city_params = {k: v for k, v in city_parameters.__dict__.items() if k not in ['landfills', 'non_zero_landfills']}
@@ -882,7 +890,11 @@ class City:
                 print(f"Problems with {div}: Fractions do not sum to 1 across years.")
 
             # Calculate the diverted masses for each waste type
-            diverted_masses[div] = fracs.multiply(parameters.div_fractions.multiply(parameters.waste_generated_df.sum(axis=1), axis=0)[div], axis=0)[list(self.div_components[div])]
+            try:
+                diverted_masses[div] = fracs.multiply(parameters.div_fractions.multiply(parameters.waste_generated_df.sum(axis=1), axis=0)[div], axis=0)[list(self.div_components[div])]
+            except:
+                diverted_masses[div] = fracs.multiply(getattr(parameters.div_fractions, div) * parameters.waste_generated_df.sum(axis=1), axis=0)[list(self.div_components[div])]
+
 
         # # Reduce diverted masses by rejection rates
         # for waste in self.div_components['compost']:
@@ -1467,12 +1479,20 @@ class City:
             parameters = self.scenario_parameters[scenario-1]
 
         if (not advanced_baseline) and (not advanced_dst):
-            diversion_fractions_instance = DiversionFractions(
-                compost=parameters.div_fractions.at[2000, 'compost'],
-                anaerobic=parameters.div_fractions.at[2000, 'anaerobic'],
-                combustion=parameters.div_fractions.at[2000, 'combustion'],
-                recycling=parameters.div_fractions.at[2000, 'recycling']
-            )
+            if isinstance(parameters.div_fractions, pd.DataFrame):
+                diversion_fractions_instance = DiversionFractions(
+                    compost=parameters.div_fractions.at[2000, 'compost'],
+                    anaerobic=parameters.div_fractions.at[2000, 'anaerobic'],
+                    combustion=parameters.div_fractions.at[2000, 'combustion'],
+                    recycling=parameters.div_fractions.at[2000, 'recycling']
+                )
+            else:
+                diversion_fractions_instance = DiversionFractions(
+                    compost=parameters.div_fractions.compost,
+                    anaerobic=parameters.div_fractions.anaerobic,
+                    combustion=parameters.div_fractions.combustion,
+                    recycling=parameters.div_fractions.recycling
+                )
             div_component_fractions_instance = DivComponentFractions(
                 compost=WasteFractions(**parameters.div_component_fractions.compost.loc[2000, :]),
                 anaerobic=WasteFractions(**parameters.div_component_fractions.anaerobic.loc[2000, :]),
@@ -2265,7 +2285,7 @@ class City:
                     divs.anaerobic.model_dump().get(waste, 0) +
                     divs.combustion.model_dump().get(waste, 0) +
                     divs.recycling.model_dump().get(waste, 0)
-                for waste in parameters.waste_masses.model_dump()
+                for waste in self.waste_types
             }
 
         try:
@@ -2273,7 +2293,7 @@ class City:
         except:
             net = {
                 waste: parameters.waste_masses.model_dump()[waste] - diverted.get(waste, 0)
-                for waste in parameters.waste_masses.model_dump()
+                for waste in self.waste_types
             }
             parameters.net_masses = pd.Series(net)
 
@@ -2348,7 +2368,7 @@ class City:
             filtered_fractions = {waste: getattr(waste_fractions, waste) for waste in components}
             total = sum(filtered_fractions.values())
             normalized_fractions = {waste: fraction / total for waste, fraction in filtered_fractions.items()}
-            return WasteFractions(**{waste: normalized_fractions.get(waste, 0) for waste in waste_fractions.model_fields})
+            return WasteFractions(**{waste: normalized_fractions.get(waste).at[1960] for waste in components})
 
         scenario_parameters.div_component_fractions = DivComponentFractions(
             compost=calculate_component_fractions(waste_fractions, 'compost'),
@@ -2368,11 +2388,19 @@ class City:
             print(f'Invalid new value')
             return
 
-        net = self._calculate_net_masses(scenario=scenario)
-        for mass in vars(net).values():
+        self._calculate_net_masses(scenario=scenario)
+        for w in scenario_parameters.net_masses.index:
+            mass = scenario_parameters.net_masses.at[w]
             if mass < 0:
                 print(f'Invalid new value')
                 return
+            
+        scenario_parameters.divs_df = DivsDF(
+            compost=scenario_parameters.divs_df.compost,
+            anaerobic=scenario_parameters.divs_df.anaerobic,
+            combustion=scenario_parameters.divs_df.combustion,
+            recycling=scenario_parameters.divs_df.recycling,
+        )
 
         scenario_parameters.divs_df._dst_implement(
             implement_year=implement_year, 
@@ -2390,9 +2418,9 @@ class City:
         scenario_parameters.repopulate_attr_dicts()
         for i, landfill in enumerate(scenario_parameters.landfills):
             # Might be able to do this more efficienctly...i'm looping over the pre implementation years twice sort of
-            landfill.waste_mass_df = LandfillWasteMassDF.create(scenario_parameters.waste_generated_df.df, scenario_parameters.divs_df, landfill.fraction_of_waste, self.components).df
+            landfill.waste_mass_df = LandfillWasteMassDF.create(scenario_parameters.waste_generated_df, scenario_parameters.divs_df, landfill.fraction_of_waste, self.components).df
             landfill.waste_mass_df.loc[:(implement_year-1), :] = self.baseline_parameters.landfills[i].waste_mass_df.loc[:(implement_year-1), :]
-            landfill.waste_mass_df.to_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/scratch_paper/new' + str(i) + '.csv')
+            #landfill.waste_mass_df.to_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/scratch_paper/new' + str(i) + '.csv')
 
         #scenario_parameters.repopulate_attr_dicts() # does this need to come sooner? Does anything in the above functions rely on the attr dicts?
         for landfill in scenario_parameters.non_zero_landfills:
