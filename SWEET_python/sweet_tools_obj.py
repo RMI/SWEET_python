@@ -57,7 +57,7 @@ class City:
     
     def load_from_database(self, db):
         """
-        Loads model parameters from the RMI WasteMAP github repo data file. 
+        Loads model parameters from the RMI WasteMAP Github repo data file. 
 
         Args:
             db (pandas dataframe): Dataframe containing model parameters for all cities
@@ -72,7 +72,7 @@ class City:
         self.lat = db.loc[self.name, 'Latitude'].values[0]
         self.lon = db.loc[self.name, 'Longitude'].values[0]
         self.waste_mass = db.loc[self.name, 'Waste Generation Rate (tons/year)'].values[0]
-        self.data_source = db.loc[self.name, 'Input Data Source'].values[0]
+        self.data_source = db.loc[self.name, 'Data Source (Waste Mass)'].values[0]
         self.population = db.loc[self.name, 'Population'].values[0]
 
         try:
@@ -643,6 +643,8 @@ class City:
         self.lat = row['latitude']
         self.lon = row['longitude']
 
+        self.waste_mass_defaults = False
+
         # Get waste total
         try:
             self.waste_mass_load = float(row['msw_collected_metric_tons_per_year']) # unit is tons
@@ -656,6 +658,7 @@ class City:
             self.waste_per_capita = self.waste_mass_load * 1000 / self.population / 365
         if self.waste_mass_load != self.waste_mass_load:
             # Use per capita default
+            self.waste_mass_defaults = True
             if self.iso3 in defaults_2019.msw_per_capita_country:
                 self.waste_per_capita = defaults_2019.msw_per_capita_country[self.iso3]
                 self.year_of_data_msw = 2019
@@ -721,7 +724,9 @@ class City:
         #     print(waste_fractions)
 
         # Add zeros where there are no values unless all values are nan, in which case use defaults
+        self.waste_fractions_defaults = False
         if waste_fractions.isna().all():
+            self.waste_fractions_defaults = True
             if self.iso3 in defaults_2019.waste_fractions_country:
                 waste_fractions = defaults_2019.waste_fractions_country.loc[self.iso3, :]
             else:
@@ -733,6 +738,7 @@ class City:
             #waste_fractions['textiles'] = 0
         
         if (waste_fractions.sum() < .98) or (waste_fractions.sum() > 1.02):
+            self.waste_fractions_defaults = True
             #print('waste fractions do not sum to 1')
             if self.iso3 in defaults_2019.waste_fractions_country:
                 waste_fractions = defaults_2019.waste_fractions_country.loc[self.iso3, :]
@@ -813,18 +819,24 @@ class City:
         all_nan_div = all(np.isnan(value) for value in diversions)
 
         # First case to check: all diversions and landfills are 0. Use defaults.
+        self.diversion_defaults = False
+        self.landfill_split_defaults = False
         if all_nan_fill and all_nan_div:
             if self.iso3 in defaults_2019.fraction_composted_country:
                 self.compost_fraction = defaults_2019.fraction_composted_country[self.iso3]
+                self.diversion_defaults = True
             elif self.region in defaults_2019.fraction_composted:
                 self.compost_fraction = defaults_2019.fraction_composted[self.region]
+                self.diversion_defaults = True
             else:
                 self.compost_fraction = 0.0
 
             if self.iso3 in defaults_2019.fraction_incinerated_country:
                 self.combustion_fraction = defaults_2019.fraction_incinerated_country[self.iso3]
+                self.diversion_defaults = True
             elif self.region in defaults_2019.fraction_incinerated:
                 self.combustion_fraction = defaults_2019.fraction_incinerated[self.region]
+                self.diversion_defaults = True
             else:
                 self.combustion_fraction = 0.0
 
@@ -837,12 +849,14 @@ class City:
                         'landfill_wo_capture': defaults_2019.fraction_landfilled_country[self.iso3],
                         'dumpsite': defaults_2019.fraction_open_dumped_country[self.iso3]
                     }
+                    self.landfill_split_defaults = True
                 elif self.region in defaults_2019.fraction_open_dumped:
                     self.split_fractions = {
                         'landfill_w_capture': 0.0,
                         'landfill_wo_capture': defaults_2019.fraction_landfilled[self.region],
                         'dumpsite': defaults_2019.fraction_open_dumped[self.region]
                     }
+                    self.landfill_split_defaults = True
                 else:
                     if self.region in defaults_2019.landfill_default_regions:
                         self.split_fractions = {'landfill_w_capture': 0, 'landfill_wo_capture': 1, 'dumpsite': 0}
@@ -862,15 +876,19 @@ class City:
         elif all_nan_div and total_fill < .99:
             if self.iso3 in defaults_2019.fraction_composted_country:
                 self.compost_fraction = defaults_2019.fraction_composted_country[self.iso3]
+                self.diversion_defaults = True
             elif self.region in defaults_2019.fraction_composted:
                 self.compost_fraction = defaults_2019.fraction_composted[self.region]
+                self.diversion_defaults = True
             else:
                 self.compost_fraction = 0.0
 
             if self.iso3 in defaults_2019.fraction_incinerated_country:
                 self.combustion_fraction = defaults_2019.fraction_incinerated_country[self.iso3]
+                self.diversion_defaults = True
             elif self.region in defaults_2019.fraction_incinerated:
                 self.combustion_fraction = defaults_2019.fraction_incinerated[self.region]
+                self.diversion_defaults = True
             else:
                 self.combustion_fraction = 0.0
 
@@ -892,12 +910,618 @@ class City:
                         'landfill_wo_capture': defaults_2019.fraction_landfilled_country[self.iso3],
                         'dumpsite': defaults_2019.fraction_open_dumped_country[self.iso3]
                     }
+                    self.landfill_split_defaults = True
                 elif self.region in defaults_2019.fraction_open_dumped:
                     self.split_fractions = {
                         'landfill_w_capture': 0.0,
                         'landfill_wo_capture': defaults_2019.fraction_landfilled[self.region],
                         'dumpsite': defaults_2019.fraction_open_dumped[self.region]
                     }
+                    self.landfill_split_defaults = True
+                else:
+                    if self.region in defaults_2019.landfill_default_regions:
+                        self.split_fractions = {'landfill_w_capture': 0.0, 'landfill_wo_capture': 1.0, 'dumpsite': 0.0}
+                    else:
+                        self.split_fractions = {'landfill_w_capture': 0.0, 'landfill_wo_capture': 0.0, 'dumpsite': 1.0}
+        
+        # Fourth case to check: imported non-nan values in both landfills and diversions. Use the values. 
+        else:
+            self.split_fractions = {
+                'landfill_w_capture': np.nan_to_num(row['waste_treatment_sanitary_landfill_landfill_gas_system_percent'])/100,
+                'landfill_wo_capture': (np.nan_to_num(row['waste_treatment_controlled_landfill_percent']) + 
+                                        np.nan_to_num(row['waste_treatment_landfill_unspecified_percent']))/100,
+                'dumpsite': np.nan_to_num(row['waste_treatment_open_dump_percent'])/100
+            }
+        
+        # Normalize landfills to 1
+        split_total = sum([x for x in self.split_fractions.values()])
+        if split_total == 0:
+            if self.region in defaults_2019.landfill_default_regions:
+                self.split_fractions = {'landfill_w_capture': 0.0, 'landfill_wo_capture': 1.0, 'dumpsite': 0.0}
+            else:
+                self.split_fractions = {'landfill_w_capture': 0.0, 'landfill_wo_capture': 0.0, 'dumpsite': 1.0}
+        split_total = sum([x for x in self.split_fractions.values()])
+        for site in self.split_fractions.keys():
+            self.split_fractions[site] /= split_total
+        
+        # Replace diversion NaN values with 0
+        attrs = ['compost_fraction', 'anaerobic_fraction', 'combustion_fraction', 'recycling_fraction']
+        for attr in attrs:
+            if np.isnan(getattr(self, attr)):
+                setattr(self, attr, 0.0)
+
+        # if self.iso3 == 'NGA':
+        #     self.split_fractions = {'landfill_w_capture': 0.0, 'landfill_wo_capture': 0.0, 'dumpsite': 1.0}
+        # Instantiate landfills
+        self.landfill_w_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=self.split_fractions['landfill_w_capture'], gas_capture=True)
+        self.landfill_wo_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=self.split_fractions['landfill_wo_capture'], gas_capture=False)
+        self.dumpsite = Landfill(self, 1960, 2073, 'dumpsite', 0.4, fraction_of_waste=self.split_fractions['dumpsite'], gas_capture=False)
+        
+        self.landfills = [self.landfill_w_capture, self.landfill_wo_capture, self.dumpsite]
+        # Only running model on landfills with non-zero waste reduces computation
+        self.non_zero_landfills = [x for x in self.landfills if x.fraction_of_waste > 0]
+        
+        self.divs = {}
+        self.div_fractions = {}
+        self.div_fractions['compost'] = self.compost_fraction
+        self.div_fractions['anaerobic'] = self.anaerobic_fraction
+        self.div_fractions['combustion'] = self.combustion_fraction
+        self.div_fractions['recycling'] = self.recycling_fraction
+
+        # Normalize diversion fractions to sum to 1 if they exceed it
+        s = sum(x for x in self.div_fractions.values())
+        if  s > 1:
+            for div in self.div_fractions:
+                self.div_fractions[div] /= s
+        assert sum(x for x in self.div_fractions.values()) <= 1, 'Diversion fractions sum to more than 1'
+        # # Use IPCC defaults if no data
+        # if s == 0:
+        #     self.div_fractions['compost'] = defaults.fraction_composted[self.region]
+        #     self.div_fractions['combustion'] = defaults.fraction_incinerated[self.region]
+        
+        # UN Habitat has its own data import procedure
+        if self.data_source == 'UN Habitat':
+            #self.changed_diversion, self.input_problems, self.div_component_fractions, self.divs = self.check_masses_un()
+            
+            # Determine diversion waste type fractions
+            self.total_recovered_materials_with_rejects = float(row['total_recovered_materials_with_rejects'])
+            self.organic_waste_recovered = float(row['organic_waste_recovered'])
+            self.glass_recovered = float(row['glass_recovered'])
+            self.metal_recovered = float(row['metal_recovered'])
+            self.paper_or_cardboard = float(row['paper_or_cardboard'])
+            self.total_plastic_recovered = float(row['total_plastic_recovered'])
+            self.mixed_waste = float(row['mixed_waste'])
+            self.other_waste = float(row['other_waste'])
+            self.div_component_fractions, self.divs = self.determine_component_fractions_un()
+
+            # Calculate generated waste masses
+            self.waste_masses = {x: self.waste_fractions[x] * self.waste_mass for x in self.waste_fractions.keys()}
+            #self.changed_diversion, self.input_problems, self.div_component_fractions, self.divs = self.check_masses(self.div_fractions, self.divs)
+
+            # Adjust diversion waste type fractions (div_component_fractions) to make sure more waste is not diverted than generated
+            self.changed_diversion, self.input_problems, self.div_component_fractions, self.divs = self.check_masses_v2(self.div_fractions, self.div_component_fractions)
+        else:
+            # Determine diversion waste type fractions
+            self.div_component_fractions = {}
+            self.divs['compost'], self.div_component_fractions['compost'] = self.calc_compost_vol(self.div_fractions['compost'])
+            self.divs['anaerobic'], self.div_component_fractions['anaerobic'] = self.calc_anaerobic_vol(self.div_fractions['anaerobic'])
+            self.divs['combustion'], self.div_component_fractions['combustion'] = self.calc_combustion_vol(self.div_fractions['combustion'])
+            self.divs['recycling'], self.div_component_fractions['recycling'] = self.calc_recycling_vol(self.div_fractions['recycling'])
+
+            # Fill 0s for waste types not included in diversion types
+            for c in self.waste_fractions.keys():
+                if c not in self.divs['compost'].keys():
+                    self.divs['compost'][c] = 0
+                if c not in self.divs['anaerobic'].keys():
+                    self.divs['anaerobic'][c] = 0
+                if c not in self.divs['combustion'].keys():
+                    self.divs['combustion'][c] = 0
+                if c not in self.divs['recycling'].keys():
+                    self.divs['recycling'][c] = 0
+            
+            # Save waste diverions calculated with default assumptions, and then update them if any components are net negative.
+            self.divs_before_check = copy.deepcopy(self.divs)
+            self.div_component_fractions_before = copy.deepcopy(self.div_component_fractions)
+            self.waste_masses = {x: self.waste_fractions[x] * self.waste_mass for x in self.waste_fractions.keys()}
+            
+            self.net_masses_before_check = {}
+            for waste in self.waste_masses.keys():
+                net_mass = self.waste_masses[waste] - (self.divs['compost'][waste] + self.divs['anaerobic'][waste] + self.divs['combustion'][waste] + self.divs['recycling'][waste])
+                self.net_masses_before_check[waste] = net_mass
+            
+            # if self.name in city_manual_baselines.manual_cities:
+            #     city_manual_baselines.get_manual_baseline(self)
+            #     self.changed_diversion = True
+            #     self.input_problems = False
+            #     # if self.name == 'Kitakyushu':
+            #     #     self.divs['combustion']['paper_cardboard'] -= 410
+
+            #     # Inefficiency factors
+            #     self.non_compostable_not_targeted_total = sum([
+            #         self.non_compostable_not_targeted[x] * \
+            #         self.div_component_fractions['compost'][x] for x in self.compost_components
+            #     ])
+                
+            #     # Reduce them by non-compostable and unprocessable and etc rates
+            #     for waste in self.compost_components:
+            #         self.divs['compost'][waste] = (
+            #             self.divs['compost'][waste]  * 
+            #             (1 - self.non_compostable_not_targeted_total) *
+            #             (1 - self.unprocessable[waste])
+            #         )
+            #     for waste in self.combustion_components:
+            #         self.divs['combustion'][waste] = (
+            #             self.divs['combustion'][waste]  * 
+            #             (1 - self.combustion_reject_rate)
+            #         )
+            #     for waste in self.recycling_components:
+            #         self.divs['recycling'][waste] = (
+            #             self.divs['recycling'][waste]  * 
+            #             self.recycling_reject_rates[waste]
+            #         )
+
+            #else:
+            # Adjust diversion waste type fractions to make sure more waste is not diverted than generated
+            self.changed_diversion, self.input_problems, self.div_component_fractions, self.divs = self.check_masses_v2(self.div_fractions, self.div_component_fractions)
+                #self.changed_diversion, self.input_problems, self.div_component_fractions, self.divs = self.check_masses(self.div_fractions, self.divs)
+
+        # If adjusting diversion waste types failed to prevent net negative masses (more diverted than generated),
+        # terminate operation, data is invalid for model.
+        if self.input_problems:
+            print('input problems')
+            return
+
+        self.net_masses_after_check = {}
+        for waste in self.waste_masses.keys():
+            net_mass = self.waste_masses[waste] - (self.divs['compost'][waste] + self.divs['anaerobic'][waste] + self.divs['combustion'][waste] + self.divs['recycling'][waste])
+            self.net_masses_after_check[waste] = net_mass
+
+        for waste in self.net_masses_after_check.values():
+            if waste < -1:
+                print(waste)
+            if waste <= -1:
+                print('blah')
+            assert waste >= -1, 'Waste diversion is net negative ' + self.name
+
+        # Baseline refers to loaded parameters, new refers to alternative scenario parameters determined by a user.
+        self.new_divs = copy.deepcopy(self.divs)
+        self.new_div_fractions = copy.deepcopy(self.div_fractions)
+        self.new_div_component_fractions = copy.deepcopy(self.div_component_fractions)
+
+        self.baseline_divs = copy.deepcopy(self.divs)
+        self.baseline_div_fractions = copy.deepcopy(self.div_fractions)
+        self.baseline_div_component_fractions = copy.deepcopy(self.div_component_fractions)
+
+        self.split_fractions_baseline = copy.deepcopy(self.split_fractions)
+        self.landfills_baseline = copy.deepcopy(self.landfills)
+
+        self.split_fractions_new = copy.deepcopy(self.split_fractions)
+        self.landfills_new = copy.deepcopy(self.landfills)
+
+    def load_sinir(self, row):
+        """
+        Loads model parameters from the internal RMI WasteMAP database. Defaults are used
+        where data is missing, incomplete, or incompatible.
+
+        Args:
+            row (tuple): row[0] is the index of the row in the dataframe used for input, 
+            row[1] is the row itself.
+
+        Returns:
+            None
+        """
+        # Basic information
+        #idx = row[0]
+        row = row[1]
+        self.data_source = row['population_data_source']
+        self.country = row['country']
+        self.iso3 = row['iso']
+        self.region = defaults_2019.region_lookup[self.country]
+        self.year_of_data_pop = row['population_year']
+        assert np.isnan(self.year_of_data_pop) == False, 'Population year is missing'
+        self.year_of_data_msw = row['msw_collected_year']
+        if np.isnan(self.year_of_data_msw):
+            self.year_of_data_msw = row['msw_generated_year']
+        if np.isnan(self.year_of_data_msw):
+            self.year_of_data_msw = row['data_collection_year'].iloc[0]
+        self.year_of_data_msw = int(self.year_of_data_msw)
+
+        # name_backtranslator = {value: key for key, value in defaults_2019.replace_city.items()}
+        # if self.data_source != 'World Bank':
+        #     self.year_of_data_pop = row['year']
+        # else:
+        #     if self.name in ['Pago Pago', 'Kano', 'Ramallah', 'Soweto', 'Kadoma City', 'Mbare', 'Masvingo City', 'Limbe', 'Labe']:
+        #         pass
+        #     else:
+        #         years = pd.read_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/What_a_Waste/city_level_codebook_0.csv')
+        #         if self.name in name_backtranslator:
+        #             old_name = name_backtranslator[self.name]
+        #         else:
+        #             old_name = self.name
+        #         try:
+        #             self.year_of_data_pop = years[(years['measurement'] ==  'population_population_number_of_people') & (years['city_name'] == old_name)]['year'].values[0]
+        #         except:
+        #             self.year_of_data_pop = 2016
+        #         try:
+        #             self.year_of_data_msw = years[(years['measurement'] ==  'total_msw_total_msw_generated_tons_year') & (years['city_name'] == old_name)]['year'].values[0]
+        #         except:
+        #             self.year_of_data_msw = 2016
+        
+        # Hardcode missing population values
+        self.population = float(row['population_count'])
+        if self.name == 'Pago Pago':
+            self.population = 3656
+            self.year_of_data_pop = 2010
+        elif self.name == 'Kano':
+            self.population = 2828861
+            self.year_of_data_pop = 2006
+        elif self.name == 'Ramallah':
+            self.population = 38998
+            self.year_of_data_pop = 2017
+        elif self.name == 'Soweto':
+            self.population = 1271628
+            self.year_of_data_pop = 2011
+        elif self.name == 'Kadoma City':
+            self.population = 116300
+            self.year_of_data_pop = 2022
+        elif self.name == 'Mbare':
+            self.population = 450000
+            self.year_of_data_pop = 2020
+        elif self.name == 'Masvingo City':
+            self.population = 90286
+            self.year_of_data_pop = 2022
+        elif self.name == 'Limbe':
+            self.population = 84223
+            self.year_of_data_pop = 2005
+        elif self.name == 'Labe':
+            self.population = 200000
+            self.year_of_data_pop = 2014
+
+        # if self.year_of_data_pop != self.year_of_data_pop:
+        #     self.year_of_data_pop = 2016
+
+        # Determine population growth rates
+        # population_1950 = row['population_1950']
+        # population_2020 = row['population_2020']
+        # population_2035 = row['population_2035']
+        # self.growth_rate_historic = ((population_2020 / population_1950) ** (1 / (2020 - 1950)))
+        # self.growth_rate_future = ((population_2035 / population_2020) ** (1 / (2035 - 2020)))
+        self.growth_rate_historic = row['historic_growth_rate']
+        self.growth_rate_future = row['future_growth_rate']
+
+        # # Define the exponential function
+        # def exponential(x, a, b):
+        #     return a * np.exp(b * x)
+
+        # # Extract data from row
+        # years = np.array([1950, 1955, 1960, 1965, 1970, 1975, 1980, 1985, 1990, 1995, 2000, 2005, 2010, 2015, 2020, 2025, 2030, 2035])
+        # populations = np.array([row['Population_1950'], row['Population_1955'], row['Population_1960'], 
+        #                         row['Population_1965'], row['Population_1970'], row['Population_1975'], 
+        #                         row['Population_1980'], row['Population_1985'], row['Population_1990'], 
+        #                         row['Population_1995'], row['Population_2000'], row['Population_2005'], 
+        #                         row['Population_2010'], row['Population_2015'], row['Population_2020'], 
+        #                         row['Population_2025'], row['Population_2030'], row['Population_2035']])
+
+        # # Split data into historic and future
+        # historic_years = years[years <= 2020] - 1950
+        # future_years = years[years > 2020] - 2025
+        # historic_populations = populations[:len(historic_years)]
+        # future_populations = populations[len(historic_years):]
+
+        # # Fit the historic data to the exponential function
+        # params_historic, _ = curve_fit(exponential, historic_years, historic_populations)
+        # a_historic, b_historic = params_historic
+
+        # # Fit the future data to the exponential function
+        # params_future, _ = curve_fit(exponential, future_years, future_populations)
+        # a_future, b_future = params_future
+        
+        # self.historic_growth_rate = 100 * (np.exp(b_historic) - 1)
+        # self.future_growth_rate = b_future
+
+        # # Predicting using the curve fit model
+        # historic_prediction = exponential(np.array(historic_years), *params_historic)
+        # future_prediction = exponential(np.array(future_years), *params_future)
+
+        # #%%
+        # # Plotting historic data
+        # plt.figure(figsize=(10, 5))
+
+        # plt.subplot(1, 2, 1)
+        # plt.scatter(historic_years, historic_populations, color='blue', label='Historic Data')
+        # plt.plot(historic_years, historic_prediction, color='red', linestyle='dashed', label='Historic Fit')
+        # plt.title('Historic Population Growth')
+        # plt.legend()
+
+        # # Plotting future data
+        # plt.subplot(1, 2, 2)
+        # plt.scatter(future_years, future_populations, color='green', label='Future Data')
+        # plt.plot(future_years, future_prediction, color='red', linestyle='dashed', label='Future Fit')
+        # plt.title('Future Population Growth')
+        # plt.legend()
+
+        # plt.tight_layout()
+        # plt.show()
+
+        # lat lon
+        self.lat = row['latitude']
+        self.lon = row['longitude']
+
+        self.waste_mass_defaults = False
+
+        # Get waste total
+        try:
+            self.waste_mass_load = float(row['msw_collected_metric_tons_per_year']) # unit is tons
+            if np.isnan(self.waste_mass_load):
+                self.waste_mass_load = float(row['msw_generated_metric_tons_per_year'])
+            self.waste_per_capita = self.waste_mass_load * 1000 / self.population / 365 #unit is kg/person/day
+        except:
+            self.waste_mass_load = float(row['msw_collected_metric_tons_per_year'].replace(',', ''))
+            if np.isnan(self.waste_mass_load):
+                self.waste_mass_load = float(row['msw_generated_metric_tons_per_year'].replace(',', ''))
+            self.waste_per_capita = self.waste_mass_load * 1000 / self.population / 365
+        if self.waste_mass_load != self.waste_mass_load:
+            # Use per capita default
+            self.waste_mass_defaults = True
+            if self.iso3 in defaults_2019.msw_per_capita_country:
+                self.waste_per_capita = defaults_2019.msw_per_capita_country[self.iso3]
+                self.year_of_data_msw = 2019
+            else:
+                self.waste_per_capita = defaults_2019.msw_per_capita_defaults[self.region]
+                self.year_of_data_msw = 2019
+            self.waste_mass_load = self.waste_per_capita * self.population / 1000 * 365
+        
+        # Subtract mass that is informally collected
+        #self.informal_fraction = np.nan_to_num(row['percent_informal_sector_percent_collected_by_informal_sector_percent']) / 100
+        #self.waste_mass = self.waste_mass_load * (1 - self.informal_fraction)
+        self.waste_mass = self.waste_mass_load
+        
+        # Adjust waste mass to account for difference in reporting years between msw and population
+        #if self.data_source == 'World Bank':
+        if self.year_of_data_msw != self.year_of_data_pop:
+            year_difference = self.year_of_data_pop - self.year_of_data_msw
+            if self.year_of_data_msw < self.year_of_data_pop:
+                self.waste_mass *= (self.growth_rate_historic ** year_difference)
+                self.waste_per_capita = self.waste_mass * 1000 / self.population / 365
+            else:
+                self.waste_mass *= (self.growth_rate_future ** year_difference)
+                self.waste_per_capita = self.waste_mass * 1000 / self.population / 365
+
+        # # Collection coverage_stats
+        # # Don't use these for now, as it seems like WB already adjusted total msw to account for these. 
+        # coverage_by_area = float(row['waste_collection_coverage_total_percent_of_geographic_area_percent_of_geographic_area']) / 100
+        # coverage_by_households = float(row['waste_collection_coverage_total_percent_of_households_percent_of_households']) / 100
+        # coverage_by_pop = float(row['waste_collection_coverage_total_percent_of_population_percent_of_population']) / 100
+        # coverage_by_waste = float(row['waste_collection_coverage_total_percent_of_waste_percent_of_waste']) / 100
+        
+        # if coverage_by_waste == coverage_by_waste:
+        #     self.mass *= 
+        
+        # Waste fractions
+        waste_fractions = row[['composition_food_organic_waste_percent', 
+                             'composition_yard_garden_green_waste_percent', 
+                             'composition_wood_percent',
+                             'composition_paper_cardboard_percent',
+                             'composition_plastic_percent',
+                             'composition_metal_percent',
+                             'composition_glass_percent',
+                             'composition_other_percent',
+                             'composition_rubber_leather_percent',
+                             'composition_textiles_percent'
+                             ]]
+    
+        waste_fractions.rename(index={'composition_food_organic_waste_percent': 'food',
+                                        'composition_yard_garden_green_waste_percent': 'green',
+                                        'composition_wood_percent': 'wood',
+                                        'composition_paper_cardboard_percent': 'paper_cardboard',
+                                        'composition_plastic_percent': 'plastic',
+                                        'composition_metal_percent': 'metal',
+                                        'composition_glass_percent': 'glass',
+                                        'composition_other_percent': 'other',
+                                        'composition_rubber_leather_percent': 'rubber',
+                                        'composition_textiles_percent': 'textiles'
+                                        }, inplace=True)
+        waste_fractions /= 100
+        
+        # if self.region == 'Rest of Oceania':
+        #     print(self.name)
+        #     print(waste_fractions)
+
+        # Add zeros where there are no values unless all values are nan, in which case use defaults
+        self.waste_fractions_defaults = False
+        if waste_fractions.isna().all():
+            self.waste_fractions_defaults = True
+            if self.iso3 in defaults_2019.waste_fractions_country:
+                waste_fractions = defaults_2019.waste_fractions_country.loc[self.iso3, :]
+            else:
+                if self.region == 'Rest of Oceania':
+                    print(self.name)
+                waste_fractions = defaults_2019.waste_fraction_defaults.loc[self.region, :]
+        else:
+            waste_fractions.fillna(0, inplace=True)
+            #waste_fractions['textiles'] = 0
+        
+        if (waste_fractions.sum() < .98) or (waste_fractions.sum() > 1.02):
+            self.waste_fractions_defaults = True
+            #print('waste fractions do not sum to 1')
+            if self.iso3 in defaults_2019.waste_fractions_country:
+                waste_fractions = defaults_2019.waste_fractions_country.loc[self.iso3, :]
+            else:
+                if self.region == 'Rest of Oceania':
+                    print(self.name)
+                waste_fractions = defaults_2019.waste_fraction_defaults.loc[self.region, :]
+    
+        self.waste_fractions = waste_fractions.to_dict()
+        
+        # Normalize waste fractions to sum to 1
+        s = sum([x for x in self.waste_fractions.values()])
+        self.waste_fractions = {x: self.waste_fractions[x] / s for x in self.waste_fractions.keys()}
+
+        try:
+            # Calculate MEF for compost -- emissions from composted waste
+            self.mef_compost = (0.0055 * waste_fractions['food']/(waste_fractions['food'] + waste_fractions['green']) + \
+                           0.0139 * waste_fractions['green']/(waste_fractions['food'] + waste_fractions['green'])) * 1.1023 * 0.7 # / 28
+                           # Unit is Mg CO2e/Mg of organic waste, wtf, so convert to CH4. Mistake in sweet here
+        except:
+            self.mef_compost = 0
+        
+        # Precipitation
+        self.precip = float(row['mean_yearly_precip_2000_2021'])
+        #precip_data = pd.read_excel('/Users/hugh/Downloads/Cities Waste Dataset_2010-2019_precip.xlsx')
+        #self.precip = precip_data[precip_data['city_original'] == self.name]['total_precipitation(mm)_1970_2000'].values[0]
+        self.precip_zone = defaults_2019.get_precipitation_zone(self.precip)
+    
+        # depth
+        #depth = 10
+    
+        # k values, which are decomposition rates
+        self.ks = defaults_2019.k_defaults[self.precip_zone]
+        
+        # Model components
+        self.components = set(['food', 'green', 'wood', 'paper_cardboard', 'textiles'])
+        
+        # Compost params
+        self.compost_components = set(['food', 'green', 'wood', 'paper_cardboard']) # Double check we don't want to include paper
+        self.compost_fraction = float(row['waste_treatment_compost_percent']) / 100
+        
+        # Anaerobic digestion params
+        self.anaerobic_components = set(['food', 'green', 'wood', 'paper_cardboard'])
+        self.anaerobic_fraction = float(row['waste_treatment_anaerobic_digestion_percent']) / 100   
+        
+        # Combustion params
+        self.combustion_components = set(['food', 'green', 'wood', 'paper_cardboard', 'textiles', 'plastic', 'rubber'])
+        value1 = float(row['waste_treatment_incineration_percent'])
+        value2 = float(row['waste_treatment_advanced_thermal_treatment_percent'])
+        if np.isnan(value1) and np.isnan(value2):
+            self.combustion_fraction = np.nan
+        else:
+            self.combustion_fraction = (np.nan_to_num(value1) + np.nan_to_num(value2)) / 100
+        
+        # Recycling params
+        self.recycling_components = set(['wood', 'paper_cardboard', 'textiles', 'plastic', 'rubber', 'metal', 'glass', 'other'])
+        self.recycling_fraction = float(row['waste_treatment_recycling_percent']) / 100
+        
+        # How much waste is diverted to landfill with gas capture
+        self.gas_capture_percent = np.nan_to_num(row['waste_treatment_sanitary_landfill_landfill_gas_system_percent']) / 100
+        
+        self.div_components = {}
+        self.div_components['compost'] = self.compost_components
+        self.div_components['anaerobic'] = self.anaerobic_components
+        self.div_components['combustion'] = self.combustion_components
+        self.div_components['recycling'] = self.recycling_components
+
+        # Determine if we need to use defaults for landfills and diversion fractions
+        landfill_inputs = [
+            float(row['waste_treatment_sanitary_landfill_landfill_gas_system_percent']),
+            float(row['waste_treatment_controlled_landfill_percent']),
+            float(row['waste_treatment_landfill_unspecified_percent']),
+            float(row['waste_treatment_open_dump_percent'])
+        ]
+        all_nan_fill = all(np.isnan(value) for value in landfill_inputs)
+        total_fill = sum(0 if np.isnan(x) else x for x in landfill_inputs) / 100
+        diversions = [self.compost_fraction, self.anaerobic_fraction, self.combustion_fraction, self.recycling_fraction]
+        all_nan_div = all(np.isnan(value) for value in diversions)
+
+        # First case to check: all diversions and landfills are 0. Use defaults.
+        self.diversion_defaults = False
+        self.landfill_split_defaults = False
+        if all_nan_fill and all_nan_div:
+            if self.iso3 in defaults_2019.fraction_composted_country:
+                self.compost_fraction = defaults_2019.fraction_composted_country[self.iso3]
+                self.diversion_defaults = True
+            elif self.region in defaults_2019.fraction_composted:
+                self.compost_fraction = defaults_2019.fraction_composted[self.region]
+                self.diversion_defaults = True
+            else:
+                self.compost_fraction = 0.0
+
+            if self.iso3 in defaults_2019.fraction_incinerated_country:
+                self.combustion_fraction = defaults_2019.fraction_incinerated_country[self.iso3]
+                self.diversion_defaults = True
+            elif self.region in defaults_2019.fraction_incinerated:
+                self.combustion_fraction = defaults_2019.fraction_incinerated[self.region]
+                self.diversion_defaults = True
+            else:
+                self.combustion_fraction = 0.0
+
+            if self.iso3 in ['CAN', 'CHE', 'DEU']:
+                self.split_fractions = {'landfill_w_capture': 0.0, 'landfill_wo_capture': 1.0, 'dumpsite': 0.0}
+            else:
+                if self.iso3 in defaults_2019.fraction_open_dumped_country:
+                    self.split_fractions = {
+                        'landfill_w_capture': 0.0,
+                        'landfill_wo_capture': defaults_2019.fraction_landfilled_country[self.iso3],
+                        'dumpsite': defaults_2019.fraction_open_dumped_country[self.iso3]
+                    }
+                    self.landfill_split_defaults = True
+                elif self.region in defaults_2019.fraction_open_dumped:
+                    self.split_fractions = {
+                        'landfill_w_capture': 0.0,
+                        'landfill_wo_capture': defaults_2019.fraction_landfilled[self.region],
+                        'dumpsite': defaults_2019.fraction_open_dumped[self.region]
+                    }
+                    self.landfill_split_defaults = True
+                else:
+                    if self.region in defaults_2019.landfill_default_regions:
+                        self.split_fractions = {'landfill_w_capture': 0, 'landfill_wo_capture': 1, 'dumpsite': 0}
+                    else:
+                        self.split_fractions = {'landfill_w_capture': 0, 'landfill_wo_capture': 0, 'dumpsite': 1}
+
+        # Second case to check: all diversions are nan, but landfills are not. Use defaults for diversions if landfills sum to less than 1
+        # This assumes that entered data is incomplete. Also, normalize landfills to sum to 1.
+        # Caveat: if landfills sum to 1, assume diversions are supposed to be 0. 
+        elif all_nan_div and total_fill > .99:
+            self.split_fractions = {
+                'landfill_w_capture': np.nan_to_num(row['waste_treatment_sanitary_landfill_landfill_gas_system_percent'])/100,
+                'landfill_wo_capture': (np.nan_to_num(row['waste_treatment_controlled_landfill_percent']) + 
+                                        np.nan_to_num(row['waste_treatment_landfill_unspecified_percent']))/100,
+                'dumpsite': np.nan_to_num(row['waste_treatment_open_dump_percent'])/100
+            }
+        elif all_nan_div and total_fill < .99:
+            if self.iso3 in defaults_2019.fraction_composted_country:
+                self.compost_fraction = defaults_2019.fraction_composted_country[self.iso3]
+                self.diversion_defaults = True
+            elif self.region in defaults_2019.fraction_composted:
+                self.compost_fraction = defaults_2019.fraction_composted[self.region]
+                self.diversion_defaults = True
+            else:
+                self.compost_fraction = 0.0
+
+            if self.iso3 in defaults_2019.fraction_incinerated_country:
+                self.combustion_fraction = defaults_2019.fraction_incinerated_country[self.iso3]
+                self.diversion_defaults = True
+            elif self.region in defaults_2019.fraction_incinerated:
+                self.combustion_fraction = defaults_2019.fraction_incinerated[self.region]
+                self.diversion_defaults = True
+            else:
+                self.combustion_fraction = 0.0
+
+            self.split_fractions = {
+                'landfill_w_capture': np.nan_to_num(row['waste_treatment_sanitary_landfill_landfill_gas_system_percent'])/100,
+                'landfill_wo_capture': (np.nan_to_num(row['waste_treatment_controlled_landfill_percent']) + 
+                                        np.nan_to_num(row['waste_treatment_landfill_unspecified_percent']))/100,
+                'dumpsite': np.nan_to_num(row['waste_treatment_open_dump_percent'])/100
+            }
+
+        # Third case to check: all landfills are nan, but diversions are not. Use defaults for landfills
+        elif all_nan_fill:
+            if self.iso3 in ['CAN', 'CHE', 'DEU']:
+                self.split_fractions = {'landfill_w_capture': 0.0, 'landfill_wo_capture': 1.0, 'dumpsite': 0.0}
+            else:
+                if self.iso3 in defaults_2019.fraction_open_dumped_country:
+                    self.split_fractions = {
+                        'landfill_w_capture': 0.0,
+                        'landfill_wo_capture': defaults_2019.fraction_landfilled_country[self.iso3],
+                        'dumpsite': defaults_2019.fraction_open_dumped_country[self.iso3]
+                    }
+                    self.landfill_split_defaults = True
+                elif self.region in defaults_2019.fraction_open_dumped:
+                    self.split_fractions = {
+                        'landfill_w_capture': 0.0,
+                        'landfill_wo_capture': defaults_2019.fraction_landfilled[self.region],
+                        'dumpsite': defaults_2019.fraction_open_dumped[self.region]
+                    }
+                    self.landfill_split_defaults = True
                 else:
                     if self.region in defaults_2019.landfill_default_regions:
                         self.split_fractions = {'landfill_w_capture': 0.0, 'landfill_wo_capture': 1.0, 'dumpsite': 0.0}

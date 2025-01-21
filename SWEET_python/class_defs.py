@@ -1,8 +1,8 @@
+
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional, Union, TypeVar, Generic, Tuple, Annotated
 import pandas as pd
 import numpy as np
-from typing import Annotated, List, Dict, TypeVar, Generic, Tuple
 from enum import Enum
 
 class WasteFractions(BaseModel):
