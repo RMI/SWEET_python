@@ -2593,7 +2593,7 @@ class City:
             filtered_fractions = {waste: getattr(waste_fractions, waste) for waste in components}
             total = sum(filtered_fractions.values())
             normalized_fractions = {waste: fraction / total for waste, fraction in filtered_fractions.items()}
-            return WasteFractions(**{waste: normalized_fractions.get(waste).at[1960] for waste in components})
+            return WasteFractions(**{waste: normalized_fractions.get(waste, 0) for waste in components})
 
         scenario_parameters.div_component_fractions = DivComponentFractions(
             compost=calculate_component_fractions(waste_fractions, 'compost'),
@@ -2653,13 +2653,18 @@ class City:
             recycling=recycling_wm
         )
         
+        try:
+            yr_pop = scenario_parameters.year_of_data_pop['baseline']
+        except:
+            yr_pop = scenario_parameters.year_of_data_pop
+
         scenario_parameters.divs_df = DivsDF.create_simple(
             baseline_divs=baseline_divs, 
             scenario_divs=scenario_parameters.divs,
             start_year=1960,
             end_year=2073,
             implement_year=implement_year,
-            year_of_data_pop=scenario_parameters.year_of_data_pop['baseline'], 
+            year_of_data_pop=yr_pop, 
             growth_rate_historic=scenario_parameters.growth_rate_historic, 
             growth_rate_future=scenario_parameters.growth_rate_future,
         )
