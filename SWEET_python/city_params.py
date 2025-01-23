@@ -486,6 +486,8 @@ class City:
         non_compostable_not_targeted_total = sum([
             self.non_compostable_not_targeted[x] * getattr(div_component_fractions.compost, x) for x in self.div_components['compost']
         ])
+        if np.isnan(non_compostable_not_targeted_total):
+            non_compostable_not_targeted_total = 0
 
         gas_capture_efficiency = city_data['Methane Capture Efficiency (%)'].values[0] / 100
         mef_compost = city_data['MEF: Compost'].values[0]
@@ -644,6 +646,8 @@ class City:
             self.non_compostable_not_targeted[x] * div_component_fractions.compost.loc[2000, x] for x in self.div_components['compost']
         ])
         non_compostable_not_targeted_total = pd.Series(non_compostable_not_targeted_total, index=years)
+        if non_compostable_not_targeted_total.isna().all():
+            non_compostable_not_targeted_total = pd.Series(0, index=years)
 
         gas_capture_efficiency = city_data['Methane Capture Efficiency (%)'].values[0] / 100
         gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=years)
@@ -1027,7 +1031,7 @@ class City:
                  0.0139 * green_frac / (food_frac + green_frac)) * 
                 1.1023 * 0.7
             )
-        except KeyError:
+        except:
             mef_compost = 0.0
 
         # Get decomposition rates
@@ -1147,6 +1151,8 @@ class City:
             for x in self.div_components['compost']
         ])
         non_compostable_not_targeted_total = pd.Series(non_compostable_not_targeted_total, index=years)
+        if non_compostable_not_targeted_total.isna().all():
+            non_compostable_not_targeted_total = pd.Series(0, index=years)
 
         # Create gas_capture_efficiency Series
         gas_capture_efficiency_value = 0.6
@@ -1356,7 +1362,7 @@ class City:
                  0.0139 * green_frac / (food_frac + green_frac)) * 
                 1.1023 * 0.7
             )
-        except KeyError:
+        except:
             mef_compost = 0.0
 
         city_instance_attrs = {
@@ -2266,6 +2272,8 @@ class City:
             for x in self.div_components['compost']
         ])
         parameters.non_compostable_not_targeted_total = pd.Series(non_compostable_not_targeted_total, np.arange(1960, 2074))
+        if parameters.non_compostable_not_targeted_total.isna().all():
+            parameters.non_compostable_not_targeted_total = pd.Series(0, index=np.arange(1960, 2074))
 
         # Deal with waste mass that changes at implement_date first. 
         waste_mass = parameters.waste_mass
@@ -2604,6 +2612,8 @@ class City:
         scenario_parameters.non_compostable_not_targeted_total = sum(
             [self.non_compostable_not_targeted[x] * \
              getattr(scenario_parameters.div_component_fractions.compost, x) for x in self.div_components['compost']])
+        if np.isnan(scenario_parameters.non_compostable_not_targeted_total):
+            scenario_parameters.non_compostable_not_targeted_total = 0.0
         self._calculate_diverted_masses(scenario=scenario) # This function could be moved to cityparameters class, and then it doesn't need scenario argument
 
         #scenario_parameters.repopulate_attr_dicts()
@@ -2999,8 +3009,8 @@ class City:
             scenario_df = scenario_df[components]
 
             # Normalize each row (for baseline and scenario)
-            baseline_normalized = baseline_df.div(baseline_df.sum(axis=1), axis=0)
-            scenario_normalized = scenario_df.div(scenario_df.sum(axis=1), axis=0)
+            baseline_normalized = baseline_df.div(baseline_df.sum(axis=1), axis=0).fillna(0)
+            scenario_normalized = scenario_df.div(scenario_df.sum(axis=1), axis=0).fillna(0)
 
             # Create a mask for the years before and after the implement year
             mask = years < implement_year
@@ -3025,6 +3035,8 @@ class City:
             [self.non_compostable_not_targeted[x] * \
             getattr(scenario_parameters.div_component_fractions.compost, x) for x in self.div_components['compost']])
         scenario_parameters.non_compostable_not_targeted_total = pd.Series(scenario_parameters.non_compostable_not_targeted_total, index=years)
+        if scenario_parameters.non_compostable_not_targeted_total.isna().all():
+            scenario_parameters.non_compostable_not_targeted_total = pd.Series(0, index=years)
         self._calculate_diverted_masses(scenario=scenario)
         
         # Split the years for baseline and scenario
@@ -3257,7 +3269,10 @@ class City:
             components = list(self.div_components[div_type])
             filtered_fractions = waste_fractions.loc[2000, components]
             total = filtered_fractions.sum()
-            normalized_fractions = filtered_fractions / total
+            if total != 0:
+                normalized_fractions = filtered_fractions / total
+            else:
+                normalized_fractions = pd.Series(0.0, index=filtered_fractions.index)
             return WasteFractions(**normalized_fractions.to_dict())
 
         scenario_parameters.div_component_fractions = DivComponentFractions(
@@ -3270,6 +3285,8 @@ class City:
             [self.non_compostable_not_targeted[x] * \
             getattr(scenario_parameters.div_component_fractions.compost, x) for x in self.div_components['compost']])
         scenario_parameters.non_compostable_not_targeted_total = pd.Series(scenario_parameters.non_compostable_not_targeted_total, index=years)
+        if scenario_parameters.non_compostable_not_targeted_total.isna().all():
+            scenario_parameters.non_compostable_not_targeted_total = pd.Series(0, index=years)
         self._calculate_diverted_masses(scenario=scenario) # This function could be moved to cityparameters class, and then it doesn't need scenario argument
 
         #scenario_parameters.repopulate_attr_dicts()
