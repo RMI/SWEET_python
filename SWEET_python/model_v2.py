@@ -342,6 +342,8 @@ class SWEET:
             captured_total = ch4_produced[waste] * gas_capture_efficiency_values # / 365 / 24
             captured[waste] = captured_total
 
+            #pd.DataFrame(waste_masses).to_csv('flat_wastemasses_food.csv')
+
         end_time = time.time()
         #print(f"Model run: {end_time - start_time} seconds")
 
