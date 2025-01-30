@@ -334,7 +334,7 @@ class Landfill:
             if isinstance(self.oxidation_factor, pd.Series):
                 self.oxidation_factor.loc[self.implementation_year:] = oxidation_factor
             else:
-                years = pd.Index(range(1960, 2074))
+                years = pd.Index(range(1950, 2074))
                 ox_series = pd.Series(self.oxidation_factor, index=years)
                 ox_series.loc[self.implementation_year:] = oxidation_factor
                 self.oxidation_factor = ox_series

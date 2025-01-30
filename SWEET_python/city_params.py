@@ -58,6 +58,7 @@ class CityParameters(BaseModel):
     temperature: Optional[float] = None
     waste_burning_emissions: Optional[pd.DataFrame] = None
     source_pop: Optional[str] = None
+    source_msw_mass: Optional[str] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -320,7 +321,7 @@ class CityParameters(BaseModel):
             fm = 1
 
         def create_series(kc, tf, fm, implement_year=None, advanced_baseline=False, advanced_dst=False):
-            years = pd.Series(index=range(1960, 2074))
+            years = pd.Series(index=range(1950, 2074))
             if advanced_dst:
                 # Create baseline series for years up to the implement year
                 baseline_series = kc['baseline'] * tf * fm
@@ -739,9 +740,10 @@ class City:
         if np.isnan(year_of_data_msw):
             year_of_data_msw = row['data_collection_year'].iloc[0]
         year_of_data_msw = int(year_of_data_msw)
+        source_msw_mass = row['waste_composition_data_source']
 
         # Define the range of years
-        years = range(1960, 2074)
+        years = range(1950, 2074)
         
         # Hardcode missing population values
         population = float(row['population_count'])
@@ -1095,23 +1097,23 @@ class City:
         
         # UN Habitat has its own data import procedure
         if data_source == 'UN Habitat':
-            return
             # #self.changed_diversion, self.input_problems, self.div_component_fractions, self.divs = self.check_masses_un()
             
-            # # Determine diversion waste type fractions
-            # total_recovered_materials_with_rejects = float(row['total_recovered_materials_with_rejects'])
-            # organic_waste_recovered = float(row['organic_waste_recovered'])
-            # glass_recovered = float(row['glass_recovered'])
-            # metal_recovered = float(row['metal_recovered'])
-            # paper_or_cardboard = float(row['paper_or_cardboard'])
-            # total_plastic_recovered = float(row['total_plastic_recovered'])
-            # mixed_waste = float(row['mixed_waste'])
-            # other_waste = float(row['other_waste'])
-            # div_component_fractions, self.divs = self.determine_component_fractions_un()
+            # Determine diversion waste type fractions
+            total_recovered_materials_with_rejects = float(row['total_recovered_materials_with_rejects'])
+            organic_waste_recovered = float(row['organic_waste_recovered'])
+            glass_recovered = float(row['glass_recovered'])
+            metal_recovered = float(row['metal_recovered'])
+            paper_or_cardboard = float(row['paper_or_cardboard'])
+            total_plastic_recovered = float(row['total_plastic_recovered'])
+            mixed_waste = float(row['mixed_waste'])
+            other_waste = float(row['other_waste'])
+            recovereds = [total_recovered_materials_with_rejects, organic_waste_recovered, glass_recovered, metal_recovered, paper_or_cardboard, total_plastic_recovered, mixed_waste, other_waste]
+            divs, div_component_fractions = self.determine_component_fractions_un(recovereds=recovereds, waste_mass=waste_mass, div_fractions=div_fractions.loc[2020,:], waste_fractions=waste_fractions.loc[2020,:])
 
-            # # Calculate generated waste masses
-            # waste_masses = {x: waste_fractions[x] * waste_mass for x in waste_fractions.keys()}
-            # #self.changed_diversion, self.input_problems, self.div_component_fractions, self.divs = self.check_masses(self.div_fractions, self.divs)
+            # Calculate generated waste masses
+            #waste_masses = {x: waste_fractions[x] * waste_mass for x in waste_fractions.keys()}
+            #self.changed_diversion, self.input_problems, self.div_component_fractions, self.divs = self.check_masses(self.div_fractions, self.divs)
 
             # # Adjust diversion waste type fractions (div_component_fractions) to make sure more waste is not diverted than generated
             # changed_diversion, input_problems, div_component_fractions, divs = self.check_masses_v2(self.div_fractions, self.div_component_fractions)
@@ -1129,6 +1131,14 @@ class City:
                 anaerobic=pd.DataFrame(calculate_component_fractions(waste_fractions, 'anaerobic'), index=years),
                 combustion=pd.DataFrame(calculate_component_fractions(waste_fractions, 'combustion'), index=years),
                 recycling=pd.DataFrame(calculate_component_fractions(waste_fractions, 'recycling'), index=years),
+            )
+
+        if isinstance(div_component_fractions, dict):
+            div_component_fractions = DivComponentFractionsDF(
+                compost=pd.DataFrame(div_component_fractions['compost'], index=years),
+                anaerobic=pd.DataFrame(div_component_fractions['anaerobic'], index=years),
+                combustion=pd.DataFrame(div_component_fractions['combustion'], index=years),
+                recycling=pd.DataFrame(div_component_fractions['recycling'], index=years)
             )
 
         non_compostable_not_targeted_total = sum([
@@ -1167,7 +1177,7 @@ class City:
         waste_masses_df = waste_fractions.multiply(waste_mass, axis=0)
         waste_generated_df = WasteGeneratedDF.create(
             waste_masses_df,
-            1960, 
+            1950, 
             2073, 
             year_of_data_pop, 
             growth_rate_historic, 
@@ -1202,6 +1212,7 @@ class City:
             waste_burning_emissions=None,
             non_compostable_not_targeted_total=non_compostable_not_targeted_total,
             source_pop=data_source,
+            source_msw_mass=source_msw_mass,
         )
         self.baseline_parameters = baseline
 
@@ -1249,9 +1260,10 @@ class City:
         if np.isnan(year_of_data_msw):
             year_of_data_msw = row['data_collection_year'].iloc[0]
         year_of_data_msw = int(year_of_data_msw)
+        source_msw_mass = row['waste_composition_data_source']
 
         # Years range and population
-        years = range(1960, 2074)
+        years = range(1950, 2074)
         population = float(row['population_count'])
         growth_rate_historic = row['historic_growth_rate']
         growth_rate_future = row['future_growth_rate']
@@ -1264,14 +1276,18 @@ class City:
 
         # Get waste total
         try:
-            waste_mass_load = float(row['msw_collected_metric_tons_per_year']) # unit is tons
-            if np.isnan(waste_mass_load):
-                waste_mass_load = float(row['msw_generated_metric_tons_per_year'])
+            generated = float(row['msw_generated_metric_tons_per_year']) # unit is tons
+            collected = float(row['msw_collected_metric_tons_per_year'])
+            waste_mass_load = np.nanmax([generated, collected])
+            # if np.isnan(waste_mass_load):
+            #     waste_mass_load = float(row['msw_generated_metric_tons_per_year'])
             waste_per_capita = waste_mass_load * 1000 / population / 365 #unit is kg/person/day
         except:
-            waste_mass_load = float(row['msw_collected_metric_tons_per_year'].replace(',', ''))
-            if np.isnan(waste_mass_load):
-                waste_mass_load = float(row['msw_generated_metric_tons_per_year'].replace(',', ''))
+            generated = float(row['msw_generated_metric_tons_per_year'].replace(',', '')) # unit is tons
+            collected = float(row['msw_collected_metric_tons_per_year'].replace(',', ''))
+            waste_mass_load = np.nanmax([generated, collected])
+            # if np.isnan(waste_mass_load):
+            #     waste_mass_load = float(row['msw_generated_metric_tons_per_year'].replace(',', ''))
             waste_per_capita = waste_mass_load * 1000 / population / 365
         if waste_mass_load != waste_mass_load:
             # Use per capita default
@@ -1322,7 +1338,7 @@ class City:
                 waste_fractions = defaults_2019.waste_fractions_country.loc[iso3, :]
             else:
                 if region == 'Rest of Oceania':
-                    print(self.city_name)
+                    print('Oceania', self.city_name)
                 waste_fractions = defaults_2019.waste_fraction_defaults.loc[region, :]
         else:
             waste_fractions.fillna(0, inplace=True)
@@ -1335,7 +1351,7 @@ class City:
                 waste_fractions = defaults_2019.waste_fractions_country.loc[iso3, :]
             else:
                 if region == 'Rest of Oceania':
-                    print(self.city_name)
+                    print('Oceania', self.city_name)
                 waste_fractions = defaults_2019.waste_fraction_defaults.loc[region, :]
     
         waste_fractions_dict = waste_fractions.to_dict()
@@ -1365,6 +1381,8 @@ class City:
         # k values, which are decomposition rates
         # ks = defaults_2019.k_defaults[precip_zone]
         
+        self.diversion_defaults = False
+        self.landfill_split_defaults = False
         # Model components
         components = set(['food', 'green', 'wood', 'paper_cardboard', 'textiles'])
         
@@ -1413,8 +1431,10 @@ class City:
             recycling = np.nansum([glass_recovered, metal_recovered, paper_recovered, plastic_recovered, other_waste])
             if np.isnan(total):
                 total = np.nansum([compost, recycling])
-            compost_fraction = compost / total
-            recycling_fraction = recycling / total
+            if np.isnan(recycling_fraction):
+                compost_fraction = compost / waste_mass
+            if np.isnan(recycling_fraction):
+                recycling_fraction = recycling / total
             if np.isnan(anaerobic_fraction):
                 anaerobic_fraction = 0
             combustion_fraction = 0
@@ -1513,7 +1533,7 @@ class City:
         waste_masses_df = waste_fractions.multiply(waste_mass, axis=0)
         waste_generated_df = WasteGeneratedDF.create(
             waste_masses_df,
-            1960, 
+            1950, 
             2073, 
             year_of_data_pop, 
             growth_rate_historic, 
@@ -1546,6 +1566,7 @@ class City:
             waste_burning_emissions=None,
             non_compostable_not_targeted_total=non_compostable_not_targeted_total,
             source_pop=data_source,
+            source_msw_mass=source_msw_mass,
         )
         self.baseline_parameters = baseline
 
@@ -1560,27 +1581,322 @@ class City:
             print(f'Invalid new value')
             return
         
-        # Assign the baseline parameters to the city instance
         self._calculate_divs(sinar=True)
+
+        baseline.divs_df = DivsDF.create_advanced_baseline(
+            baseline.divs, 
+            baseline.year_of_data_pop, 
+            baseline.growth_rate_historic, 
+            baseline.growth_rate_future
+        )
+
+        baseline.repopulate_attr_dicts()
+        for i, landfill in enumerate(baseline.landfills):
+            # Might be able to do this more efficienctly...i'm looping over the pre implementation years twice sort of
+            landfill.waste_mass_df = LandfillWasteMassDF.create_advanced(
+                waste_generated_df=baseline.waste_generated_df,
+                divs_df=baseline.divs_df, 
+                fraction_of_waste_series=landfill.fraction_of_waste_vector,
+            ).df
+
+    def determine_component_fractions_un(self, recovereds, waste_mass, div_fractions, waste_fractions):
+        """
+        Determine waste types of diverions based on UN Habitat data.
+        
+        Args:
+            None
+
+        Returns:
+            - div_component_fractions (dict): Dictionary containing the waste type fractions
+                                              of each diversion type. Sums to 1, or 0 if that
+                                              diversion type is 0. 
+            - divs (dict): Dictionary containing the mass of each waste type composing each diversion type.
+        """
+
+
+        # Load and reshape UN Habitat data
+        # filepath_un = '../data/data_overview_2022.xlsx'
+        # un_data_overview = pd.read_excel(filepath_un, sheet_name='Data overview', header=1).loc[:, 'Country':].T
+        # un_data_overview.columns = un_data_overview.iloc[0, :]
+        # un_data_overview = un_data_overview.iloc[1:-4, :]
+
+        # if self.name == 'Dar Es Salaam':
+        #     row = un_data_overview.loc[un_data_overview['City'] == 'Dar es Salaam', :]
+        # else:
+        #     row = un_data_overview.loc[un_data_overview['City'] == self.name, :]
+        
+        parameters = self.baseline_parameters
+        total_recovered_materials_with_rejects, organic_waste_recovered, glass_recovered, metal_recovered, paper_or_cardboard, total_plastic_recovered, mixed_waste, other_waste = recovereds
+        divs = {}
+
+        # This just gets filled with zeros
+        divs['anaerobic'] = {}
+        
+        # Compost 
+        divs['compost'] = {}
+        if div_fractions['compost'] < 0.001:
+            div_fractions['compost'] = 0
+        compost_total = div_fractions['compost'] * waste_mass
+        # Split composted waste proportional to the waste fractions at generation
+        if div_fractions['compost'] != 0:
+            divs['compost']['food'] = compost_total * waste_fractions['food'] / sum([waste_fractions[x] for x in ['food', 'green', 'wood']])
+            divs['compost']['green'] = compost_total * waste_fractions['green'] / sum([waste_fractions[x] for x in ['food', 'green', 'wood']])
+            divs['compost']['wood'] = compost_total * waste_fractions['wood'] / sum([waste_fractions[x] for x in ['food', 'green', 'wood']])
+            
+        else:
+            divs['compost'] = {x: 0 for x in self.div_components['compost']}
+        
+        assert np.absolute(sum([x for x in divs['compost'].values()]) - waste_mass * div_fractions['compost']) < 1e-3
+
+        # Recycling
+        divs['recycling'] = {}
+        recycling_total = div_fractions['recycling'] * waste_mass
+        fraction_recyclable_types = sum([waste_fractions[x] for x in self.div_components['recycling']])
+        
+        # Rejection rates
+        recycling_reject_rates = {'wood': .8, 'paper_cardboard': .775, 'textiles': .99, 
+                                'plastic': .875, 'metal': .955, 'glass': .88, 
+                                'rubber': .78, 'other': .87}
+        
+        # Recovery rate is a term from UN Habitat data that encompasses multiple diversion types
+        recovery_rate = (total_recovered_materials_with_rejects) / waste_mass
+
+        if div_fractions['recycling'] != 0:
+            # Determine waste types of recycling. Mixed waste is split proportionally among the different types.
+            # Glass, metal, and other recovered are given directly, and are not in combustion, so they have to be recycling.
+            divs['recycling']['wood'] = 0
+            divs['recycling']['glass'] = glass_recovered + mixed_waste * waste_fractions['glass']
+            divs['recycling']['metal'] = metal_recovered + mixed_waste * waste_fractions['metal']
+            divs['recycling']['other'] = other_waste + mixed_waste * waste_fractions['other']
+
+            # Waste types that can be combusted or recycled are split proportionally between combustion and recycling rates.
+            divs['recycling']['paper_cardboard'] = \
+                (paper_or_cardboard + mixed_waste * waste_fractions['paper_cardboard']) * \
+                (div_fractions['recycling'] + div_fractions['compost']) / recovery_rate                            
+            divs['recycling']['plastic'] = \
+                (total_plastic_recovered + mixed_waste * waste_fractions['plastic']) * \
+                (div_fractions['recycling'] + div_fractions['compost']) / recovery_rate                      
+            divs['recycling']['textiles'] = \
+                (mixed_waste * waste_fractions['textiles']) * \
+                (div_fractions['recycling'] + div_fractions['compost']) / recovery_rate
+            divs['recycling']['rubber'] = \
+                (mixed_waste * waste_fractions['rubber']) * \
+                (div_fractions['recycling'] + div_fractions['compost']) / recovery_rate
+            
+            # This increases recycling if the proportional assumption resulted in invalid values. 
+            # Note: If there is no organic, some mixed waste isn't used
+            if sum([x for x in divs['recycling'].values()]) - recycling_total < -10:
+                adds = {}
+                diff = recycling_total - sum([x for x in divs['recycling'].values()])
+                for w in divs['recycling'].keys():
+                    adds[w] = diff * (divs['recycling'][w] / sum(x for x in divs['recycling'].values()))
+                    
+                for w in divs['recycling'].keys():
+                    divs['recycling'][w] += adds[w]
+            
+            
+            # This one is to reduce recycling if it's too much. Happens when too much mixed waste ends up in recycling
+            if sum([x for x in divs['recycling'].values()]) - recycling_total > 10:
+                excess = sum(divs['recycling'].values()) - recycling_total
+
+                # Recycled waste types cannot be adjusted below these values
+                limits = {'wood': 0, 
+                        'glass': glass_recovered, 
+                        'metal': metal_recovered, 
+                        'other': other_waste, 
+                        'paper_cardboard': 0, 
+                        'plastic': 0, 
+                        'textiles': 0, 
+                        'rubber': 0}
+            
+                if sum([x for x in limits.values()]) - recycling_total > 10:
+                    print('cant fix recycling')
+                        
+                while excess > 0:
+                    total_reducible = sum(divs['recycling'][waste] - limit for waste, limit in limits.items())
+                    
+                    if total_reducible == 0:  # if no category can be reduced anymore
+                        print('cant fix recycling')
+                        return True, True, None, None
+                    
+                    reductions = {waste: self.calculate_reduction(divs['recycling'][waste], limit, excess, total_reducible) 
+                                for waste, limit in limits.items()}
+            
+                    # apply reductions and re-calculate excess
+                    for waste, reduction in reductions.items():
+                        divs['recycling'][waste] -= reduction
+                    
+                    excess = sum(divs['recycling'].values()) - recycling_total
+
+                    #assert np.absolute(excess) < 1
+        else:
+            divs['recycling'] = {x: 0 for x in self.div_components['recycling']}
+            #self.recycling_waste_fractions = {x: 0 for x in self.div_components['recycling']}
+            
+        # Check sum of recycled waste types add up to correct value
+        assert np.absolute(sum(x for x in divs['recycling'].values()) - recycling_total) < 10
+
+        # Sometimes the UN habitat process results in tiny non-zero values. Set them to 0. 
+        #mixed_waste = row['Mixed waste (t/d)']
+        if div_fractions['combustion'] < 0.01:
+            div_fractions['combustion'] = 0
+        
+        if not ('reductions' in locals()) or ('reductions' in globals()):
+            reductions = {x: 0 for x in self.div_components['recycling']}
+
+        # Combustion
+        divs['combustion'] = {} 
+        combustion_total = div_fractions['combustion'] * waste_mass
+        # Subtract the recycling from total
+        self.combustion_reject_rate = 0.1 #.1 I think sweet has an error, the rejected from combustion stuff just disappears
+        # Food, green, wood are only in combustion, so the recovered must go here. Split proportionally.
+        if div_fractions['combustion'] != 0:
+            # As in recycling, everything is split proportionally
+            # Recovery for organic types (food, green, wood) are not reported, so we estimate these proportionally
+            # from organic waste recovered.
+            # Note: Organic waste can also be composted, so organic waste is split proportionally between compost and combustion
+            divs['combustion']['food'] = (organic_waste_recovered * \
+                                        (waste_fractions['food'] / \
+                                        (waste_fractions['food'] + waste_fractions['green'] + waste_fractions['wood'])) + \
+                                        mixed_waste * waste_fractions['food']) * \
+                                        div_fractions['combustion'] / recovery_rate
+            divs['combustion']['green'] = (organic_waste_recovered * \
+                                        (waste_fractions['green'] / \
+                                        (waste_fractions['food'] + waste_fractions['green'] + waste_fractions['wood'])) + \
+                                        mixed_waste * waste_fractions['green']) * \
+                                        div_fractions['combustion'] / recovery_rate
+            divs['combustion']['wood'] = (organic_waste_recovered * \
+                                        (waste_fractions['wood'] / \
+                                        (waste_fractions['food'] + waste_fractions['green'] + waste_fractions['wood'])) + \
+                                        mixed_waste * waste_fractions['wood'])* \
+                                        div_fractions['combustion'] / recovery_rate
+            divs['combustion']['paper_cardboard'] = \
+                (paper_or_cardboard + mixed_waste * waste_fractions['paper_cardboard']) * \
+                div_fractions['combustion'] / recovery_rate + \
+                reductions['paper_cardboard']                             
+            divs['combustion']['plastic'] = \
+                (total_plastic_recovered + mixed_waste * waste_fractions['plastic']) * \
+                div_fractions['combustion'] / recovery_rate + \
+                reductions['plastic']                
+            divs['combustion']['textiles'] = \
+                (mixed_waste * waste_fractions['textiles']) * \
+                (div_fractions['combustion']) / recovery_rate + \
+                reductions['textiles']                
+            divs['combustion']['rubber'] = \
+                (mixed_waste * waste_fractions['rubber']) * \
+                (div_fractions['combustion']) / recovery_rate + \
+                reductions['rubber']
+            
+            # Adjusting if combustion waste fractions didn't add up to correct total
+            if sum([x for x in divs['combustion'].values()]) - combustion_total < -10:
+                adds = {}
+                diff = combustion_total - sum([x for x in divs['combustion'].values()])
+                for w in divs['combustion'].keys():
+                    adds[w] = diff * (divs['combustion'][w] / sum(x for x in divs['combustion'].values()))
+                    
+                for w in divs['combustion'].keys():
+                    divs['combustion'][w] += adds[w]
+            elif sum([x for x in divs['combustion'].values()]) - combustion_total > 10:
+                percent_diff = (sum([x for x in divs['combustion'].values()]) - combustion_total) / sum([x for x in divs['combustion'].values()])
+                for w in divs['combustion'].keys():
+                    divs['combustion'][w] *= (1 - percent_diff)
+                    
+        else:
+            divs['combustion'] = {x: 0 for x in self.div_components['combustion']}
+        
+        assert np.absolute(sum([x for x in divs['combustion'].values()]) - combustion_total) < 10
+        
+        # Fill zeros for waste types that are not in the diversion type
+        for c in waste_fractions.index:
+            if c not in divs['compost'].keys():
+                divs['compost'][c] = 0
+            if c not in divs['anaerobic'].keys():
+                divs['anaerobic'][c] = 0
+            if c not in divs['combustion'].keys():
+                divs['combustion'][c] = 0
+            if c not in divs['recycling'].keys():
+                divs['recycling'][c] = 0
+
+        # Calculate fractions from total masses
+        div_component_fractions = {}
+        for div, fraction in div_fractions.items():
+            div_component_fractions[div] = {}
+            if fraction == 0:
+                for waste in divs[div]:
+                    div_component_fractions[div][waste] = 0
+            else:
+                for waste in divs[div]:
+                    div_component_fractions[div][waste] = divs[div][waste] / (waste_mass * fraction)
+
+        # Set to 0 for components that are near 0            
+        for div, fractions in div_component_fractions.items():
+            for waste, f in fractions.items():
+                if f < .01:
+                    div_component_fractions[div][waste] = 0
+
+        # Normalize to deal with the little fractions just removed
+        for div, fractions in div_component_fractions.items():
+            s = sum(fractions.values())
+            if s != 0:
+                for waste, f in fractions.items():
+                    div_component_fractions[div][waste] /= s
+        
+        for div in div_component_fractions:
+            assert (sum(x for x in div_component_fractions[div].values()) < 1.01)
+            assert (sum(x for x in div_component_fractions[div].values()) > 0.98) or \
+                (sum(x for x in div_component_fractions[div].values()) == 0)
+        
+        # Reduce them by non-compostable and unprocessable and etc rates
+        self.unprocessable = {'food': .0192, 'green': .042522, 'wood': .07896, 'paper_cardboard': .12}
+        self.non_compostable_not_targeted = {'food': .1, 'green': .05, 'wood': .05, 'paper_cardboard': .1}
+        self.non_compostable_not_targeted_total = sum([
+            self.non_compostable_not_targeted[x] * \
+            div_component_fractions['compost'][x] for x in self.div_components['compost']
+        ])
+
+        # Calculate masses from fractions. 
+        divs = self._divs_from_component_fractions_un(scenario=0, waste_mass=waste_mass, div_fractions=div_fractions, div_component_fractions=div_component_fractions)
+
+        # for waste in self.div_components['compost']:
+        #     divs['compost'][waste] = (
+        #         divs['compost'][waste]  * 
+        #         (1 - self.non_compostable_not_targeted_total) *
+        #         (1 - self.unprocessable[waste])
+        #         )
+        # for waste in self.combustion_components:
+        #     divs['combustion'][waste] = (
+        #         divs['combustion'][waste]  * 
+        #         (1 - self.combustion_reject_rate)
+        #         )
+        # for waste in self.recycling_components:
+        #     divs['recycling'][waste] = (
+        #         divs['recycling'][waste]  * 
+        #         self.recycling_reject_rates[waste]
+        #         )
+
+        return divs, div_component_fractions
 
     def _calculate_divs(self, advanced_baseline=False, advanced_dst=False, sinar=False) -> None:
         
-        city_parameters = self.baseline_parameters
-        city_parameters._singapore_k()
+        parameters = self.baseline_parameters
+        if sinar:
+            parameters._singapore_k(advanced_baseline=True)
+        else:
+            parameters._singapore_k()
 
         # Create city-level dataframes
-        start_year = 1960
+        start_year = 1950
         end_year = 2073
         years = range(start_year, end_year + 1)
         
-        waste_masses_df = city_parameters.waste_fractions.multiply(city_parameters.waste_mass, axis=0)
+        waste_masses_df = parameters.waste_fractions.multiply(parameters.waste_mass, axis=0)
 
-        if isinstance(city_parameters.year_of_data_pop, dict):
-            year_of_data_pop = city_parameters.year_of_data_pop['baseline']
+        if isinstance(parameters.year_of_data_pop, dict):
+            year_of_data_pop = parameters.year_of_data_pop['baseline']
         else:
-            year_of_data_pop = city_parameters.year_of_data_pop
+            year_of_data_pop = parameters.year_of_data_pop
 
-        city_parameters.waste_generated_df = WasteGeneratedDF.create(waste_masses_df, start_year, end_year, year_of_data_pop, city_parameters.growth_rate_historic, city_parameters.growth_rate_future).df
+        parameters.waste_generated_df = WasteGeneratedDF.create(waste_masses_df, start_year, end_year, year_of_data_pop, parameters.growth_rate_historic, parameters.growth_rate_future).df
         
         # if scenario == 0:
         #     self.baseline_parameters = city_parameters
@@ -1591,67 +1907,122 @@ class City:
         #self._calculate_waste_masses()
         self._calculate_diverted_masses()
         #city_parameters.divs_df = DivsDF.create(city_parameters.divs, start_year, end_year, city_parameters.year_of_data_pop, city_parameters.growth_rate_historic, city_parameters.growth_rate_future)
-        city_parameters.divs_df = city_parameters.divs
+        parameters.divs_df = parameters.divs
         self._calculate_net_masses()
 
-        city_params_dict = self.update_cityparams_dict(city_parameters)
+        city_params_dict = self.update_cityparams_dict(parameters)
+
+        years = pd.Index(range(1950, 2074))
+        mcf_options = [1, 0.6, 0.4]
+        gas_capture_efficiencies = {}
+        gas_capture_efficiencies['ameliorated'] = [0.5, 0.3, 0]
+        gas_capture_efficiencies['not_ameliorated'] = [0.6, 0.45, 0]
+        ox_options = {
+            'ox_nocap': {'landfill': 0.1, 'controlled_dumpsite': 0.05, 'dumpsite': 0},
+            'ox_cap': {'landfill': 0.22, 'controlled_dumpsite': 0.1, 'dumpsite': 0}
+        }
+        landfill_types = ['landfill', 'controlled_dumpsite', 'dumpsite']
+        landfill_type_translator = {'Sanitary Landfill': 0, 'Controlled Dumpsite': 1, 'Dumpsite': 2}
         
         if sinar:
-            self.rows['facility'].reset_index(inplace=True, drop=True)
+            parameters.landfills = []
+            self.rows.reset_index(inplace=True, drop=True)
             landfills = self.rows['facility'].values.tolist()
-            for i, l in enumerate(landfills):
-                lf_type = self.rows.loc[i, 'facility_type']
-                # Make the MCF, oxidation, and efficiency vectors
-                years = pd.Index(range(1960, 2074))
+            if len(landfills) == 0:
+                lf_type = 2
+                gas_eff = np.nan
                 mcf = mcf_options[lf_type]
-                if (depth > 5) and (lf_type in (1, 2)):
-                    mcf = 0.8
-                # Handle no gas capture first
-                if new_gas_efficiency[i] == 0:
-                    #mcf = mcf_options['not_ameliorated']['no_gas_capture'][lf_type]
-                    ox_value = self.ox_options['ox_nocap'][landfill_types[lf_type]]
-                    gas_eff = 0
-                # If there is gas capture, use the number or figure it out
-                else:
-                    #mcf = mcf_options['not_ameliorated']['gas_capture'][lf_type]
-                    ox_value = self.ox_options['ox_cap'][landfill_types[lf_type]]
-                    gas_eff = new_gas_efficiency[i] if new_gas_efficiency[i] is not None else gas_capture_efficiencies['not_ameliorated'][lf_type]
-
-                if new_gas_efficiency[i] is not None:
-                    gas_eff = new_gas_efficiency[i]
-                
-                oxs = [ox_value for year in years]
-                mcfs = [mcf for year in years]
-                gas_effs = [gas_eff for year in years]
-
-                # if fancy_ox:
-                #     oxs = None
-                
+                ox_value = self.ox_options['ox_nocap'][landfill_types[lf_type]]
                 new_landfill = Landfill(
-                    open_date=new_landfill_open_close_dates[i][0], 
-                    close_date=new_landfill_open_close_dates[i][1], 
+                    open_date=1990, 
+                    close_date=2073, 
                     site_type=landfill_types[lf_type], 
-                    mcf=pd.Series(mcfs, index=years),
+                    mcf=pd.Series(mcf, index=years),
                     city_params_dict=city_params_dict,
-                    city_instance_attrs=scenario_parameters.city_instance_attrs,
+                    city_instance_attrs=parameters.city_instance_attrs,
                     landfill_index=i, 
-                    #fraction_of_waste=new_landfill_fracs[i], 
-                    gas_capture = False if new_gas_efficiency[i] == 0 else True,
-                    scenario=scenario,
+                    gas_capture = False,
+                    scenario=0,
                     new_baseline=True,
-                    gas_capture_efficiency=pd.Series(gas_effs, index=years),
-                    flaring=new_landfill_flaring[i],
+                    gas_capture_efficiency=pd.Series(0, index=years),
+                    flaring=0,
                     #leachate_circulate=leachate_circulate[i],
-                    fraction_of_waste_vector=fraction_df[f'Landfill_{i}'],
+                    fraction_of_waste_vector=pd.Series(self.rows.at[i, 'percent_of_waste_sent'] / 100, index=years),
                     advanced=True,
-                    latlon=new_landfill_latlons[i] if fancy_ox else None,
-                    areas=new_landfill_areas[i] if fancy_ox else None,
-                    cover_types=new_covertypes[i] if fancy_ox else None,
-                    cover_thicknesses=new_coverthicknesses[i] if fancy_ox else None,
-                    oxidation_factor=pd.Series(oxs, index=years) if not fancy_ox else None,
-                    fancy_ox=fancy_ox,
+                    oxidation_factor=pd.Series(ox_value, index=years),
+                    fancy_ox=False,
                 )
-                scenario_parameters.landfills.append(new_landfill)
+                parameters.landfills.append(new_landfill)
+                return
+            else:
+                for i, l in enumerate(landfills):
+                    lf_type = self.rows.at[i, 'facility_type']
+                    try:
+                        lf_type = landfill_type_translator[lf_type]
+                    except:
+                        assert (lf_type is None or np.isnan(lf_type)), 'Landfill type is not recognized'
+                        lf_type = 2
+                    new_gas_efficiency = self.rows.at[i, 'gas_capture_efficiency_percent'] / 100
+                    # Make the MCF, oxidation, and efficiency vectors
+                    mcf = mcf_options[lf_type]
+                    try:
+                        depth = self.rows.loc[i, 'depth']
+                    except:
+                        depth = np.nan
+                    if not np.isnan(depth):
+                        if (parameters.depth > 5) and (lf_type in (1, 2)):
+                            mcf = 0.8
+                    # Handle no gas capture first
+                    if (new_gas_efficiency == 0) or np.isnan(new_gas_efficiency):
+                        #mcf = mcf_options['not_ameliorated']['no_gas_capture'][lf_type]
+                        ox_value = ox_options['ox_nocap'][landfill_types[lf_type]]
+                        gas_eff = 0
+                    # If there is gas capture, use the number or figure it out
+                    else:
+                        #mcf = mcf_options['not_ameliorated']['gas_capture'][lf_type]
+                        ox_value = self.ox_options['ox_cap'][landfill_types[lf_type]]
+                        gas_eff = new_gas_efficiency if new_gas_efficiency is not None else gas_capture_efficiencies['not_ameliorated'][lf_type]
+                    
+                    if np.isnan(gas_eff):
+                        gas_eff = 0
+
+                    oxs = [ox_value for year in years]
+                    mcfs = [mcf for year in years]
+                    gas_effs = [gas_eff for year in years]
+
+                    # if fancy_ox:
+                    #     oxs = None
+                    
+                    open_date = self.rows.at[i, 'year_landfill_opened']
+                    if np.isnan(open_date):
+                        open_date = 1990
+
+                    close_date = self.rows.at[i, 'landfill_closure_year']
+                    if np.isnan(close_date):
+                        close_date = 2073
+
+                    new_landfill = Landfill(
+                        open_date=open_date, 
+                        close_date=close_date, 
+                        site_type=landfill_types[lf_type], 
+                        mcf=pd.Series(mcfs, index=years),
+                        city_params_dict=city_params_dict,
+                        city_instance_attrs=parameters.city_instance_attrs,
+                        landfill_index=i, 
+                        gas_capture = False if (new_gas_efficiency == 0 or np.isnan(new_gas_efficiency)) else True,
+                        scenario=0,
+                        new_baseline=True,
+                        gas_capture_efficiency=pd.Series(gas_effs, index=years),
+                        flaring=0,
+                        #leachate_circulate=leachate_circulate[i],
+                        fraction_of_waste_vector=pd.Series(self.rows.at[i, 'percent_of_waste_sent'] / 100, index=years),
+                        advanced=True,
+                        oxidation_factor=pd.Series(oxs, index=years),
+                        fancy_ox=False,
+                    )
+                    parameters.landfills.append(new_landfill)
+                parameters.non_zero_landfills = parameters.landfills
+                return
 
         if not advanced_baseline and not advanced_dst:
             landfill_w_capture = Landfill(
@@ -1660,9 +2031,9 @@ class City:
                 site_type='landfill', 
                 mcf=pd.Series(1, index=years),
                 city_params_dict=city_params_dict, 
-                city_instance_attrs=city_parameters.city_instance_attrs, 
+                city_instance_attrs=parameters.city_instance_attrs, 
                 landfill_index=0, 
-                fraction_of_waste=city_parameters.split_fractions.landfill_w_capture, 
+                fraction_of_waste=parameters.split_fractions.landfill_w_capture, 
                 gas_capture=True
             )
             landfill_wo_capture = Landfill(
@@ -1671,9 +2042,9 @@ class City:
                 site_type='landfill', 
                 mcf=pd.Series(1, index=years), 
                 city_params_dict=city_params_dict, 
-                city_instance_attrs=city_parameters.city_instance_attrs, 
+                city_instance_attrs=parameters.city_instance_attrs, 
                 landfill_index=1, 
-                fraction_of_waste=city_parameters.split_fractions.landfill_wo_capture, 
+                fraction_of_waste=parameters.split_fractions.landfill_wo_capture, 
                 gas_capture=False
             )
             dumpsite = Landfill(
@@ -1682,17 +2053,17 @@ class City:
                 site_type='dumpsite', 
                 mcf=pd.Series(0.4, index=years), 
                 city_params_dict=city_params_dict, 
-                city_instance_attrs=city_parameters.city_instance_attrs, 
+                city_instance_attrs=parameters.city_instance_attrs, 
                 landfill_index=2, 
-                fraction_of_waste=city_parameters.split_fractions.dumpsite, 
+                fraction_of_waste=parameters.split_fractions.dumpsite, 
                 gas_capture=False
             )
 
             landfills = [landfill_w_capture, landfill_wo_capture, dumpsite]
             non_zero_landfills = [x for x in [landfill_w_capture, landfill_wo_capture, dumpsite] if x.fraction_of_waste > 0]
 
-            city_parameters.landfills = landfills
-            city_parameters.non_zero_landfills = non_zero_landfills
+            parameters.landfills = landfills
+            parameters.non_zero_landfills = non_zero_landfills
 
     # This should probably be a method of CityParameters
     def update_cityparams_dict(self, city_parameters: dict) -> None:
@@ -3181,13 +3552,23 @@ class City:
         else:
             parameters = self.scenario_parameters[scenario - 1]
 
+        years = np.arange(1950, 2074)
+
+        if isinstance(div_component_fractions, dict):
+            div_component_fractions = DivComponentFractionsDF(
+                compost=pd.DataFrame(div_component_fractions['compost'], index=years),
+                anaerobic=pd.DataFrame(div_component_fractions['anaerobic'], index=years),
+                combustion=pd.DataFrame(div_component_fractions['combustion'], index=years),
+                recycling=pd.DataFrame(div_component_fractions['recycling'], index=years)
+            )
+
         non_compostable_not_targeted_total = sum([
             self.non_compostable_not_targeted[x] * div_component_fractions.model_dump().get('compost', {}).get(x, 0.0)
             for x in self.div_components['compost']
         ])
-        parameters.non_compostable_not_targeted_total = pd.Series(non_compostable_not_targeted_total, np.arange(1960, 2074))
+        parameters.non_compostable_not_targeted_total = pd.Series(non_compostable_not_targeted_total, np.arange(1950, 2074))
         if parameters.non_compostable_not_targeted_total.isna().all():
-            parameters.non_compostable_not_targeted_total = pd.Series(0, index=np.arange(1960, 2074))
+            parameters.non_compostable_not_targeted_total = pd.Series(0, index=np.arange(1950, 2074))
 
         # Deal with waste mass that changes at implement_date first. 
         waste_mass = parameters.waste_mass
@@ -3279,6 +3660,84 @@ class City:
                 waste_mass * 
                 getattr(div_fractions, 'recycling', 0) * 
                 getattr(getattr(div_component_fractions, 'recycling', {}), waste, 0) * 
+                self.recycling_reject_rates.get(waste, 0)
+            )
+
+        divs = DivMasses(
+            compost=WasteMasses(**compost_masses),
+            anaerobic=WasteMasses(**anaerobic_masses),
+            combustion=WasteMasses(**combustion_masses),
+            recycling=WasteMasses(**recycling_masses)
+        )
+
+        return divs
+    
+    def _divs_from_component_fractions_un(self, waste_mass: pd.Series, div_fractions: DiversionFractions, div_component_fractions: DivComponentFractions, scenario: int, advanced: bool=False, year: int=2000) -> dict:
+        """
+        Calculates diverted masses from diversion fractions and component fractions,
+        incorporating rejection rates.
+
+        Args:
+            div_fractions (DiversionFractions): Fractions of waste diverted to diversion types.
+            div_component_fractions (DivComponentFractions): Waste type fractions of each diversion type.
+
+        Returns:
+            dict: Dictionary containing the resulting masses of waste components diverted to each diversion type.
+        """
+
+        years = np.arange(1950, 2074)
+
+        if isinstance(div_component_fractions, dict):
+            div_component_fractions = DivComponentFractionsDF(
+                compost=pd.DataFrame(div_component_fractions['compost'], index=years),
+                anaerobic=pd.DataFrame(div_component_fractions['anaerobic'], index=years),
+                combustion=pd.DataFrame(div_component_fractions['combustion'], index=years),
+                recycling=pd.DataFrame(div_component_fractions['recycling'], index=years)
+            )
+
+        non_compostable_not_targeted_total = sum([
+            self.non_compostable_not_targeted[x] * div_component_fractions.model_dump().get('compost', {}).get(x, 0.0)
+            for x in self.div_components['compost']
+        ])
+        non_compostable_not_targeted_total = pd.Series(non_compostable_not_targeted_total, np.arange(1950, 2074))
+        if non_compostable_not_targeted_total.isna().all():
+            non_compostable_not_targeted_total = pd.Series(0, index=np.arange(1950, 2074))
+
+        compost_masses = {}
+        anaerobic_masses = {}
+        combustion_masses = {}
+        recycling_masses = {}
+
+        # if advanced:
+        #     waste_mass = waste_mass.at[year]
+        #     try:
+        #         non_compostable_not_targeted_total = non_compostable_not_targeted_total.at[year]
+        #     except:
+        #         pass
+
+        for waste in self.waste_types:
+            compost_masses[waste] = (
+                waste_mass * 
+                getattr(div_fractions, 'compost', 0) * 
+                getattr(getattr(div_component_fractions, 'compost', {}), waste, 0).at[2020] * 
+                (1 - non_compostable_not_targeted_total.at[2020]) * 
+                (1 - self.unprocessable.get(waste, 0))
+            )
+            anaerobic_masses[waste] = (
+                waste_mass * 
+                getattr(div_fractions, 'anaerobic', 0) * 
+                getattr(getattr(div_component_fractions, 'anaerobic', {}), waste, 0).at[2020]
+            )
+            combustion_masses[waste] = (
+                waste_mass * 
+                getattr(div_fractions, 'combustion', 0) * 
+                getattr(getattr(div_component_fractions, 'combustion', {}), waste, 0).at[2020] * 
+                (1 - self.combustion_reject_rate)
+            )
+            recycling_masses[waste] = (
+                waste_mass * 
+                getattr(div_fractions, 'recycling', 0) * 
+                getattr(getattr(div_component_fractions, 'recycling', {}), waste, 0).at[2020] * 
                 self.recycling_reject_rates.get(waste, 0)
             )
 
