@@ -43,6 +43,7 @@ class Landfill:
             fancy_ox: bool = False,
             implementation_year: int = None,
             ks: DecompositionRates = None,
+            biocover: int = 0,
     ):
         """
         Initializes a Landfill object.
@@ -89,6 +90,7 @@ class Landfill:
         self.fraction_of_waste_vector = fraction_of_waste_vector
         self.fancy_ox = fancy_ox
         self.implementation_year = implementation_year
+        self.biocover = biocover
 
         if ks is None:
             self.ks = self.city_params_dict['ks']

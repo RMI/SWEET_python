@@ -3787,6 +3787,7 @@ class City:
         k_values: Dict = None,
         waste_mass_year: int = None,
         ks_overrides: Dict = None,
+        biocover: Dict = {'baseline': 0.0, 'scenario': 0.0},
     ) -> None:
         
         scenario_parameters = copy.deepcopy(self.baseline_parameters)
@@ -3976,6 +3977,10 @@ class City:
             mcf_series.loc[years < implement_year] = mcf['baseline']
             mcf_series.loc[years >= implement_year] = mcf['scenario']
             
+            if biocover['baseline'] > 0:
+                ox_value['baseline ']= biocover['baseline']
+            if biocover['scenario'] > 0:
+                ox_value['scenario'] = biocover['scenario']
             ox_value_series.loc[years < implement_year] = ox_value['baseline']
             ox_value_series.loc[years >= implement_year] = ox_value['scenario']
             
@@ -4186,6 +4191,7 @@ class City:
         new_waste_mass_per_capita: float = None,
         depth: float = None,
         ks_overrides: float = None,
+        biocover: float = 0,
     ) -> None:
         
         scenario_parameters = copy.deepcopy(self.baseline_parameters)
@@ -4286,6 +4292,9 @@ class City:
             oxs = [ox_value for year in years]
             mcfs = [mcf for year in years]
             gas_effs = [gas_eff for year in years]
+
+            if biocover > 0:
+                oxs = [biocover for year in years]
 
             # if fancy_ox:
             #     oxs = None
