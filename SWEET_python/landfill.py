@@ -41,7 +41,8 @@ class Landfill:
             cover_types: str = None, # remember that these need to be in meters and square meters. 
             cover_thicknesses: float = None,
             fancy_ox: bool = False,
-            implementation_year: int = None
+            implementation_year: int = None,
+            ks: DecompositionRates = None,
     ):
         """
         Initializes a Landfill object.
@@ -88,6 +89,18 @@ class Landfill:
         self.fraction_of_waste_vector = fraction_of_waste_vector
         self.fancy_ox = fancy_ox
         self.implementation_year = implementation_year
+
+        if ks is None:
+            self.ks = self.city_params_dict['ks']
+        else:
+            ks_dict = {
+                'food': ks.food,
+                'green': ks.green,
+                'wood': ks.wood,
+                'paper_cardboard': ks.paper_cardboard,
+                'textiles': ks.textiles,
+            }
+            self.ks = ks_dict
 
         self.doing_fancy_ox = self.fancy_ox
         # if isinstance(self.doing_fancy_ox, dict):

@@ -278,7 +278,7 @@ class SWEET:
         year_of_data_pop = self.city_params_dict['year_of_data_pop']
         growth_rate_historic = self.city_params_dict['growth_rate_historic']
         growth_rate_future = self.city_params_dict['growth_rate_future']
-        ks = self.city_params_dict['ks']
+        ks = self.landfill_instance_attrs['ks']
         waste_mass_df = self.landfill_instance_attrs['waste_mass_df']
         mcf = self.landfill_instance_attrs['mcf']
         gas_capture_efficiency = self.landfill_instance_attrs['gas_capture_efficiency']

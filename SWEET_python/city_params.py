@@ -58,6 +58,7 @@ class CityParameters(BaseModel):
     temperature: Optional[float] = None
     waste_burning_emissions: Optional[pd.DataFrame] = None
     source_pop: Optional[str] = None
+    source_msw: Optional[str] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -699,10 +700,10 @@ class City:
                 year_of_data_pop=year_of_data_pop,
                 scenario=scenario,
                 city_instance_attrs=city_instance_attrs,
-                population=city_data['Population'].values[0]
+                population=city_data['Population'].values[0],
+                source_msw=city_data['Data Source (Waste Mass)'].values[0]
             )
         except Exception as e:
-            x = 2*4
             raise CustomError('city_params_error', f"Error creating CityParameters instance: {e}")
 
         # Filter out the 'landfills' and 'non_zero_landfills' attributes from CityParameters
@@ -3785,6 +3786,7 @@ class City:
         depths: Dict = None,
         k_values: Dict = None,
         waste_mass_year: int = None,
+        ks_overrides: Dict = None,
     ) -> None:
         
         scenario_parameters = copy.deepcopy(self.baseline_parameters)
@@ -3982,6 +3984,19 @@ class City:
 
             doing_fancy_ox = fancy_ox
 
+            if ks_overrides is not None:
+                ks_series = pd.Series([ks_overrides['baseline']] * len(years), index=years)
+                ks_series.loc[implement_year:] = ks_overrides['scenario']
+                landfill_ks = DecompositionRates(
+                    food = ks_series,
+                    green = ks_series,
+                    wood = ks_series,
+                    paper_cardboard = ks_series,
+                    textiles = ks_series,
+                )
+            else:
+                landfill_ks = scenario_parameters.ks
+
             new_landfill = Landfill(
                 open_date=new_landfill_open_close_dates['scenario'][i][0], 
                 close_date=new_landfill_open_close_dates['scenario'][i][1], 
@@ -4005,7 +4020,8 @@ class City:
                 cover_thicknesses=new_coverthicknesses['scenario'][i] if doing_fancy_ox else None,
                 oxidation_factor=ox_value_series if not doing_fancy_ox else None,
                 fancy_ox=fancy_ox,
-                implementation_year=implement_year
+                implementation_year=implement_year,
+                ks = landfill_ks,
             )
             scenario_parameters.landfills.append(new_landfill)
 
@@ -4169,7 +4185,7 @@ class City:
         fancy_ox: bool = False,
         new_waste_mass_per_capita: float = None,
         depth: float = None,
-        k_values: List = None,
+        ks_overrides: float = None,
     ) -> None:
         
         scenario_parameters = copy.deepcopy(self.baseline_parameters)
@@ -4273,6 +4289,17 @@ class City:
 
             # if fancy_ox:
             #     oxs = None
+
+            if ks_overrides is not None:
+                landfill_ks = DecompositionRates(
+                    food = pd.Series([ks_overrides] * len(years), index=years),
+                    green = pd.Series([ks_overrides] * len(years), index=years),
+                    wood = pd.Series([ks_overrides] * len(years), index=years),
+                    paper_cardboard = pd.Series([ks_overrides] * len(years), index=years),
+                    textiles = pd.Series([ks_overrides] * len(years), index=years)
+                )
+            else:
+                landfill_ks = scenario_parameters.ks
             
             new_landfill = Landfill(
                 open_date=new_landfill_open_close_dates[i][0], 
@@ -4297,6 +4324,7 @@ class City:
                 cover_thicknesses=new_coverthicknesses[i] if fancy_ox else None,
                 oxidation_factor=pd.Series(oxs, index=years) if not fancy_ox else None,
                 fancy_ox=fancy_ox,
+                ks = landfill_ks
             )
             scenario_parameters.landfills.append(new_landfill)
 
