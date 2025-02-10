@@ -3788,7 +3788,7 @@ class City:
         waste_mass_year: int = None,
         ks_overrides: Dict = None,
         biocover: Dict = {'baseline': 0.0, 'scenario': 0.0},
-        oxidation_override: Dict = {'baseline': 0.0, 'scenario': 0.0},
+        oxidation_override: Dict = None,
     ) -> None:
         
         scenario_parameters = copy.deepcopy(self.baseline_parameters)
@@ -4003,10 +4003,11 @@ class City:
             else:
                 landfill_ks = scenario_parameters.ks
 
-            if oxidation_override['baseline'] > 0:
-                ox_value_series.loc[:implement_year-1] = oxidation_override['baseline']
-            if oxidation_override['scenario'] > 0:
-                ox_value_series.loc[implement_year:] = oxidation_override['scenario']
+            if oxidation_override:
+                if oxidation_override['baseline']:
+                    ox_value_series.loc[:implement_year-1] = oxidation_override['baseline']
+                if oxidation_override['scenario']:
+                    ox_value_series.loc[implement_year:] = oxidation_override['scenario']
 
             new_landfill = Landfill(
                 open_date=new_landfill_open_close_dates['scenario'][i][0], 
@@ -4198,7 +4199,7 @@ class City:
         depth: float = None,
         ks_overrides: float = None,
         biocover: float = 0,
-        oxidation_override: float = 0,
+        oxidation_override: float = None,
     ) -> None:
         
         scenario_parameters = copy.deepcopy(self.baseline_parameters)
@@ -4317,7 +4318,7 @@ class City:
             else:
                 landfill_ks = scenario_parameters.ks
 
-            if oxidation_override > 0:
+            if oxidation_override:
                 oxs = [oxidation_override for year in years]
             
             new_landfill = Landfill(
