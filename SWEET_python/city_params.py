@@ -60,8 +60,7 @@ class CityParameters(BaseModel):
     source_pop: Optional[str] = None
     source_msw: Optional[str] = None
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def model_dump_for_serialization(self):
         data = self.model_dump()
@@ -2735,10 +2734,10 @@ class City:
                             )
                         }
                         for period in ['baseline', 'scenario']:
-                            div_masses_df_split_up[period].compost.loc[year_ranges[period], :] = pd.DataFrame([divs[period].compost.dict()] * len(year_ranges[period]), index=year_ranges[period])
-                            div_masses_df_split_up[period].anaerobic.loc[year_ranges[period], :] = pd.DataFrame([divs[period].anaerobic.dict()] * len(year_ranges[period]), index=year_ranges[period])
-                            div_masses_df_split_up[period].combustion.loc[year_ranges[period], :] = pd.DataFrame([divs[period].combustion.dict()] * len(year_ranges[period]), index=year_ranges[period])
-                            div_masses_df_split_up[period].recycling.loc[year_ranges[period], :] = pd.DataFrame([divs[period].recycling.dict()] * len(year_ranges[period]), index=year_ranges[period])
+                            div_masses_df_split_up[period].compost.loc[year_ranges[period], :] = pd.DataFrame([divs[period].compost.model_dump()] * len(year_ranges[period]), index=year_ranges[period])
+                            div_masses_df_split_up[period].anaerobic.loc[year_ranges[period], :] = pd.DataFrame([divs[period].anaerobic.model_dump()] * len(year_ranges[period]), index=year_ranges[period])
+                            div_masses_df_split_up[period].combustion.loc[year_ranges[period], :] = pd.DataFrame([divs[period].combustion.model_dump()] * len(year_ranges[period]), index=year_ranges[period])
+                            div_masses_df_split_up[period].recycling.loc[year_ranges[period], :] = pd.DataFrame([divs[period].recycling.model_dump()] * len(year_ranges[period]), index=year_ranges[period])
 
                         div_masses_df.compost.loc[year_range, :] = pd.concat([div_masses_df_split_up['baseline'].compost, div_masses_df_split_up['scenario'].compost])
                         div_masses_df.anaerobic.loc[year_range, :] = pd.concat([div_masses_df_split_up['baseline'].anaerobic, div_masses_df_split_up['scenario'].anaerobic])
@@ -2755,10 +2754,10 @@ class City:
                         div_masses_df.combustion.loc[year_range, :] = pd.DataFrame([divs['scenario'].combustion] * len(year_range), index=year_range)
                         div_masses_df.recycling.loc[year_range, :] = pd.DataFrame([divs['scenario'].recycling] * len(year_range), index=year_range)            
 
-                    div_component_fractions_df.compost.loc[year_range, :] = pd.DataFrame([div_component_fractions.compost.dict()] * len(year_range), index=year_range)
-                    div_component_fractions_df.anaerobic.loc[year_range, :] = pd.DataFrame([div_component_fractions.anaerobic.dict()] * len(year_range), index=year_range)
-                    div_component_fractions_df.combustion.loc[year_range, :] = pd.DataFrame([div_component_fractions.combustion.dict()] * len(year_range), index=year_range)
-                    div_component_fractions_df.recycling.loc[year_range, :] = pd.DataFrame([div_component_fractions.recycling.dict()] * len(year_range), index=year_range)
+                    div_component_fractions_df.compost.loc[year_range, :] = pd.DataFrame([div_component_fractions.compost.model_dump()] * len(year_range), index=year_range)
+                    div_component_fractions_df.anaerobic.loc[year_range, :] = pd.DataFrame([div_component_fractions.anaerobic.model_dump()] * len(year_range), index=year_range)
+                    div_component_fractions_df.combustion.loc[year_range, :] = pd.DataFrame([div_component_fractions.combustion.model_dump()] * len(year_range), index=year_range)
+                    div_component_fractions_df.recycling.loc[year_range, :] = pd.DataFrame([div_component_fractions.recycling.model_dump()] * len(year_range), index=year_range)
                 else:
                     try:
                         div_masses_df['compost'].loc[year_range, :] = pd.DataFrame([divs['compost']] * len(year_range), index=year_range)
@@ -2771,15 +2770,15 @@ class City:
                         div_component_fractions_df['combustion'].loc[year_range, :] = pd.DataFrame([div_component_fractions['combustion']] * len(year_range), index=year_range)
                         div_component_fractions_df['recycling'].loc[year_range, :] = pd.DataFrame([div_component_fractions['recycling']]* len(year_range), index=year_range)
                     except:
-                        div_masses_df.compost.loc[year_range, :] = pd.DataFrame([divs.compost.dict()] * len(year_range), index=year_range)
-                        div_masses_df.anaerobic.loc[year_range, :] = pd.DataFrame([divs.anaerobic.dict()] * len(year_range), index=year_range)
-                        div_masses_df.combustion.loc[year_range, :] = pd.DataFrame([divs.combustion.dict()] * len(year_range), index=year_range)
-                        div_masses_df.recycling.loc[year_range, :] = pd.DataFrame([divs.recycling.dict()] * len(year_range), index=year_range)
+                        div_masses_df.compost.loc[year_range, :] = pd.DataFrame([divs.compost.model_dump()] * len(year_range), index=year_range)
+                        div_masses_df.anaerobic.loc[year_range, :] = pd.DataFrame([divs.anaerobic.model_dump()] * len(year_range), index=year_range)
+                        div_masses_df.combustion.loc[year_range, :] = pd.DataFrame([divs.combustion.model_dump()] * len(year_range), index=year_range)
+                        div_masses_df.recycling.loc[year_range, :] = pd.DataFrame([divs.recycling.model_dump()] * len(year_range), index=year_range)
                     
-                        div_component_fractions_df.compost.loc[year_range, :] = pd.DataFrame([div_component_fractions.compost.dict()] * len(year_range), index=year_range)
-                        div_component_fractions_df.anaerobic.loc[year_range, :] = pd.DataFrame([div_component_fractions.anaerobic.dict()] * len(year_range), index=year_range)
-                        div_component_fractions_df.combustion.loc[year_range, :] = pd.DataFrame([div_component_fractions.combustion.dict()] * len(year_range), index=year_range)
-                        div_component_fractions_df.recycling.loc[year_range, :] = pd.DataFrame([div_component_fractions.recycling.dict()] * len(year_range), index=year_range)
+                        div_component_fractions_df.compost.loc[year_range, :] = pd.DataFrame([div_component_fractions.compost.model_dump()] * len(year_range), index=year_range)
+                        div_component_fractions_df.anaerobic.loc[year_range, :] = pd.DataFrame([div_component_fractions.anaerobic.model_dump()] * len(year_range), index=year_range)
+                        div_component_fractions_df.combustion.loc[year_range, :] = pd.DataFrame([div_component_fractions.combustion.model_dump()] * len(year_range), index=year_range)
+                        div_component_fractions_df.recycling.loc[year_range, :] = pd.DataFrame([div_component_fractions.recycling.model_dump()] * len(year_range), index=year_range)
             
             # Make sure at some point this doesn't do crazy shit when implement_year is early or something
             # if isinstance(parameters.waste_mass, dict):
