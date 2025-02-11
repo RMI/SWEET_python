@@ -1,5 +1,5 @@
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Dict, Any, Optional, Union, TypeVar, Generic, Tuple, Annotated
 import pandas as pd
 import numpy as np
@@ -50,8 +50,7 @@ class DiversionFractions(BaseModel):
     combustion: Union[float, pd.Series]
     recycling: float
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 class DivComponentFractions(BaseModel):
     compost: WasteFractions
@@ -65,8 +64,7 @@ class DivComponentFractionsDF(BaseModel):
     combustion: pd.DataFrame
     recycling: pd.DataFrame
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 class DivMasses(BaseModel):
     compost: WasteMasses
@@ -75,8 +73,7 @@ class DivMasses(BaseModel):
     recycling: WasteMasses
     waste_change_flag: bool = False
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 class DivMassesAnnual(BaseModel):
     compost: pd.DataFrame
@@ -84,8 +81,7 @@ class DivMassesAnnual(BaseModel):
     combustion: pd.DataFrame
     recycling: pd.DataFrame
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def to_dict(self):
         return {
@@ -114,14 +110,12 @@ class DecompositionRates(BaseModel):
     paper_cardboard: pd.Series
     textiles: pd.Series
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 class WasteGeneratedDF(BaseModel):
     df: pd.DataFrame
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     # This should just take waste_masses as an input instead?
     # @classmethod
@@ -214,8 +208,7 @@ class DivsDF(BaseModel):
     combustion: pd.DataFrame
     recycling: pd.DataFrame
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @classmethod
     def create(cls, divs: DivMasses, start_year: int, end_year: int, year_of_data_pop: int, growth_rate_historic: float, growth_rate_future: float):
@@ -279,7 +272,7 @@ class DivsDF(BaseModel):
 
         def create_div_df(baseline: WasteMasses, scenario: WasteMasses) -> pd.DataFrame:
             # All waste types in order
-            waste_types = list(baseline.__fields__.keys())
+            waste_types = list(baseline.model_fields.keys())
             
             # Convert baseline and scenario WasteMasses to arrays
             baseline_arr = np.array([getattr(baseline, w) for w in waste_types])
@@ -392,8 +385,7 @@ class DivsDF(BaseModel):
 class LandfillWasteMassDF(BaseModel):
     df: pd.DataFrame
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @classmethod
     def create(cls, waste_generated_df: pd.DataFrame, divs_df: DivsDF, fraction_of_waste: float, waste_types: List[str]) -> None:
