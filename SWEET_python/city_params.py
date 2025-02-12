@@ -13,6 +13,12 @@ import pycountry # What am i using this for...seems dumb
 from SWEET_python.class_defs import *
 import inspect
 import copy
+from geopy.geocoders import Nominatim
+import asyncpg
+import socket
+from fastapi import HTTPException
+from azure.identity import DefaultAzureCredential
+from azure.keyvault.secrets import SecretClient
 try:
     from landfill import Landfill
     import defaults_2019
@@ -4413,6 +4419,100 @@ class City:
         if waste_burning > 0:
             scenario_parameters.waste_burning_emissions = waste_burned * 3.7 * 1000 / 1000 / 1000 # g ch4 / kg waste to ton ch4 / ton waste
             scenario_parameters.total_emissions['total'] += scenario_parameters.waste_burning_emissions
+
+    async def adst_prepopulate(
+        self,
+        latlon: str,
+    ) -> None:
+        parameters = self.baseline_parameters
+        geolocator = Nominatim(user_agent="karl_dilkington")
+        location = geolocator.reverse((latlon[0], latlon[1]), language="en")
+        country = location.raw['address'].get('country')
+        try:
+            iso3 = pycountry.countries.search_fuzzy(country)[0].alpha_3
+        except LookupError:
+            raise ValueError(f"Country '{country}' not found.")
+        region = defaults_2019.region_lookup_iso3.get(iso3)
+        if region is None:
+            raise ValueError(f"Region for ISO3 code '{iso3}' not found.")
+        
+        # Add weather lookup
+        # Database connection parameters – update these as needed
+        KEY_VAULT_URL = "https://rmiwastemapstagingsops.vault.azure.net/"
+        credential = DefaultAzureCredential()
+        client = SecretClient(vault_url=KEY_VAULT_URL, credential=credential)
+        DB_SERVER_IP = client.get_secret("ip").value
+        DB_PORT = 5432
+        DB_USER = client.get_secret("user").value
+        DB_PASSWORD = client.get_secret("pw").value
+        DB_NAME = 'postgres'
+
+        # SQL query to get average precipitation and temperature using provided latitude and longitude
+        QUERY_WEATHER = """
+        WITH city_selection AS (
+            SELECT
+                'CustomCity' AS name,
+                $1::numeric AS latitude,
+                $2::numeric AS longitude
+        ),
+        global_weather_table AS (
+            SELECT
+                cs.name,
+                ROUND(AVG(value) FILTER (WHERE weather_type = 'precipitation')::numeric, 2) AS avg_total_precip,
+                ROUND(AVG(value) FILTER (WHERE weather_type = 'temperature')::numeric, 2) AS avg_temperature
+            FROM global_weather_data, city_selection cs
+            WHERE ST_Contains(
+                    bbox_geometry,
+                    ST_SetSRID(ST_MakePoint(cs.longitude, cs.latitude), 4326)
+                )
+            GROUP BY cs.name
+        )
+        SELECT * FROM global_weather_table;
+        """
+
+        # Ensure the database server is reachable via its IP and port
+        try:
+            socket.create_connection((DB_SERVER_IP, DB_PORT), timeout=5)
+        except socket.error as e:
+            raise HTTPException(status_code=500, detail=f"Cannot reach database at {DB_SERVER_IP}:{DB_PORT}: {e}")
+
+        # Connect asynchronously to the PostgreSQL database using asyncpg
+        conn = await asyncpg.connect(
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME,
+            host=DB_SERVER_IP,
+            port=DB_PORT,
+            ssl='require'
+        )
+
+        # Execute the query with the latitude and longitude from latlon
+        rows = await conn.fetch(QUERY_WEATHER, latlon[0], latlon[1])
+
+        # Close the connection
+        await conn.close()
+
+        # Convert the asyncpg Record objects into a list of dictionaries
+        weather_data = [dict(row) for row in rows]
+
+        # Waste fractions
+        if iso3 in defaults_2019.waste_fractions_country:
+            waste_fractions = defaults_2019.waste_fractions_country.loc[iso3, :]
+        else:
+            waste_fractions = defaults_2019.waste_fraction_defaults.loc[region, :]
+
+        # Normalize the waste fractions so that they sum to 1.
+        waste_fractions = waste_fractions / waste_fractions.sum()
+        years = pd.Index(range(1960, 2074))
+        waste_fractions_df = pd.DataFrame(
+            np.tile(waste_fractions.values, (len(years), 1)),
+            index=years,
+            columns=waste_fractions.index
+        )
+        parameters.waste_fractions = waste_fractions_df
+        parameters._singapore_k(advanced_baseline=True)
+
+
 
 
 #%%
