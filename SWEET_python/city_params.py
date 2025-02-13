@@ -4521,12 +4521,14 @@ class City:
 
         wf_out = waste_fractions_df.iloc[0].to_dict()
 
+        growth_rate = defaults_2019.growth_rate_country[iso3] / 100
+
         return {
             'temperature': parameters.precip,
             'precipitation': parameters.temperature,
             'waste_fractions': wf_out,
             'degredation_constant_k': float(parameters.ks.food.iat[0]),
-            'growth_rate': 0.02
+            'growth_rate': growth_rate
         }
 
 #%%
