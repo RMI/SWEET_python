@@ -4496,33 +4496,34 @@ class City:
                 ssl='require'
             )
 
-        print(DB_USER, DB_PASSWORD, DB_NAME, DB_SERVER_IP, DB_PORT)
+        try:
+            # Execute the query with the latitude and longitude from latlon
+            rows = await conn.fetch(QUERY_WEATHER, latlon[0], latlon[1])
 
-        # Execute the query with the latitude and longitude from latlon
-        rows = await conn.fetch(QUERY_WEATHER, latlon[0], latlon[1])
+            # Close the connection
+            await conn.close()
 
-        # Close the connection
-        await conn.close()
+            # Convert the asyncpg Record objects into a list of dictionaries
+            weather_data = [dict(row) for row in rows]
 
-        # Convert the asyncpg Record objects into a list of dictionaries
-        weather_data = [dict(row) for row in rows]
+            # Waste fractions
+            if iso3 in defaults_2019.waste_fractions_country:
+                waste_fractions = defaults_2019.waste_fractions_country.loc[iso3, :]
+            else:
+                waste_fractions = defaults_2019.waste_fraction_defaults.loc[region, :]
 
-        # Waste fractions
-        if iso3 in defaults_2019.waste_fractions_country:
-            waste_fractions = defaults_2019.waste_fractions_country.loc[iso3, :]
-        else:
-            waste_fractions = defaults_2019.waste_fraction_defaults.loc[region, :]
-
-        # Normalize the waste fractions so that they sum to 1.
-        waste_fractions = waste_fractions / waste_fractions.sum()
-        years = pd.Index(range(1960, 2074))
-        waste_fractions_df = pd.DataFrame(
-            np.tile(waste_fractions.values, (len(years), 1)),
-            index=years,
-            columns=waste_fractions.index
-        )
-        parameters.waste_fractions = waste_fractions_df
-        parameters._singapore_k(advanced_baseline=True)
+            # Normalize the waste fractions so that they sum to 1.
+            waste_fractions = waste_fractions / waste_fractions.sum()
+            years = pd.Index(range(1960, 2074))
+            waste_fractions_df = pd.DataFrame(
+                np.tile(waste_fractions.values, (len(years), 1)),
+                index=years,
+                columns=waste_fractions.index
+            )
+            parameters.waste_fractions = waste_fractions_df
+            parameters._singapore_k(advanced_baseline=True)
+        except:
+            raise HTTPException(status_code=500, detail="Error fetching weather data from database.")
 
 
 
