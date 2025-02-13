@@ -4496,6 +4496,7 @@ class City:
                 ssl='require'
             )
 
+        print(DB_USER, DB_PASSWORD, DB_NAME, DB_SERVER_IP, DB_PORT)
 
         # Execute the query with the latitude and longitude from latlon
         rows = await conn.fetch(QUERY_WEATHER, latlon[0], latlon[1])
