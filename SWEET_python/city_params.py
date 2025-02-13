@@ -4519,13 +4519,7 @@ class City:
         parameters.waste_fractions = waste_fractions_df
         parameters._singapore_k(advanced_baseline=True)
 
-        wf_out = {
-            'food': float(waste_fractions_df.at[2000, 'food']),
-            'green': float(waste_fractions_df.at[2000, 'green']),
-            'wood': float(waste_fractions_df.at[2000, 'wood']),
-            'paper_cardboard': float(waste_fractions_df.at[2000, 'paper_cardboard']),
-            'textiles': float(waste_fractions_df.at[2000, 'textiles'])
-        }
+        wf_out = waste_fractions_df.iloc[0].to_dict()
 
         return {
             'temperature': parameters.precip,
@@ -4534,10 +4528,6 @@ class City:
             'degredation_constant_k': float(parameters.ks.food.iat[0]),
             'growth_rate': 0.02
         }
-
-
-
-
 
 #%%
 
