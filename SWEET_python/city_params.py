@@ -2383,11 +2383,11 @@ class City:
         
         # Calculate growth rates
         # REPLACE WITH ANDRES TABLE
-        population_1950 = 751_000_000
-        population_2020 = 4_300_000_000
-        population_2035 = 5_300_000_000
-        growth_rate_historic = (population_2020 / population_1950) ** (1 / (2020 - 1950))
-        growth_rate_future = (population_2035 / population_2020) ** (1 / (2035 - 2020))
+        # population_1950 = 751_000_000
+        # population_2020 = 4_300_000_000
+        # population_2035 = 5_300_000_000
+        # growth_rate_historic = (population_2020 / population_1950) ** (1 / (2020 - 1950))
+        # growth_rate_future = (population_2035 / population_2020) ** (1 / (2035 - 2020))
 
         growth_rate_historic = 1 + growth_rate_override
         growth_rate_future = 1 + growth_rate_override
