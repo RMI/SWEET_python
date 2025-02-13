@@ -4438,7 +4438,7 @@ class City:
         
         # Add weather lookup
         # Database connection parameters – update these as needed
-        KEY_VAULT_URL = "https://rmiwastemapstagingsops.vault.azure.net/"
+        KEY_VAULT_URL = "https://rmiwastemapdevsops.vault.azure.net/"
         credential = DefaultAzureCredential()
         client = SecretClient(vault_url=KEY_VAULT_URL, credential=credential)
         DB_SERVER_IP = client.get_secret("ip").value
