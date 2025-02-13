@@ -4424,7 +4424,7 @@ class City:
         self,
         latlon: str,
     ) -> None:
-        parameters = self.baseline_parameters
+        parameters = CityParameters()
         geolocator = Nominatim(user_agent="karl_dilkington")
         location = geolocator.reverse((latlon[0], latlon[1]), language="en")
         country = location.raw['address'].get('country')
@@ -4461,7 +4461,7 @@ class City:
                 ROUND(AVG(value) FILTER (WHERE weather_type = 'precipitation')::numeric, 2) AS avg_total_precip,
                 ROUND(AVG(value) FILTER (WHERE weather_type = 'temperature')::numeric, 2) AS avg_temperature
             FROM global_weather_data, city_selection cs
-            WHERE ST_Contains(
+            WHERE ST_Covers(
                     bbox_geometry,
                     ST_SetSRID(ST_MakePoint(cs.longitude, cs.latitude), 4326)
                 )
@@ -4477,53 +4477,64 @@ class City:
             raise HTTPException(status_code=500, detail=f"Cannot reach database at {DB_SERVER_IP}:{DB_PORT}: {e}")
 
         # Connect asynchronously to the PostgreSQL database using asyncpg
+        conn = await asyncpg.connect(
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME,
+            host=DB_SERVER_IP,
+            port=DB_PORT,
+            ssl='require'
+        )
+
+        # Execute the query with the latitude and longitude from latlon
+        rows = await conn.fetch(QUERY_WEATHER, latlon[0], latlon[1])
+
+        # Close the connection
+        await conn.close()
+
+        # Convert the asyncpg Record objects into a list of dictionaries
+        weather_data = [dict(row) for row in rows][0]
+
+        # Waste fractions
+        if iso3 in defaults_2019.waste_fractions_country:
+            waste_fractions = defaults_2019.waste_fractions_country.loc[iso3, :]
+        else:
+            waste_fractions = defaults_2019.waste_fraction_defaults.loc[region, :]
+
+        # Normalize the waste fractions so that they sum to 1.
+        waste_fractions = waste_fractions / waste_fractions.sum()
+        years = pd.Index(range(1960, 2074))
+        waste_fractions_df = pd.DataFrame(
+            np.tile(waste_fractions.values, (len(years), 1)),
+            index=years,
+            columns=waste_fractions.index
+        )
         try:
-            conn = await asyncpg.connect(
-                user=DB_USER,
-                password=DB_PASSWORD,
-                database=DB_NAME,
-                host=DB_SERVER_IP,
-                port=DB_PORT,
-                ssl='require'
-            )
+            parameters.precip = weather_data['avg_total_precip']
+            parameters.temperature = weather_data['avg_temperature']
         except:
-            conn = await asyncpg.connect(
-                user=str(DB_USER),
-                password=str(DB_PASSWORD),
-                database=str(DB_NAME),
-                host=str(DB_SERVER_IP),
-                port=int(DB_PORT),
-                ssl='require'
-            )
+            parameters.precip = 999
+            parameters.temperature = 15
+        
+        parameters.waste_fractions = waste_fractions_df
+        parameters._singapore_k(advanced_baseline=True)
 
-        try:
-            # Execute the query with the latitude and longitude from latlon
-            rows = await conn.fetch(QUERY_WEATHER, latlon[0], latlon[1])
+        wf_out = {
+            'food': float(waste_fractions_df.at[2000, 'food']),
+            'green': float(waste_fractions_df.at[2000, 'green']),
+            'wood': float(waste_fractions_df.at[2000, 'wood']),
+            'paper_cardboard': float(waste_fractions_df.at[2000, 'paper_cardboard']),
+            'textiles': float(waste_fractions_df.at[2000, 'textiles'])
+        }
 
-            # Close the connection
-            await conn.close()
+        return {
+            'temperature': parameters.precip,
+            'precipitation': parameters.temperature,
+            'waste_fractions': wf_out,
+            'degredation_constant_k': float(parameters.ks.food.iat[0]),
+            'growth_rate': 0.02
+        }
 
-            # Convert the asyncpg Record objects into a list of dictionaries
-            weather_data = [dict(row) for row in rows]
-
-            # Waste fractions
-            if iso3 in defaults_2019.waste_fractions_country:
-                waste_fractions = defaults_2019.waste_fractions_country.loc[iso3, :]
-            else:
-                waste_fractions = defaults_2019.waste_fraction_defaults.loc[region, :]
-
-            # Normalize the waste fractions so that they sum to 1.
-            waste_fractions = waste_fractions / waste_fractions.sum()
-            years = pd.Index(range(1960, 2074))
-            waste_fractions_df = pd.DataFrame(
-                np.tile(waste_fractions.values, (len(years), 1)),
-                index=years,
-                columns=waste_fractions.index
-            )
-            parameters.waste_fractions = waste_fractions_df
-            parameters._singapore_k(advanced_baseline=True)
-        except:
-            raise HTTPException(status_code=500, detail="Error fetching weather data from database.")
 
 
 
