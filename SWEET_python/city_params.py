@@ -4477,14 +4477,25 @@ class City:
             raise HTTPException(status_code=500, detail=f"Cannot reach database at {DB_SERVER_IP}:{DB_PORT}: {e}")
 
         # Connect asynchronously to the PostgreSQL database using asyncpg
-        conn = await asyncpg.connect(
-            user=DB_USER,
-            password=DB_PASSWORD,
-            database=DB_NAME,
-            host=DB_SERVER_IP,
-            port=DB_PORT,
-            ssl='require'
-        )
+        try:
+            conn = await asyncpg.connect(
+                user=DB_USER,
+                password=DB_PASSWORD,
+                database=DB_NAME,
+                host=DB_SERVER_IP,
+                port=DB_PORT,
+                ssl='require'
+            )
+        except:
+            conn = await asyncpg.connect(
+                user=str(DB_USER),
+                password=str(DB_PASSWORD),
+                database=str(DB_NAME),
+                host=str(DB_SERVER_IP),
+                port=int(DB_PORT),
+                ssl='require'
+            )
+
 
         # Execute the query with the latitude and longitude from latlon
         rows = await conn.fetch(QUERY_WEATHER, latlon[0], latlon[1])
