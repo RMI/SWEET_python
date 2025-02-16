@@ -4428,7 +4428,7 @@ class City:
     async def adst_prepopulate(
         self,
         latlon: str,
-    ) -> None:
+    ):
         parameters = CityParameters()
         geolocator = Nominatim(user_agent="karl_dilkington")
         location = geolocator.reverse((latlon[0], latlon[1]), language="en")
@@ -4447,7 +4447,7 @@ class City:
         credential = DefaultAzureCredential()
         client = SecretClient(vault_url=KEY_VAULT_URL, credential=credential)
         DB_SERVER_IP = os.environ.get('PGHOST', client.get_secret("ip").value)
-        DB_PORT = os.environ.get('PGPORT', 5432)
+        DB_PORT = int(os.environ.get('PGPORT', 5432))
         DB_USER = os.environ.get('PGUSER', client.get_secret("user").value)
         DB_PASSWORD = os.environ.get('PGPASSWORD', client.get_secret("pw").value)
         DB_NAME = os.environ.get('PGDATABASE', 'postgres')
