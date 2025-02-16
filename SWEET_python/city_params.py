@@ -1,5 +1,6 @@
 #%%
 
+import os
 import sys
 
 sys.path.append('/app/SWEET_python/SWEET_python')
@@ -4445,11 +4446,11 @@ class City:
         KEY_VAULT_URL = "https://rmiwastemapdevsops.vault.azure.net/"
         credential = DefaultAzureCredential()
         client = SecretClient(vault_url=KEY_VAULT_URL, credential=credential)
-        DB_SERVER_IP = client.get_secret("ip").value
-        DB_PORT = 5432
-        DB_USER = client.get_secret("user").value
-        DB_PASSWORD = client.get_secret("pw").value
-        DB_NAME = 'postgres'
+        DB_SERVER_IP = os.environ.get('PGHOST', client.get_secret("ip").value)
+        DB_PORT = os.environ.get('PGPORT', 5432)
+        DB_USER = os.environ.get('PGUSER', client.get_secret("user").value)
+        DB_PASSWORD = os.environ.get('PGPASSWORD', client.get_secret("pw").value)
+        DB_NAME = os.environ.get('PGDATABASE', 'postgres')
 
         # SQL query to get average precipitation and temperature using provided latitude and longitude
         QUERY_WEATHER = """
