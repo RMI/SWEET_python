@@ -4441,7 +4441,7 @@ class City:
         if region is None:
             raise ValueError(f"Region for ISO3 code '{iso3}' not found.")
 
-        if os.environ.get("PGDATABASE") or os.environ.get("PGHOST"):
+        if os.environ.get("PGDATABASE"):
             DB_SERVER_IP = os.environ.get('PGHOST')
             DB_PORT = int(os.environ.get('PGPORT', 5432))
             DB_USER = os.environ.get('PGUSER')
