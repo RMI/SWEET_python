@@ -4441,16 +4441,25 @@ class City:
         if region is None:
             raise ValueError(f"Region for ISO3 code '{iso3}' not found.")
         
-        # Add weather lookup
-        # Database connection parameters – update these as needed
-        KEY_VAULT_URL = "https://rmiwastemapdevsops.vault.azure.net/"
-        credential = DefaultAzureCredential()
-        client = SecretClient(vault_url=KEY_VAULT_URL, credential=credential)
-        DB_SERVER_IP = os.environ.get('PGHOST', client.get_secret("ip").value)
-        DB_PORT = int(os.environ.get('PGPORT', 5432))
-        DB_USER = os.environ.get('PGUSER', client.get_secret("user").value)
-        DB_PASSWORD = os.environ.get('PGPASSWORD', client.get_secret("pw").value)
-        DB_NAME = os.environ.get('PGDATABASE', 'postgres')
+        if os.environ['PGHOST']:
+            DB_SERVER_IP = os.environ.get('PGHOST')
+            DB_PORT = int(os.environ.get('PGPORT', 5432))
+            DB_USER = os.environ.get('PGUSER')
+            DB_PASSWORD = os.environ.get('PGPASSWORD')
+            DB_NAME = os.environ.get('PGDATABASE')
+            DB_SSLMODE = os.environ.get('PGSSLMODE', 'disable')
+        else:
+            # Add weather lookup
+            # Database connection parameters – update these as needed
+            KEY_VAULT_URL = "https://rmiwastemapdevsops.vault.azure.net/"
+            credential = DefaultAzureCredential()
+            client = SecretClient(vault_url=KEY_VAULT_URL, credential=credential)
+            DB_SERVER_IP = client.get_secret("ip").value
+            DB_PORT = 5432
+            DB_USER = client.get_secret("user").value
+            DB_PASSWORD = client.get_secret("pw").value
+            DB_NAME = 'postgres'
+            DB_SSLMODE = 'require'
 
         # SQL query to get average precipitation and temperature using provided latitude and longitude
         QUERY_WEATHER = """
@@ -4488,7 +4497,7 @@ class City:
             database=DB_NAME,
             host=DB_SERVER_IP,
             port=DB_PORT,
-            ssl='require'
+            ssl=DB_SSLMODE
         )
 
         # Execute the query with the latitude and longitude from latlon
