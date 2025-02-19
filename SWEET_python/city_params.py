@@ -297,7 +297,7 @@ class CityParameters(BaseModel):
         tmin = 0
         tmax = 55
         topt = 35
-        self.temp = 18
+        self.temp = self.temperature
         t = self.temp + 10 # landfill is warmer than ambient
 
         num = (t - tmax) * (t - tmin) ** 2
@@ -693,6 +693,7 @@ class City:
                 split_fractions=split_fractions,
                 div_component_fractions=div_component_fractions,
                 precip=float(city_data['Average Annual Precipitation (mm/year)'].values[0]),
+                temperature=float(city_data['Temperature (C)'].values[0]),
                 growth_rate_historic=city_data['Population Growth Rate: Historic (%)'].values[0] / 100 + 1,
                 growth_rate_future=city_data['Population Growth Rate: Future (%)'].values[0] / 100 + 1,
                 waste_per_capita=city_data['Waste Generation Rate per Capita (kg/person/day)'].values[0],
@@ -2353,6 +2354,7 @@ class City:
         country: str, 
         population: int,
         precipitation: float,
+        temperature: float,
         waste_fractions: float,
         waste_mass_year: dict,
         growth_rate_override: float
@@ -2437,6 +2439,7 @@ class City:
             scenario=0,
             city_instance_attrs=city_instance_attrs,
             population=population,
+            temperature=temperature,
         )
         self.baseline_parameters = baseline
 
@@ -4210,6 +4213,7 @@ class City:
         ks_overrides: float = None,
         biocover: float = 0,
         oxidation_override: float = None,
+
     ) -> None:
         
         scenario_parameters = copy.deepcopy(self.baseline_parameters)

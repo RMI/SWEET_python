@@ -521,6 +521,7 @@ class City:
         if np.isnan(self.year_of_data_msw):
             self.year_of_data_msw = row['data_collection_year'].iloc[0]
         self.year_of_data_msw = int(self.year_of_data_msw)
+        self.temperature = row['mean_yearly_temp_2000_2021']
 
         # name_backtranslator = {value: key for key, value in defaults_2019.replace_city.items()}
         # if self.data_source != 'World Bank':
