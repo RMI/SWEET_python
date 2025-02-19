@@ -2011,7 +2011,8 @@ class City:
         self, 
         country: str, 
         population: int, 
-        precipitation: float
+        precipitation: float,
+        temperature: float
     ) -> None:
         
         """
@@ -2222,6 +2223,7 @@ class City:
             split_fractions=split_fractions,
             div_component_fractions=div_component_fractions,
             precip=precipitation,
+            temperature=temperature,
             growth_rate_historic=growth_rate_historic,
             growth_rate_future=growth_rate_future,
             waste_per_capita=waste_per_capita,
@@ -2237,8 +2239,6 @@ class City:
             waste_generated_df=waste_generated_df,
             city_instance_attrs=city_instance_attrs,
             population=population,
-            temp=None,
-            temperature=None,
             waste_burning_emissions=None,
             non_compostable_not_targeted_total=non_compostable_not_targeted_total,
             ks=ks
