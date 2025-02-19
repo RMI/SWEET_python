@@ -4529,8 +4529,8 @@ class City:
         growth_rate = defaults_2019.growth_rate_country[iso3] / 100
 
         return {
-            'temperature': parameters.precip,
-            'precipitation': parameters.temperature,
+            'temperature': parameters.temperature,
+            'precipitation': parameters.precip,
             'waste_fractions': wf_out,
             'degredation_constant_k': float(parameters.ks.food.iat[0]),
             'growth_rate': growth_rate
