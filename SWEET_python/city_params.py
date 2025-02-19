@@ -326,6 +326,8 @@ class CityParameters(BaseModel):
         else:
             fm = 1
 
+        tf = float(tf)
+
         def create_series(kc, tf, fm, implement_year=None, advanced_baseline=False, advanced_dst=False):
             years = pd.Series(index=range(1960, 2074))
             if advanced_dst:
