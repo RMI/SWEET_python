@@ -4455,9 +4455,8 @@ class City:
             DB_NAME = os.environ.get('PGDATABASE')
             DB_SSLMODE = os.environ.get('PGSSLMODE', 'disable')
         else:
-            # Add weather lookup
-            # Database connection parameters – update these as needed
-            KEY_VAULT_URL = "https://rmiwastemapdevsops.vault.azure.net/"
+            # Database connection parameters
+            KEY_VAULT_URL = "https://rmiwastemapstagingsops.vault.azure.net/"
             credential = DefaultAzureCredential()
             client = SecretClient(vault_url=KEY_VAULT_URL, credential=credential)
             DB_SERVER_IP = client.get_secret("ip").value
