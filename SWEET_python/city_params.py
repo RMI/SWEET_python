@@ -1808,7 +1808,8 @@ class City:
                 city_instance_attrs=city_parameters.city_instance_attrs, 
                 landfill_index=1, 
                 fraction_of_waste=city_parameters.split_fractions.landfill_wo_capture, 
-                gas_capture=False
+                gas_capture=False,
+                gas_capture_efficiency=0.0
             )
             dumpsite = Landfill(
                 open_date=1960, 
@@ -2584,13 +2585,13 @@ class City:
             parameters = self.scenario_parameters[scenario - 1]
             organic_emissions = parameters.organic_emissions
             #landfill_emissions = [x.emissions.map(self.convert_methane_m3_to_ton_co2e) for x in parameters.landfills]
-            years_union = parameters.non_zero_landfills[0].emissions.index
+            years_union = parameters.landfills[0].emissions.index
             # Union the index of each subsequent landfill with the years_union
-            for x in parameters.non_zero_landfills[1:]:
+            for x in parameters.landfills[1:]:
                 years_union = years_union.union(x.emissions.index)
             landfill_emissions_list = [
                 x.emissions.reindex(years_union, fill_value=0).map(self.convert_methane_m3_to_ton_co2e) / 28
-                for x in parameters.non_zero_landfills
+                for x in parameters.landfills
             ]
         else:
             parameters = self.scenario_parameters[scenario - 1]
@@ -3739,11 +3740,12 @@ class City:
             # Might be able to do this more efficienctly...i'm looping over the pre implementation years twice sort of
             landfill.waste_mass_df = LandfillWasteMassDF.create(scenario_parameters.waste_generated_df, scenario_parameters.divs_df, landfill.fraction_of_waste, self.components).df
             landfill.waste_mass_df.loc[:(implement_year-1), :] = self.baseline_parameters.landfills[i].waste_mass_df.loc[:(implement_year-1), :]
-            #landfill.waste_mass_df.to_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/scratch_paper/new' + str(i) + '.csv')
+            #print(landfill.waste_mass_df)
 
         #scenario_parameters.repopulate_attr_dicts() # does this need to come sooner? Does anything in the above functions rely on the attr dicts?
-        for landfill in scenario_parameters.non_zero_landfills:
+        for landfill in scenario_parameters.landfills:
             landfill.estimate_emissions()
+            #print(landfill.emissions)
 
         self.estimate_diversion_emissions(scenario=scenario)
         self.sum_landfill_emissions(scenario=scenario, simple=True)
