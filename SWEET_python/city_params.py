@@ -2578,7 +2578,7 @@ class City:
                 years_union = years_union.union(lf.emissions.index)
             landfill_emissions_list = [
                 x.emissions.reindex(years_union, fill_value=0).map(self.convert_methane_m3_to_ton_co2e) / 28
-                for x in parameters.landfills
+                for x in valid_landfills
             ]
         elif simple:
             parameters = self.scenario_parameters[scenario - 1]
