@@ -2573,13 +2573,13 @@ class City:
             parameters = self.baseline_parameters
             organic_emissions = parameters.organic_emissions
             #landfill_emissions = [x.emissions.map(self.convert_methane_m3_to_ton_co2e) for x in parameters.non_zero_landfills]
-            years_union = parameters.non_zero_landfills[0].emissions.index
+            years_union = parameters.landfills[0].emissions.index
             # Union the index of each subsequent landfill with the years_union
-            for x in parameters.non_zero_landfills[1:]:
+            for x in parameters.landfills[1:]:
                 years_union = years_union.union(x.emissions.index)
             landfill_emissions_list = [
                 x.emissions.reindex(years_union, fill_value=0).map(self.convert_methane_m3_to_ton_co2e) / 28
-                for x in parameters.non_zero_landfills
+                for x in parameters.landfills
             ]
         elif simple:
             parameters = self.scenario_parameters[scenario - 1]
