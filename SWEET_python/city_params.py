@@ -3995,7 +3995,7 @@ class City:
             mcf_series.loc[years >= implement_year] = mcf['scenario']
             
             if biocover['baseline'] > 0:
-                ox_value['baseline ']= biocover['baseline']
+                ox_value['baseline']= biocover['baseline']
             if biocover['scenario'] > 0:
                 ox_value['scenario'] = biocover['scenario']
             ox_value_series.loc[years < implement_year] = ox_value['baseline']
