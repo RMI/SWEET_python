@@ -4025,6 +4025,18 @@ class City:
                 if oxidation_override['scenario']:
                     ox_value_series.loc[implement_year:] = oxidation_override['scenario']
 
+            flaring = {}
+            for s in ['baseline', 'scenario']:
+                if new_landfill_flaring[s][i] is None:
+                    flaring[s] = 1
+                elif new_landfill_flaring[s][i] == 0:
+                    flaring[s] = 1
+                elif new_landfill_flaring[s][i] > 0:
+                    flaring[s] = new_landfill_flaring[s][i]
+            flaring_series = pd.Series(index=years)
+            flaring_series.loc[years < implement_year] = flaring['baseline']
+            flaring_series.loc[years >= implement_year] = flaring['scenario']
+
             new_landfill = Landfill(
                 open_date=new_landfill_open_close_dates['scenario'][i][0], 
                 close_date=new_landfill_open_close_dates['scenario'][i][1], 
@@ -4038,7 +4050,7 @@ class City:
                 scenario=scenario,
                 new_baseline=False,
                 gas_capture_efficiency=gas_eff_series,
-                flaring=new_landfill_flaring['scenario'][i],
+                flaring=flaring_series,
                 #leachate_circulate=leachate_circulate['scenario'][i],
                 fraction_of_waste_vector=fraction_df[f'Landfill_{i}'],
                 advanced=True,
@@ -4337,6 +4349,13 @@ class City:
 
             if oxidation_override:
                 oxs = [oxidation_override for year in years]
+
+            if new_landfill_flaring[i] is None:
+                flaring = [1 for year in years]
+            elif new_landfill_flaring[i] == 0:
+                flaring = [1 for year in years]
+            elif new_landfill_flaring[i] > 0:
+                flaring = [new_landfill_flaring[i] for year in years]
             
             new_landfill = Landfill(
                 open_date=new_landfill_open_close_dates[i][0], 
@@ -4351,7 +4370,7 @@ class City:
                 scenario=scenario,
                 new_baseline=True,
                 gas_capture_efficiency=pd.Series(gas_effs, index=years),
-                flaring=new_landfill_flaring[i],
+                flaring=pd.Series(flaring, index=years),
                 #leachate_circulate=leachate_circulate[i],
                 fraction_of_waste_vector=fraction_df[f'Landfill_{i}'],
                 advanced=True,
