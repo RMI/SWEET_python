@@ -284,6 +284,11 @@ class SWEET:
         gas_capture_efficiency = self.landfill_instance_attrs['gas_capture_efficiency']
         oxidation_factor = self.landfill_instance_attrs['oxidation_factor']
         components = self.city_instance_attrs['components']
+        flare_efficiency = self.landfill_instance_attrs['flaring']
+        if flare_efficiency is None:
+            flare_efficiency = 0.95
+        elif flare_efficiency == 0:
+            flare_efficiency = 1
 
         #years = np.arange(1960, 2074)
 
@@ -330,7 +335,7 @@ class SWEET:
             else:
                 oxidation_factor_values = np.full(len(year_range), oxidation_factor)
 
-            ch4_capture = ch4_produce * gas_capture_efficiency_values
+            ch4_capture = ch4_produce * gas_capture_efficiency_values * flare_efficiency
 
             # Final methane emissions calculation with oxidation
             ch4_year_total = np.sum((ch4_produce - ch4_capture) * (1 - oxidation_factor_values[:, None]) + ch4_capture * 0.02, axis=0)
