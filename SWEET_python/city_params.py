@@ -4453,22 +4453,29 @@ class City:
 
     async def adst_prepopulate(
         self,
-        latlon: str,
         DB_SERVER_IP: str,
         DB_PORT: int,
         DB_USER: str,
         DB_PASSWORD: str,
         DB_NAME: str,
-        DB_SSLMODE: str
+        DB_SSLMODE: str,
+        s: pd.DataFrame,
+        latlon: Optional[str] = None,
+        site_id: Optional[int] = None,
     ):
         parameters = CityParameters()
         geolocator = Nominatim(user_agent="karl_dilkington")
-        location = geolocator.reverse((latlon[0], latlon[1]), language="en")
-        country = location.raw['address'].get('country')
-        try:
-            iso3 = pycountry.countries.search_fuzzy(country)[0].alpha_3
-        except LookupError:
-            raise ValueError(f"Country '{country}' not found.")
+        if site_id:
+            latlon = s.loc[s['RMI ID'] == site_id, ['Latitude', 'Longitude']].values[0]
+            country = s.loc[s['RMI ID'] == site_id, 'Country'].values[0]
+            iso3 = s.loc[s['RMI ID'] == site_id, 'Country ISO3'].values[0]
+        else:
+            location = geolocator.reverse((latlon[0], latlon[1]), language="en")
+            country = location.raw['address'].get('country')
+            try:
+                iso3 = pycountry.countries.search_fuzzy(country)[0].alpha_3
+            except LookupError:
+                raise ValueError(f"Country '{country}' not found.")
         region = defaults_2019.region_lookup_iso3.get(iso3)
         if region is None:
             raise ValueError(f"Region for ISO3 code '{iso3}' not found.")
@@ -4549,12 +4556,16 @@ class City:
 
         growth_rate = defaults_2019.growth_rate_country[iso3] / 100
 
+        if (not isinstance(latlon, list)) and (not isinstance(latlon, tuple)):
+            latlon = latlon.tolist()
+
         return {
             'temperature': parameters.temperature,
             'precipitation': parameters.precip,
             'waste_fractions': wf_out,
             'degredation_constant_k': float(parameters.ks.food.iat[0]),
-            'growth_rate': growth_rate
+            'growth_rate': growth_rate,
+            'latlon': latlon,
         }
 
 #%%
