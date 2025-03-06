@@ -4466,9 +4466,9 @@ class City:
         parameters = CityParameters()
         geolocator = Nominatim(user_agent="karl_dilkington")
         if site_id:
-            latlon = sites_list.loc[s['RMI ID'] == site_id, ['Latitude', 'Longitude']].values[0]
-            country = sites_list.loc[s['RMI ID'] == site_id, 'Country'].values[0]
-            iso3 = sites_list.loc[s['RMI ID'] == site_id, 'Country ISO3'].values[0]
+            latlon = sites_list.loc[sites_list['RMI ID'] == site_id, ['Latitude', 'Longitude']].values[0]
+            country = sites_list.loc[sites_list['RMI ID'] == site_id, 'Country'].values[0]
+            iso3 = sites_list.loc[sites_list['RMI ID'] == site_id, 'Country ISO3'].values[0]
         else:
             location = geolocator.reverse((latlon[0], latlon[1]), language="en")
             country = location.raw['address'].get('country')
