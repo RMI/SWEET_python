@@ -4459,16 +4459,16 @@ class City:
         DB_PASSWORD: str,
         DB_NAME: str,
         DB_SSLMODE: str,
-        s: pd.DataFrame,
+        sites_list : pd.DataFrame,
         latlon: Optional[str] = None,
         site_id: Optional[int] = None,
     ):
         parameters = CityParameters()
         geolocator = Nominatim(user_agent="karl_dilkington")
         if site_id:
-            latlon = s.loc[s['RMI ID'] == site_id, ['Latitude', 'Longitude']].values[0]
-            country = s.loc[s['RMI ID'] == site_id, 'Country'].values[0]
-            iso3 = s.loc[s['RMI ID'] == site_id, 'Country ISO3'].values[0]
+            latlon = sites_list.loc[s['RMI ID'] == site_id, ['Latitude', 'Longitude']].values[0]
+            country = sites_list.loc[s['RMI ID'] == site_id, 'Country'].values[0]
+            iso3 = sites_list.loc[s['RMI ID'] == site_id, 'Country ISO3'].values[0]
         else:
             location = geolocator.reverse((latlon[0], latlon[1]), language="en")
             country = location.raw['address'].get('country')
