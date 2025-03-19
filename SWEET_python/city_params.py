@@ -3625,13 +3625,25 @@ class City:
             new_landfill_pct: float,
             new_gas_pct: float,
             implement_year: int,
-            scenario: int
+            scenario: int,
+            food_waste_prevention: float=0,
     ) -> None:
         
         scenario_parameters = copy.deepcopy(self.baseline_parameters)
         self.scenario_parameters[scenario - 1] = scenario_parameters
         scenario_parameters.div_fractions = new_div_fractions
 
+        food_fraction = scenario_parameters.waste_fractions.at[1960, 'food']
+        food_waste_prevented = food_waste_prevention * food_fraction * scenario_parameters.waste_mass
+        scenario_parameters.waste_mass -= food_waste_prevented
+        scenario_parameters.waste_masses.food -= food_waste_prevention * food_fraction
+        new_total_waste_fracs = 1 - food_waste_prevention * food_fraction
+        if food_waste_prevention > 0:
+            for frac in scenario_parameters.waste_fractions.columns:
+                old_val = scenario_parameters.waste_fractions.at[1960, frac]
+                new_val = old_val / new_total_waste_fracs
+                scenario_parameters.waste_fractions.loc[:, frac] = new_val
+        
         # Set new split fractions
         
         scenario_parameters.split_fractions.dumpsite = 1 - new_landfill_pct
