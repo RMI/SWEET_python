@@ -3643,7 +3643,7 @@ class City:
                 old_val = scenario_parameters.waste_fractions.at[1960, frac]
                 new_val = old_val / new_total_waste_fracs
                 scenario_parameters.waste_fractions.loc[:, frac] = new_val
-
+        
         # Set new split fractions
         
         scenario_parameters.split_fractions.dumpsite = 1 - new_landfill_pct
