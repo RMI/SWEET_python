@@ -3626,7 +3626,7 @@ class City:
             new_gas_pct: float,
             implement_year: int,
             scenario: int,
-            food_waste_prevention: float,
+            food_waste_prevention: float=0,
     ) -> None:
         
         scenario_parameters = copy.deepcopy(self.baseline_parameters)
