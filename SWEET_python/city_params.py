@@ -4481,6 +4481,10 @@ class City:
             latlon = sites_list.loc[sites_list['RMI ID'] == site_id, ['Latitude', 'Longitude']].values[0]
             country = sites_list.loc[sites_list['RMI ID'] == site_id, 'Country'].values[0]
             iso3 = sites_list.loc[sites_list['RMI ID'] == site_id, 'Country ISO3'].values[0]
+            site_type = sites_list.loc[sites_list['RMI ID'] == site_id, 'Site Type'].values[0]
+            region = defaults_2019.region_lookup_iso3.get(iso3)
+            if region is None:
+                raise ValueError(f"Region for ISO3 code '{iso3}' not found.")
         else:
             location = geolocator.reverse((latlon[0], latlon[1]), language="en")
             country = location.raw['address'].get('country')
@@ -4488,9 +4492,20 @@ class City:
                 iso3 = pycountry.countries.search_fuzzy(country)[0].alpha_3
             except LookupError:
                 raise ValueError(f"Country '{country}' not found.")
-        region = defaults_2019.region_lookup_iso3.get(iso3)
-        if region is None:
-            raise ValueError(f"Region for ISO3 code '{iso3}' not found.")
+            region = defaults_2019.region_lookup_iso3.get(iso3)
+            if region is None:
+                raise ValueError(f"Region for ISO3 code '{iso3}' not found.")
+            if region in defaults_2019.landfill_default_regions:
+                site_type = 'Landfill'
+            else:
+                site_type = 'Dumpsite'
+
+        if site_type == 'Landfill':
+            site_type = 0
+        elif site_type == 'Controlled Dumpsite':
+            site_type = 1
+        else:
+            site_type = 2
 
         # SQL query to get average precipitation and temperature using provided latitude and longitude
         QUERY_WEATHER = """
@@ -4578,6 +4593,7 @@ class City:
             'degredation_constant_k': float(parameters.ks.food.iat[0]),
             'growth_rate': growth_rate,
             'latlon': latlon,
+            'site_type': site_type,
         }
 
 #%%
