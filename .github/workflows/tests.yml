@@ -31,6 +31,7 @@ jobs:
         with:
           repository: RMI/WasteMAP
           path: WasteMAP
+          token: ${{ secrets.WASTEMAP_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v2
