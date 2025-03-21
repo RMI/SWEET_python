@@ -1,0 +1,75 @@
+name: Tests
+
+on: [push]
+
+env:
+  AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN }}
+  AUTH0_CLIENT_ID: ${{ secrets.AUTH0_CLIENT_ID }}
+  AUTH0_CLIENT_SECRET: ${{ secrets.AUTH0_CLIENT_SECRET }}
+  SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+  PGHOST: localhost
+  PGDATABASE: test_db
+  PGUSER: test_user
+  PGPASSWORD: test_password
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout SWEET_python
+        uses: actions/checkout@v4
+        with:
+          path: SWEET_python
+
+      - name: Checkout WasteMAP
+        uses: actions/checkout@v4
+        with:
+          repository: RMI/WasteMAP
+          path: WasteMAP
+          token: ${{ secrets.WASTEMAP_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: "22"
+
+      - name: Install apt dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gdal-bin libgdal-dev python3 python3-pip postgresql postgresql-contrib postgresql-common postgresql-16-postgis-3
+
+      - name: Configure PostgreSQL
+        run: |
+          sudo systemctl start postgresql
+          sudo systemctl status postgresql
+          sudo -u postgres psql -c "SHOW server_version;"
+          sudo -u postgres psql -c "CREATE DATABASE $PGDATABASE;"
+          sudo -u postgres psql -c "CREATE USER $PGUSER WITH PASSWORD '$PGPASSWORD' SUPERUSER;"
+
+      - name: Install pip dependencies
+        run: |
+          cd ./WasteMAP
+          python3 -m venv venv
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install -r ./backend/requirements.txt
+          pip install -e ./backend
+          pip install -e ../SWEET_python
+
+      - name: Run backend tests
+        run: |
+          cd WasteMAP/backend
+          ../venv/bin/pytest --maxfail=1 --verbose
+
+      - name: Install npm dependencies
+        run: cd WasteMAP/frontend && npm ci --no-audit
+
+      - name: Run frontend tests
+        run: |
+          cd WasteMAP/frontend
+          npm run test
