@@ -1,0 +1,10 @@
+/build/
+venv
+.vscode
+.pytest_cache
+__pycache__
+.DS_Store
+SWEET_python.egg-info/
+build/
+SWEET_python/unused
+SWEET_python.egg-info

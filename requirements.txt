@@ -1,0 +1,9 @@
+geopy
+certifi
+pydantic
+pandas
+numpy
+pycountry
+asyncpg
+fastapi
+psycopg2
