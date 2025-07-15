@@ -71,6 +71,7 @@ class CityParameters(BaseModel):
     rmi_id: Optional[int] = None
     sites_method: Optional[bool] = None
     sites_info_dict: Optional[Dict[str, Any]] = None
+    bf: Optional[float] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -438,11 +439,13 @@ class CityParameters(BaseModel):
             self.ks = DecompositionRates(
                 food=vals, green=vals, wood=vals, paper_cardboard=vals, textiles=vals
             )
+            self.bf = bf
         else:
             vals = create_series(kc, tf, fm)
             self.ks = DecompositionRates(
                 food=vals, green=vals, wood=vals, paper_cardboard=vals, textiles=vals
             )
+            self.bf = bf
 
     def update_cityparams_dict(self) -> None:
         """
@@ -2579,6 +2582,7 @@ class City:
         waste_generated_df = basics_dict["waste_generated_df"]
         self.latitude = self.lat
         self.longitude = self.lon
+        #self.rmi_id = row['rmi_id']
 
         # Import div fractions
         div_dict = self.import_div_fractions_site(
@@ -3050,7 +3054,7 @@ class City:
         if usecase == "trace":
             data_source_waste = row['area_source']
             self.iso3 = row["iso3_country"]
-            iso3s = pd.read_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/WasteMAP/SWEET_python/SWEET_python/iso3.csv')
+            iso3s = pd.read_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/SWEET_python/SWEET_python/iso3.csv')
             self.country = iso3s[iso3s['iso3'] == self.iso3]['name'].values[0]
             self.region = defaults_2019.region_lookup[self.country]
             year_of_data_pop = 2025 #row["population_year"]
