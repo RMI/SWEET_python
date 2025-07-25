@@ -307,7 +307,6 @@ class SWEET:
         flare_efficiency = self.landfill_instance_attrs["flaring"]
 
         # Precompute factors outside of the loop for all years
-        # growth_rates = np.where(years < year_of_data_pop, growth_rate_historic, growth_rate_future) ** (years - year_of_data_pop)
         year_range = np.arange(open_date, 2074)
         if flare_efficiency is None:
             flare_efficiency = pd.Series([1 for x in year_range], index=year_range)
@@ -335,8 +334,8 @@ class SWEET:
             ks_values = ks[waste].loc[year_range].values[:, None]
             exp_term = np.exp(-ks_values * (years_back_matrix - 0.5))
 
-            # Vectorized waste mass, L_0, and MCF computation
-            waste_masses = waste_mass_df.loc[open_date:, waste].values[:, None]
+            # FIXED: Vectorized waste mass, L_0, and MCF computation
+            waste_masses = waste_mass_df.loc[open_date:, waste].values[:, None]  # FIXED: removed reference to undefined 'year'
             mcf_values = mcf.loc[year_range].values[:, None]
             ch4_produce = (
                 ks_values
@@ -401,6 +400,130 @@ class SWEET:
         ch4_df = pd.DataFrame(ch4_produced, index=year_range)
         captured_df = pd.DataFrame(captured, index=year_range)
         waste_in_place_df = pd.DataFrame(waste_in_place_dict, index=year_range)
+
+        end_time = time.time()
+        # print(f"Model post-processing: {end_time - start_time} seconds")
+
+        return waste_in_place_df, q_df, ch4_df, captured_df
+
+    def estimate_emissions_monthly(self):
+        start_time = time.time()
+
+        open_date = self.landfill_instance_attrs["open_date"]
+        close_date = self.landfill_instance_attrs["close_date"]
+        year_of_data_pop = self.city_params_dict["year_of_data_pop"]
+        growth_rate_historic = self.city_params_dict["growth_rate_historic"]
+        growth_rate_future = self.city_params_dict["growth_rate_future"]
+        ks = self.landfill_instance_attrs["ks"]
+        waste_mass_df = self.landfill_instance_attrs["waste_mass_df"]
+        mcf = self.landfill_instance_attrs["mcf"]
+        gas_capture_efficiency = self.landfill_instance_attrs["gas_capture_efficiency"]
+        oxidation_factor = self.landfill_instance_attrs["oxidation_factor"]
+        components = self.city_instance_attrs["components"]
+        flare_efficiency = self.landfill_instance_attrs["flaring"]
+
+        # Create monthly date range instead of yearly
+        start_month = pd.Timestamp(year=open_date, month=1, day=1)
+        end_month = pd.Timestamp(year=2073, month=12, day=1)
+        month_range = pd.date_range(start=start_month, end=end_month, freq='MS')
+        
+        if flare_efficiency is None:
+            year_range = np.arange(open_date, 2074)
+            flare_efficiency = pd.Series([1 for x in year_range], index=year_range)
+        elif isinstance(flare_efficiency, dict):
+            flare_efficiency = pd.Series(flare_efficiency)
+
+        # PRE-COMPUTE SHARED DATA ONCE (moved outside component loop)
+        n_months = len(month_range)
+        year_for_each_month = month_range.year
+        
+        # OPTIMIZED: Vectorized months_back calculation - eliminates nested loops
+        year_month_values = year_for_each_month * 12 + month_range.month
+        months_back_matrix = np.subtract.outer(year_month_values, year_month_values)
+        mask = months_back_matrix <= 0
+        years_back_matrix = months_back_matrix / 12.0
+        
+        # Pre-compute MCF values once
+        mcf_values = mcf.loc[year_for_each_month].values[:, None]
+        
+        # Pre-compute gas capture and oxidation values once
+        if isinstance(gas_capture_efficiency, pd.Series):
+            gas_capture_efficiency_values = gas_capture_efficiency.loc[year_for_each_month].values
+        else:
+            gas_capture_efficiency_values = np.full(len(month_range), gas_capture_efficiency)
+            
+        if isinstance(oxidation_factor, pd.Series):
+            oxidation_factor_values = oxidation_factor.loc[year_for_each_month].values
+        else:
+            oxidation_factor_values = np.full(len(month_range), oxidation_factor)
+        
+        flare_efficiency_values = flare_efficiency.loc[year_for_each_month].values
+
+        qs = {}
+        ch4_produced = {}
+        captured = {}
+        waste_in_place_dict = {}
+
+        end_time = time.time()
+        # print(f"Model setup: {end_time - start_time} seconds")
+
+        start_time = time.time()
+
+        # OPTIMIZED component loop with pre-computed data
+        for waste in components:
+            # OPTIMIZED: Vectorized waste mass mapping - eliminates loop
+            waste_masses = waste_mass_df.reindex(year_for_each_month, fill_value=0)[waste].values[:, None]
+            ks_values = ks[waste].loc[year_for_each_month].values[:, None]
+            
+            # Exponential decay calculation (same as before)
+            exp_term = np.exp(-ks_values * (years_back_matrix - 0.5/12))
+            
+            # Monthly CH4 production calculation (same math as before)
+            ch4_produce = (
+                ks_values
+                * defaults_2019.L_0[waste]
+                * waste_masses
+                * exp_term
+                * mcf_values
+            )
+            ch4_produce[mask] = 0
+            ch4_produced[waste] = ch4_produce.sum(axis=0)
+
+            waste_in_place = waste_masses * exp_term
+            waste_in_place[mask] = 0
+            waste_in_place_total = waste_in_place.sum(axis=0)
+
+            # Gas capture calculation (same math as before)
+            ch4_capture = (
+                ch4_produce
+                * gas_capture_efficiency_values
+                * flare_efficiency_values
+            )
+
+            # Final methane emissions calculation (same math as before)
+            ch4_month_total = np.sum(
+                (ch4_produce - ch4_capture) * (1 - oxidation_factor_values[:, None])
+                + ch4_capture * 0.02,
+                axis=0,
+            )
+
+            # Store results (same as before)
+            qs[waste] = ch4_month_total
+            captured_total = ch4_produced[waste] * gas_capture_efficiency_values
+            captured[waste] = captured_total
+            waste_in_place_dict[waste] = waste_in_place_total
+
+        end_time = time.time()
+        # print(f"Model run: {end_time - start_time} seconds")
+
+        start_time = time.time()
+
+        # Convert results to DataFrames with monthly index (same as before)
+        q_df = pd.DataFrame(qs, index=month_range)
+        q_df["total"] = q_df.sum(axis=1)
+        ch4_df = pd.DataFrame(ch4_produced, index=month_range)
+        captured_df = pd.DataFrame(captured, index=month_range)
+        waste_in_place_df = pd.DataFrame(waste_in_place_dict, index=month_range)
 
         end_time = time.time()
         # print(f"Model post-processing: {end_time - start_time} seconds")
