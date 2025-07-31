@@ -1913,7 +1913,7 @@ class City:
         # Basic information
         # idx = row[0]
         row = row[1]
-        self.years_range = range(1960, 2073)
+        self.years_range = range(1990, 2073)
 
         # Import basic information
         basics_dict = self.import_basics(row)
@@ -2071,7 +2071,7 @@ class City:
                 ].unique()
                 earliest_mention_in_data = int(site_data["ctf_year"].iat[-1])
                 if len(opens) == 1 and np.isnan(opens[0]):
-                    open = 1980
+                    open = 1990
                 else:
                     open = int(sorted(opens)[0])
                 closes = linker.loc[
@@ -2154,7 +2154,7 @@ class City:
                 earliest_mention_in_data = int(site_data["ctf_year"].iat[-1])
                 if len(opens) == 1 and np.isnan(opens[0]):
                     if earliest_landfill:
-                        open = 1980
+                        open = 1990
                     else:
                         open = earliest_mention_in_data
                 else:
@@ -2245,11 +2245,11 @@ class City:
         row_sums = fractions_of_waste_to_landfills.sum(axis=1)
         fractions_of_waste_to_landfills = fractions_of_waste_to_landfills.div(
             row_sums, axis=0
-        ).fillna(0)
+        ).fillna(0) #.infer_objects(copy=False)
 
         # Make a fake landfill if no data for old landfills
-        if earliest_landfill_year > 1980:
-            open = 1980
+        if earliest_landfill_year > 1990:
+            open = 1990
             close = earliest_landfill_year - 1
             lifespans["fake_landfill_early"] = (open, close)
             site_types["fake_landfill_early"] = (
@@ -2721,7 +2721,6 @@ class City:
                 site_type = "Dumpsite"
         site_type_idx = get_site_type_idx[site_type]
         city_params_dict = baseline.update_cityparams_dict()
-        baseline.city_params_dict = city_params_dict
         baseline.landfills = []
         try:
             gas_capture_presence = row['landfill_gas_collection'] if not pd.isna(row['landfill_gas_collection']) else False
@@ -3153,6 +3152,10 @@ class City:
                 precipitation = float(weather_data["avg_total_precip"])
                 temperature = float(weather_data["avg_temperature"])
                 precip_zone = defaults_2019.get_precipitation_zone(precipitation)
+            else:
+                precipitation = np.nan
+                temperature = np.nan
+                precip_zone = np.nan
 
             # Get waste total
             waste_mass_defaults = False
@@ -4914,7 +4917,7 @@ class City:
 
         parameters.landfill_emissions = summed_landfill_emissions
         parameters.diversion_emissions = summed_diversion_emissions
-        parameters.total_emissions = summed_emissions
+        parameters.total_emissions = summed_emissions.astype(float).fillna(0)
 
     def _check_masses_v2(
         self,

@@ -93,14 +93,17 @@ class Landfill:
         if ks is None:
             self.ks = self.city_params_dict["ks"]
         else:
-            ks_dict = {
-                "food": ks.food,
-                "green": ks.green,
-                "wood": ks.wood,
-                "paper_cardboard": ks.paper_cardboard,
-                "textiles": ks.textiles,
-            }
-            self.ks = ks_dict
+            if isinstance(ks, DecompositionRates):
+                ks_dict = {
+                    "food": ks.food,
+                    "green": ks.green,
+                    "wood": ks.wood,
+                    "paper_cardboard": ks.paper_cardboard,
+                    "textiles": ks.textiles,
+                }
+                self.ks = ks_dict
+            else:
+                self.ks = ks
 
         self.doing_fancy_ox = self.fancy_ox
         # if isinstance(self.doing_fancy_ox, dict):
