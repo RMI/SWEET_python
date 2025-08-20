@@ -30,14 +30,14 @@ from sqlalchemy import create_engine, text
 # Sets of CityParameters can have one or more landfills, dumpsites, waste to energy, etc.
 # Even for modeling a single landfill, City and CityParameters classes need to be used.
 class CityParameters(BaseModel):
-    waste_fractions: Optional[pd.DataFrame] = None  # WasteFractions
+    waste_fractions: Optional[Union[pd.DataFrame, pd.Series]] = None  # WasteFractions
     div_fractions: Optional[pd.DataFrame] = None  # DiversionFractions
     split_fractions: Optional[SplitFractions] = None
     div_component_fractions: Optional[DivComponentFractionsDF] = None
     precip: Optional[float] = None
     growth_rate_historic: Optional[float] = None
     growth_rate_future: Optional[float] = None
-    waste_per_capita: Optional[float] = None
+    waste_per_capita: Optional[Union[pd.Series, float]] = None
     precip_zone: Optional[str] = None
     ks: Optional[DecompositionRates] = None
     gas_capture_efficiency: Optional[pd.Series] = None  # float
@@ -108,7 +108,7 @@ class CityParameters(BaseModel):
                     landfill.model.landfill_instance_attrs = landfill.model_dump()
 
     def _singapore_k(
-        self, advanced_baseline=False, advanced_dst=False, implement_year=None
+        self, advanced_baseline=False, advanced_dst=False, implement_year=None, for_trace_reported_projections=False
     ) -> None:
         """
         Function to calculate k values using the method from Wang et al (2024)
@@ -220,7 +220,40 @@ class CityParameters(BaseModel):
 
         lookup_array[0, 7, 0] = 0.5
 
-        if advanced_dst:
+        if for_trace_reported_projections:
+            nb = (
+                self.waste_fractions["metal"]
+                + self.waste_fractions["glass"]
+                + self.waste_fractions["plastic"]
+                + self.waste_fractions["other"]
+                + self.waste_fractions["rubber"]
+            )
+            bs = (
+                self.waste_fractions["wood"]
+                + self.waste_fractions["paper_cardboard"]
+                + self.waste_fractions["textiles"]
+            )
+            bf = (
+                self.waste_fractions["food"]
+                + self.waste_fractions["green"]
+            )
+
+            bs_idx = int(bs * 8)
+            bf_idx = int(bf * 8)
+            nb_idx = int(nb * 8)
+
+            if nb_idx == 8:
+                nb_idx = 7
+            if bs_idx == 8:
+                bs_idx = 7
+            if bf_idx == 8:
+                bf_idx = 7
+
+            kc = lookup_array[bs_idx, bf_idx, nb_idx]
+            if kc == 0:
+                print("Invalid value for k")
+
+        elif advanced_dst:
             nb = {}
             bs = {}
             bf = {}
@@ -2563,7 +2596,7 @@ class City:
         self.estimate_diversion_emissions(scenario=0)
         self.sum_landfill_emissions(scenario=0)
 
-    def site_only_estimate_trace(self, row=None, pop_data=None):
+    def site_only_estimate_trace(self, canonical_row=None, time_series_rows=None, pop_data=None):
         """
         For generating estimates for sites only
 
@@ -2575,14 +2608,14 @@ class City:
             None
         """
         # Basic information
-        self.years_range = range(1980, 2074)
+        self.years_range = range(1990, 2074)
 
         # Import basic information
-        basics_dict = self.import_basics_site(row, pop_data, usecase="trace")
+        basics_dict = self.import_basics_site(canonical_row, pop_data, usecase="trace", time_series_rows=time_series_rows)
         data_source_pop = basics_dict["data_source_pop"]
         year_of_data_pop = basics_dict["year_of_data_pop"]
         year_of_data_msw = basics_dict["year_of_data_msw"]
-        population = basics_dict["population"]
+        population = basics_dict.get("population", 100)
         growth_rate_historic = basics_dict["growth_rate_historic"]
         growth_rate_future = basics_dict["growth_rate_future"]
         waste_mass = basics_dict["waste_mass"]
@@ -2602,7 +2635,7 @@ class City:
 
         # Import div fractions
         div_dict = self.import_div_fractions_site(
-            row,
+            canonical_row,
             waste_fractions,
             waste_generated_df,
         )
@@ -2700,9 +2733,8 @@ class City:
             "Controlled Dumpsite": 0.45,
             "Dumpsite": 0,
         }
-        depth = row['waste_depth'] #.values[0]
-        if np.isnan(depth) or depth is None:
-            depth = 3
+        # Get the most common non-NaN value, or 3 if all are NaN
+        depth = canonical_row['waste_depth']
         if self.region in defaults_2019.landfill_default_regions:
             site_type = "Sanitary Landfill"
         else:
@@ -2722,22 +2754,38 @@ class City:
         site_type_idx = get_site_type_idx[site_type]
         city_params_dict = baseline.update_cityparams_dict()
         baseline.landfills = []
-        try:
-            gas_capture_presence = row['landfill_gas_collection'] if not pd.isna(row['landfill_gas_collection']) else False
-        except:
-            gas_capture_presence = row['gas_collection_efficiency'] > 0.0
+        if 'landfill_gas_collection' in canonical_row.index:
+            gas_capture_presence = canonical_row['landfill_gas_collection']
+        else:
+            gas_capture_presence = canonical_row['other7']
+
         if gas_capture_presence == "Yes" or gas_capture_presence == True:
             gas_capture_presence = True
             oxidation_value = ox_options["ox_cap"][site_type]
         else:
             gas_capture_presence = False
             oxidation_value = ox_options["ox_nocap"][site_type]
-        gas_capture_efficiency = gas_eff_options[site_type]
+        
+        if isinstance(time_series_rows, pd.DataFrame):
+            if time_series_rows['gas_collection_efficiency'].notna().any():
+                gascap_df = time_series_rows[['reported_emissions_year', 'gas_collection_efficiency']]
+                gascap_df = gascap_df.dropna(subset=['reported_emissions_year']).copy()
+                gas_capture_efficiency_mean = gascap_df['gas_collection_efficiency'].mean()
+                gas_capture_efficiency = pd.Series(gas_capture_efficiency_mean, index=self.years_range)
+                gas_capture_efficiency.loc[gascap_df['reported_emissions_year'].values] = gascap_df['gas_collection_efficiency'].values
+            else:
+                gas_capture_efficiency = gas_eff_options[site_type]
+                gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=self.years_range)
+
+        else:
+            gas_capture_efficiency = gas_eff_options[site_type]
+            gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=self.years_range)
+        
         if (depth > 5.0) and (site_type_idx in (1, 2)):
             mcf = 0.8
         else:
             mcf = mcf_options[site_type]
-        open_date = row['site_open_year'] #.values[0]
+        open_date = canonical_row['site_open_year']
         if isinstance(open_date, str):
             if open_date[-2:] == '.0':
                 open_date = int(open_date[:-2])
@@ -2750,11 +2798,11 @@ class City:
                 open_date = 1990
             else:
                 open_date = int(open_date)
-        if open_date < 1980:
-            open_date = 1980
+        if open_date < 1990:
+            open_date = 1990
         if open_date == 20007:
             open_date = 2007
-        close_date = row['site_close_year'] #.values[0]
+        close_date = canonical_row['site_close_year']
         if isinstance(close_date, str):
             if close_date[-2:] == '.0':
                 close_date = int(close_date[:-2])
@@ -2769,7 +2817,7 @@ class City:
                 0.0, index=self.years_range
             )
         fraction_of_waste_vector.loc[open_date:close_date] = 1.0
-        id = int(row['asset_identifier']) #.values[0])
+        id = int(canonical_row['asset_identifier'])
         new_landfill = Landfill(
             open_date=open_date,
             close_date=close_date,
@@ -2783,10 +2831,7 @@ class City:
             gas_capture=gas_capture_presence,
             scenario=0,
             new_baseline=True,
-            gas_capture_efficiency=pd.Series(
-                gas_capture_efficiency,
-                index=self.years_range,
-            ),
+            gas_capture_efficiency=gas_capture_efficiency,
             # flaring=pd.Series(flaring, index=year_range),
             # leachate_circulate=leachate_circulate[i],
             fraction_of_waste_vector=fraction_of_waste_vector,
@@ -2813,6 +2858,364 @@ class City:
 
         self.estimate_diversion_emissions(scenario=0)
         self.sum_landfill_emissions(scenario=0, trace_monthly=True)
+
+        for landfill in baseline.landfills:
+            landfill.emissions = landfill.emissions.apply(self.convert_methane_m3_to_ton_co2e) / 28
+
+    def citysite_estimate_trace(self, canonical_row=None, time_series_rows=None, citysite_rows=None, pop_data=None):
+        """
+        For generating estimates for sites only
+
+        Args:
+            id (int): The ID of the site.
+            df (DataFrame): The DataFrame containing site data.
+
+        Returns:
+            None
+        """
+        # Basic information
+        self.years_range = range(1990, 2074)
+
+        # Import basic information
+        basics_dict = self.import_basics_site(canonical_row, pop_data, usecase="trace", time_series_rows=time_series_rows)
+        data_source_pop = basics_dict["data_source_pop"]
+        year_of_data_pop = basics_dict["year_of_data_pop"]
+        year_of_data_msw = basics_dict["year_of_data_msw"]
+        population = basics_dict.get("population", 100)
+        growth_rate_historic = basics_dict["growth_rate_historic"]
+        growth_rate_future = basics_dict["growth_rate_future"]
+        waste_mass = basics_dict["waste_mass"]
+        waste_per_capita = basics_dict["waste_per_capita"]
+        waste_fractions = basics_dict["waste_fractions"]
+        waste_mass_defaults = basics_dict["waste_mass_defaults"]
+        waste_fractions_defaults = basics_dict["waste_fractions_defaults"]
+        mef_compost = basics_dict["mef_compost"]
+        precip = basics_dict["precip"]
+        precip_zone = basics_dict["precip_zone"]
+        temperature = basics_dict["temperature"]
+        waste_masses = basics_dict["waste_masses"]
+        waste_generated_df = basics_dict["waste_generated_df"]
+        self.latitude = self.lat
+        self.longitude = self.lon
+        #self.rmi_id = row['rmi_id']
+
+        # Import div fractions
+        div_dict = self.import_div_fractions_site(
+            canonical_row,
+            waste_fractions,
+            waste_generated_df,
+        )
+        div_fractions = div_dict["div_fractions"]
+        diversion_defaults = div_dict["diversion_defaults"]
+        div_component_fractions = div_dict["div_component_fractions"]
+        divs = div_dict["divs"]
+        non_compostable_not_targeted_total = div_dict[
+            "non_compostable_not_targeted_total"
+        ]
+
+        city_instance_attrs = {
+            "city_name": self.city_name,
+            "country": self.country,
+            "components": self.components,
+            "div_components": self.div_components,
+            "waste_types": self.waste_types,
+            "unprocessable": self.unprocessable,
+            "non_compostable_not_targeted": self.non_compostable_not_targeted,
+            "combustion_reject_rate": self.combustion_reject_rate,
+            "recycling_reject_rates": self.recycling_reject_rates,
+        }
+
+        defaults_used = {
+            "Waste Mass": waste_mass_defaults,
+            "Waste Fractions": waste_fractions_defaults,
+            "Diversion": diversion_defaults,
+            "Landfill Fractions": False,
+        }
+
+        # Make a CityParameters instance
+        baseline = CityParameters(
+            waste_fractions=waste_fractions,
+            div_fractions=div_fractions,
+            div_component_fractions=div_component_fractions,
+            precip=precip,
+            growth_rate_historic=growth_rate_historic,
+            growth_rate_future=growth_rate_future,
+            waste_per_capita=waste_per_capita,
+            precip_zone=precip_zone,
+            mef_compost=mef_compost,
+            waste_mass=pd.Series(waste_mass, index=self.years_range),
+            waste_masses=waste_masses,
+            year_of_data_pop=year_of_data_pop,
+            year_of_data_msw=year_of_data_msw,
+            scenario=0,
+            implement_year=None,
+            divs_df=None,
+            city_instance_attrs=city_instance_attrs,
+            population=population,
+            temp=temperature,
+            temperature=temperature,
+            waste_burning_emissions=None,
+            non_compostable_not_targeted_total=non_compostable_not_targeted_total,
+            source_pop=data_source_pop,
+            waste_generated_df=waste_generated_df,
+            divs=divs,
+            defaults_used=defaults_used,
+        )
+        self.baseline_parameters = baseline
+        baseline._singapore_k(advanced_baseline=True)
+
+        baseline.divs_df = DivsDF.create_advanced_baseline(
+            baseline.divs,
+            baseline.year_of_data_pop,
+            baseline.growth_rate_historic,
+            baseline.growth_rate_future,
+        )
+
+        # Set up landfills
+        get_site_type_idx = {
+            "Sanitary Landfill": 0,
+            "Controlled Dumpsite": 1,
+            "Dumpsite": 2,
+        }
+        mcf_options = {
+            "Sanitary Landfill": 1,
+            "Controlled Dumpsite": 0.7,
+            "Dumpsite": 0.4,
+        }
+        ox_options = {
+            "ox_nocap": {
+                "Sanitary Landfill": 0.1,
+                "Controlled Dumpsite": 0.05,
+                "Dumpsite": 0,
+            },
+            "ox_cap": {
+                "Sanitary Landfill": 0.22,
+                "Controlled Dumpsite": 0.1,
+                "Dumpsite": 0,
+            },
+        }
+        gas_eff_options = {
+            "Sanitary Landfill": 0.6,
+            "Controlled Dumpsite": 0.45,
+            "Dumpsite": 0,
+        }
+        # Get the most common non-NaN value, or 3 if all are NaN
+        depth = canonical_row['waste_depth']
+        if self.region in defaults_2019.landfill_default_regions:
+            site_type = "Sanitary Landfill"
+        else:
+            site_type = "Dumpsite"
+        if site_type not in get_site_type_idx.keys():
+            if self.region in [
+                "Australia and New Zealand",
+                "Eastern Asia",
+                "North America",
+                "Northern Europe",
+                "Southern Europe",
+                "Western Europe"
+            ]:
+                site_type = "Sanitary Landfill"
+            else:
+                site_type = "Dumpsite"
+        site_type_idx = get_site_type_idx[site_type]
+        city_params_dict = baseline.update_cityparams_dict()
+        baseline.landfills = []
+        if 'landfill_gas_collection' in canonical_row.index:
+            gas_capture_presence = canonical_row['landfill_gas_collection']
+        else:
+            gas_capture_presence = canonical_row['other7']
+
+        if gas_capture_presence == "Yes" or gas_capture_presence == True:
+            gas_capture_presence = True
+            oxidation_value = ox_options["ox_cap"][site_type]
+        else:
+            gas_capture_presence = False
+            oxidation_value = ox_options["ox_nocap"][site_type]
+        
+        if isinstance(time_series_rows, pd.DataFrame):
+            if time_series_rows['gas_collection_efficiency'].notna().any():
+                gascap_df = time_series_rows[['reported_emissions_year', 'gas_collection_efficiency']]
+                gascap_df = gascap_df.dropna(subset=['reported_emissions_year']).copy()
+                gas_capture_efficiency_mean = gascap_df['gas_collection_efficiency'].mean()
+                gas_capture_efficiency = pd.Series(gas_capture_efficiency_mean, index=self.years_range)
+                gas_capture_efficiency.loc[gascap_df['reported_emissions_year'].values] = gascap_df['gas_collection_efficiency'].values
+            else:
+                gas_capture_efficiency = gas_eff_options[site_type]
+                gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=self.years_range)
+
+        else:
+            gas_capture_efficiency = gas_eff_options[site_type]
+            gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=self.years_range)
+        
+        if (depth > 5.0) and (site_type_idx in (1, 2)):
+            mcf = 0.8
+        else:
+            mcf = mcf_options[site_type]
+        open_date = canonical_row['site_open_year']
+        if isinstance(open_date, str):
+            if open_date[-2:] == '.0':
+                open_date = int(open_date[:-2])
+            elif open_date in ['NS', 'NSNSNSNS', 'NSNS', 'NO SABE', 'NO SUPO']:
+                open_date = 1990
+            else:
+                open_date = int(open_date)
+        else:
+            if pd.isna(open_date) or open_date is None:
+                open_date = 1990
+            else:
+                open_date = int(open_date)
+        if open_date < 1990:
+            open_date = 1990
+        if open_date == 20007:
+            open_date = 2007
+        close_date = canonical_row['site_close_year']
+        if isinstance(close_date, str):
+            if close_date[-2:] == '.0':
+                close_date = int(close_date[:-2])
+            else:
+                close_date = int(close_date)
+        else:
+            if pd.isna(close_date) or close_date is None:
+                close_date = 2074
+            else:
+                close_date = int(close_date)
+
+        id = int(canonical_row['asset_identifier'])
+        if citysite_rows is None:
+            print('shouldnt happen')
+            fraction_of_waste_vector = pd.Series(
+                    0.0, index=self.years_range
+                )
+            fraction_of_waste_vector.loc[open_date:close_date] = 1.0
+            new_landfill = Landfill(
+                open_date=open_date,
+                close_date=close_date,
+                site_type=site_type,
+                mcf=pd.Series(
+                    mcf, index=self.years_range
+                ),
+                city_params_dict=city_params_dict,
+                city_instance_attrs=baseline.city_instance_attrs,
+                landfill_index=0,
+                gas_capture=gas_capture_presence,
+                scenario=0,
+                new_baseline=True,
+                gas_capture_efficiency=gas_capture_efficiency,
+                # flaring=pd.Series(flaring, index=year_range),
+                # leachate_circulate=leachate_circulate[i],
+                fraction_of_waste_vector=fraction_of_waste_vector,
+                advanced=True,
+                latlon=(self.latitude, self.longitude),
+                ks=baseline.ks,
+                oxidation_factor=pd.Series(oxidation_value, index=self.years_range),
+                rmi_id=id,
+            )
+            baseline.landfills.append(new_landfill)
+        else:
+            # Calculate a fraction_of_waste_vector for each city's waste contribution to the site
+            # Simulates different city sources to the same landfill by making virtual extra landfills
+            cities_to_model = citysite_rows['city_id'].unique()
+            populations = citysite_rows.groupby('city_id')['city_population'].mean()
+            population_weights = populations / populations.sum()
+            # total_weights = {}
+            # for city_id in cities_to_model:
+            #     specific_city_df = citysite_rows[citysite_rows['city_id'] == city_id]
+            #     population_weight = population_weights[city_id]
+            #     long_term_avg_pct = specific_city_df['ctf_percent_of_waste_sent'].mean()
+            #     total_weight = long_term_avg_pct * population_weight
+            #     total_weights[city_id] = total_weight
+            # total_weights = pd.Series(total_weights) / 100
+            # total_weights /= total_weights.sum()
+            # # Go through and add real data on top of the average time series
+
+            # fraction_of_waste_vectors = {}
+            # for city_id in cities_to_model:
+            #     fraction_of_waste_vectors[city_id] = pd.Series(total_weights[city_id], index=self.years_range)
+            # fraction_of_waste_df = pd.DataFrame(fraction_of_waste_vectors)
+
+            # for city_id in cities_to_model:
+            #     specific_city_df = citysite_rows[citysite_rows['city_id'] == city_id]
+            #     population_weight = population_weights[city_id]
+            #     pct_sent_annual = specific_city_df.groupby('ctf_year')['ctf_percent_of_waste_sent'].mean() / 100
+            #     pct_sent_mean = pct_sent_annual.mean()
+            #     diffs = (pct_sent_annual - pct_sent_mean)
+            #     fraction_of_waste_df.loc[pct_sent_annual.index, city_id] += diffs.values * population_weight
+            #     fraction_of_waste_df.loc[pct_sent_annual.index, ~city_id] -= diffs.values * population_weight
+
+            # 1) Population weights per city (pick how you choose the city population)
+            # If you have city_population_year, use the latest per city:
+            pop = (citysite_rows.sort_values('city_population_year')
+                                .groupby('city_id')['city_population'].last())
+            # Otherwise, your .mean() is OK:
+            # pop = citysite_rows.groupby('city_id')['city_population'].mean()
+
+            pop = pop.dropna()
+            pop_w = pop / pop.sum()                         # weights sum to 1
+
+            # 2) Average % sent per city (as fraction 0..1)
+            avg_pct = (citysite_rows.groupby('city_id')['ctf_percent_of_waste_sent']
+                    .mean().div(100.0))
+            avg_pct = avg_pct.reindex(pop_w.index).fillna(0.0)
+
+            # 3) Observed % by (year, city) pivot (as fraction 0..1)
+            obs = (citysite_rows.groupby(['ctf_year','city_id'])['ctf_percent_of_waste_sent']
+                .mean().div(100.0)).unstack('city_id')
+
+            # Align to your target years and city set
+            obs = obs.reindex(index=self.years_range, columns=pop_w.index)
+
+            # 4) Fill missing observations with that city's average
+            P = obs.fillna(avg_pct)                          # per-year, per-city percent-to-this-landfill
+
+            # 5) Convert to shares of *landfill inflow* using population proxy and renormalize each year
+            W = P.mul(pop_w, axis=1)                         # weight_i,t = pop_w_i * pct_i,t
+            fraction_of_waste_df = W.div(W.sum(axis=1), axis=0)
+
+            for city_id in cities_to_model:
+                new_landfill = Landfill(
+                    open_date=open_date,
+                    close_date=close_date,
+                    site_type=site_type,
+                    mcf=pd.Series(
+                        mcf, index=self.years_range
+                    ),
+                    city_params_dict=city_params_dict,
+                    city_instance_attrs=baseline.city_instance_attrs,
+                    landfill_index=0,
+                    gas_capture=gas_capture_presence,
+                    scenario=0,
+                    new_baseline=True,
+                    gas_capture_efficiency=gas_capture_efficiency,
+                    # flaring=pd.Series(flaring, index=year_range),
+                    # leachate_circulate=leachate_circulate[i],
+                    fraction_of_waste_vector=fraction_of_waste_df[city_id],
+                    advanced=True,
+                    latlon=(self.latitude, self.longitude),
+                    ks=baseline.ks,
+                    oxidation_factor=pd.Series(oxidation_value, index=self.years_range),
+                    rmi_id=id,
+                    city_id=city_id,
+                )
+                baseline.landfills.append(new_landfill)
+
+        baseline.repopulate_attr_dicts()
+        for i, landfill in enumerate(baseline.landfills):
+            # Might be able to do this more efficienctly...i'm looping over the pre implementation years twice sort of
+            landfill.waste_mass_df = LandfillWasteMassDF.create_advanced(
+                waste_generated_df=baseline.waste_generated_df.df,
+                divs_df=baseline.divs_df,
+                fraction_of_waste_series=landfill.fraction_of_waste_vector,
+            ).df
+
+        # scenario_parameters.repopulate_attr_dicts() # does this need to come sooner? Does anything in the above functions rely on the attr dicts?
+        for landfill in baseline.landfills:
+            landfill.estimate_emissions(skip_ox=True, trace_monthly=True)
+
+        self.estimate_diversion_emissions(scenario=0)
+        self.sum_landfill_emissions(scenario=0, trace_monthly=True)
+
+        for landfill in baseline.landfills:
+            landfill.emissions = landfill.emissions.apply(self.convert_methane_m3_to_ton_co2e) / 28
 
     def import_basics(self, row) -> None:
         """
@@ -2853,22 +3256,22 @@ class City:
         waste_mass_defaults = False
         # Get waste total
         try:
-            waste_mass_load = float(
-                row["msw_generated_metric_tons_per_year"]
-            )  # unit is tons
-            if np.isnan(waste_mass_load):
-                waste_mass_load = float(row["msw_collected_metric_tons_per_year"])
+            # waste_mass_load = float(
+            #     row["msw_generated_metric_tons_per_year"]
+            # )  # unit is tons
+            # if np.isnan(waste_mass_load):
+            waste_mass_load = float(row["msw_collected_metric_tons_per_year"])
             waste_per_capita = (
                 waste_mass_load * 1000 / population / 365
             )  # unit is kg/person/day
         except:
+            # waste_mass_load = float(
+            #     row["msw_generated_metric_tons_per_year"].replace(",", "")
+            # )
+            # if np.isnan(self.waste_mass_load):
             waste_mass_load = float(
-                row["msw_generated_metric_tons_per_year"].replace(",", "")
+                row["msw_collected_metric_tons_per_year"].replace(",", "")
             )
-            if np.isnan(self.waste_mass_load):
-                waste_mass_load = float(
-                    row["msw_collected_metric_tons_per_year"].replace(",", "")
-                )
             waste_per_capita = waste_mass_load * 1000 / population / 365
         if waste_mass_load != waste_mass_load:
             # Use per capita default
@@ -3058,7 +3461,7 @@ class City:
             "longitude": self.lon,
         }
     
-    def import_basics_site(self, row, pop_data, usecase='wastemap') -> None:
+    def import_basics_site(self, canonical_row, pop_data, usecase='wastemap', time_series_rows=None) -> None:
         """
         Import basic parameters for a city.
 
@@ -3070,27 +3473,107 @@ class City:
         """
         if usecase == "trace":
             #data_source_waste = row['area_source']
-            self.iso3 = row["iso3_country"] #.values[0]
+            self.iso3 = canonical_row["iso3_country"]
             iso3s = pd.read_csv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/SWEET_python/SWEET_python/iso3.csv')
             self.country = iso3s[iso3s['iso3'] == self.iso3]['name'].values[0]
             self.region = defaults_2019.region_lookup[self.country]
-            #year_of_data_pop = 2025 #row["population_year"]
-            year_of_data_msw = row['incoming_waste_year'] #.values[0]
-            if np.isnan(year_of_data_msw):
-                year_of_data_msw = 2024
-            year_of_data_pop = year_of_data_msw
             population = 100
-            growth_rate_historic = pop_data.at[self.iso3, 'growth_rate_historic']
-            growth_rate_future = pop_data.at[self.iso3, 'growth_rate_future']
+            
+            # Check if row is a single row or multiple rows
+            if (time_series_rows is None) or isinstance(time_series_rows, pd.Series):
+                # Single row - use old method
+                year_of_data_msw = canonical_row['incoming_waste_year']
+                if np.isnan(year_of_data_msw):
+                    year_of_data_msw = 2024
+                year_of_data_pop = year_of_data_msw
+                growth_rate_historic = pop_data.at[self.iso3, 'growth_rate_historic']
+                growth_rate_future = pop_data.at[self.iso3, 'growth_rate_future']
 
+                # Get waste total
+                waste_mass_defaults = False
+                waste_mass_load = float(canonical_row['annual_incoming_waste'])  # unit is tons
+                if np.isnan(waste_mass_load):
+                    waste_mass_defaults = True
+                    if self.iso3 in defaults_2019.msw_per_capita_country:
+                        waste_per_capita = defaults_2019.msw_per_capita_country[self.iso3]
+                        year_of_data_msw = 2019
+                    else:
+                        waste_per_capita = defaults_2019.msw_per_capita_defaults[self.region]
+                        year_of_data_msw = 2019
+                    waste_mass_load = waste_per_capita * population / 1000 * 365
+                waste_per_capita = waste_mass_load * 1000 / population / 365
+                waste_mass = waste_mass_load
+
+                # Adjust waste mass to account for difference in reporting years between msw and population
+                if year_of_data_msw != year_of_data_pop:
+                    year_difference = year_of_data_pop - year_of_data_msw
+                    if year_of_data_msw < year_of_data_pop:
+                        waste_mass *= growth_rate_historic**year_difference
+                        waste_per_capita = waste_mass * 1000 / population / 365
+                    else:
+                        waste_mass *= growth_rate_future**year_difference
+                        waste_per_capita = waste_mass * 1000 / population / 365
+                    
+            else:
+                # Multiple rows - create time series
+                waste_mass_defaults = False
+                year_of_data_msw = 2020  # Set to 2020 as requested
+
+                # Get rows with incoming_waste_year >= 2017
+                recent_rows = time_series_rows[time_series_rows['incoming_waste_year'] >= 2017]
+
+                if len(recent_rows) > 0:
+                    # Calculate average annual incoming waste for recent years
+                    avg_annual_waste = recent_rows['annual_incoming_waste'].mean()
+                else:
+                    # Fallback if no recent data
+                    avg_annual_waste = time_series_rows['annual_incoming_waste'].mean()
+
+                # Get growth rates
+                growth_rate_historic = pop_data.at[self.iso3, 'growth_rate_historic']
+                growth_rate_future = pop_data.at[self.iso3, 'growth_rate_future']
+
+                # Create time series from 1990 to 2073
+                years = np.arange(1990, 2074)
+                waste_series = np.zeros(len(years))
+
+                # Set 2020 as the baseline year
+                baseline_year = 2020
+                baseline_idx = baseline_year - 1990
+
+                # Project backward and forwards
+                for i, year in enumerate(years):
+                    if year >= baseline_year:
+                        # Future projection
+                        years_since_baseline = year - baseline_year
+                        waste_series[i] = avg_annual_waste * (growth_rate_future ** years_since_baseline)
+                    else:
+                        # Past projection - divide by historic growth rate (going backwards)
+                        years_since_baseline = baseline_year - year
+                        waste_series[i] = avg_annual_waste / (growth_rate_historic ** years_since_baseline)
+
+                # Overwrite with actual data where available
+                for _, data_row in time_series_rows.iterrows():
+                    if not pd.isna(data_row['incoming_waste_year']):
+                        year_idx = int(data_row['incoming_waste_year']) - 1990
+                        if 0 <= year_idx < len(waste_series):
+                            waste_series[year_idx] = data_row['annual_incoming_waste']
+
+                # Store the time series
+                self.waste_time_series = pd.Series(waste_series, index=years)
+                waste_mass = self.waste_time_series
+                waste_per_capita = waste_mass * 1000 / population / 365
+                
+            # Use first row for location data
             try:
-                self.lon = float(row['longitude']) #.values[0])
-                self.lat = float(row['latitude']) #.values[0])
-            except (KeyError, TypeError):
-                # Handle case where we need to extract coordinates from geometry object
-                geometry = row['location']
+                geometry = canonical_row['location']
                 self.lon = float(geometry.x)
                 self.lat = float(geometry.y)
+            except:
+                self.lon = float(canonical_row.iloc[0]['longitude'])
+                self.lat = float(canonical_row.iloc[0]['latitude'])
+
+            year_of_data_pop = 2024
 
             # Temperature and precipitation
             # SQL query to get average precipitation and temperature using provided latitude and longitude
@@ -3157,31 +3640,6 @@ class City:
                 temperature = np.nan
                 precip_zone = np.nan
 
-            # Get waste total
-            waste_mass_defaults = False
-            waste_mass_load = float(row['annual_incoming_waste']) #.values[0])  # unit is tons
-            if np.isnan(waste_mass_load):
-                waste_mass_defaults = True
-                if self.iso3 in defaults_2019.msw_per_capita_country:
-                    waste_per_capita = defaults_2019.msw_per_capita_country[self.iso3]
-                    year_of_data_msw = 2019
-                else:
-                    waste_per_capita = defaults_2019.msw_per_capita_defaults[self.region]
-                    year_of_data_msw = 2019
-                waste_mass_load = waste_per_capita * population / 1000 * 365
-            waste_per_capita = waste_mass_load * 1000 / population / 365
-            waste_mass = waste_mass_load
-
-            # Adjust waste mass to account for difference in reporting years between msw and population
-            if year_of_data_msw != year_of_data_pop:
-                year_difference = year_of_data_pop - year_of_data_msw
-                if year_of_data_msw < year_of_data_pop:
-                    waste_mass *= growth_rate_historic**year_difference
-                    waste_per_capita = waste_mass * 1000 / population / 365
-                else:
-                    waste_mass *= growth_rate_future**year_difference
-                    waste_per_capita = waste_mass * 1000 / population / 365
-
             # Waste fractions
             waste_fractions_defaults = True
             if self.iso3 in defaults_2019.waste_fractions_country:
@@ -3202,7 +3660,8 @@ class City:
                 index=self.years_range,
                 columns=wf_norm.index
             )
-            waste_masses = waste_mass * waste_fractions
+            waste_fractions = waste_fractions.loc[1990:2073]
+            waste_masses = waste_fractions.multiply(waste_mass, axis=0)
 
             try:
                 # Calculate MEF for compost -- emissions from composted waste
@@ -3262,7 +3721,7 @@ class City:
             # Calculate waste generated, which is like waste masses but adjusts for population growth
             waste_generated_df = WasteGeneratedDF.create(
                 waste_masses,
-                1980,
+                1990,
                 2073,
                 year_of_data_pop,
                 growth_rate_historic,
@@ -3289,14 +3748,14 @@ class City:
                 "waste_generated_df": waste_generated_df,
             }
         else:
-            data_source_waste = row['Data Source: Waste'].values[0]
-            self.country = row["Country"].values[0]
-            self.iso3 = row["Country ISO3"].values[0]
+            data_source_waste = canonical_row['Data Source: Waste'].values[0]
+            self.country = canonical_row["Country"].values[0]
+            self.iso3 = canonical_row["Country ISO3"].values[0]
             self.region = defaults_2019.region_lookup[self.country]
             year_of_data_pop = 2025 #row["population_year"]
             assert np.isnan(year_of_data_pop) == False, "Population year is missing"
             try:
-                year_of_data_msw = int(row["Waste in Place Year"].values[0])
+                year_of_data_msw = int(canonical_row["Waste in Place Year"].values[0])
             except:
                 year_of_data_msw = 2025
             population = 100
@@ -3304,8 +3763,8 @@ class City:
             growth_rate_future = pop_data.at[self.iso3, 'growth_rate_future']
 
             # lat lon
-            self.lon = float(row['Longitude'].iloc[0])
-            self.lat = float(row['Latitude'].iloc[0])
+            self.lon = float(canonical_row['Longitude'].iloc[0])
+            self.lat = float(canonical_row['Latitude'].iloc[0])
 
             # Temperature and precipitation
             # SQL query to get average precipitation and temperature using provided latitude and longitude
@@ -3371,7 +3830,7 @@ class City:
             # Get waste total
             waste_mass_defaults = False
             waste_mass_load = float(
-                row['Waste Accepted (tons/year)'].values[0]
+                canonical_row['Waste Accepted (tons/year)'].values[0]
             )  # unit is tons
             if np.isnan(waste_mass_load):
                 waste_mass_defaults = True

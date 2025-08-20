@@ -41,6 +41,7 @@ class Landfill:
         ks: DecompositionRates = None,
         biocover: int = 0,
         rmi_id: int = None,
+        city_id: int = None,
     ):
         """
         Initializes a Landfill object.
