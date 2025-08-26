@@ -2778,7 +2778,9 @@ class City:
                 gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=self.years_range)
 
         else:
-            gas_capture_efficiency = gas_eff_options[site_type]
+            gas_capture_efficiency = canonical_row['gas_collection_efficiency']
+            if pd.isna(gas_capture_efficiency):
+                gas_capture_efficiency = gas_eff_options[site_type]
             gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=self.years_range)
         
         if (depth > 5.0) and (site_type_idx in (1, 2)):
@@ -3040,11 +3042,15 @@ class City:
                 gas_capture_efficiency = pd.Series(gas_capture_efficiency_mean, index=self.years_range)
                 gas_capture_efficiency.loc[gascap_df['reported_emissions_year'].values] = gascap_df['gas_collection_efficiency'].values
             else:
-                gas_capture_efficiency = gas_eff_options[site_type]
+                gas_capture_efficiency = canonical_row['gas_collection_efficiency']
+                if pd.isna(gas_capture_efficiency):
+                    gas_capture_efficiency = gas_eff_options[site_type]
                 gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=self.years_range)
 
         else:
-            gas_capture_efficiency = gas_eff_options[site_type]
+            gas_capture_efficiency = canonical_row['gas_collection_efficiency']
+            if pd.isna(gas_capture_efficiency):
+                gas_capture_efficiency = gas_eff_options[site_type]
             gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=self.years_range)
         
         if (depth > 5.0) and (site_type_idx in (1, 2)):
@@ -3081,8 +3087,7 @@ class City:
                 close_date = int(close_date)
 
         id = int(canonical_row['asset_identifier'])
-        if citysite_rows is None:
-            print('shouldnt happen')
+        if (citysite_rows is None) or (isinstance(citysite_rows, pd.Series)):
             fraction_of_waste_vector = pd.Series(
                     0.0, index=self.years_range
                 )
@@ -3109,6 +3114,7 @@ class City:
                 ks=baseline.ks,
                 oxidation_factor=pd.Series(oxidation_value, index=self.years_range),
                 rmi_id=id,
+                city_id=citysite_rows['city_id']
             )
             baseline.landfills.append(new_landfill)
         else:
@@ -3176,9 +3182,7 @@ class City:
                     open_date=open_date,
                     close_date=close_date,
                     site_type=site_type,
-                    mcf=pd.Series(
-                        mcf, index=self.years_range
-                    ),
+                    mcf=pd.Series(mcf, index=self.years_range),
                     city_params_dict=city_params_dict,
                     city_instance_attrs=baseline.city_instance_attrs,
                     landfill_index=0,

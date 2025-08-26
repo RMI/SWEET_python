@@ -28,6 +28,7 @@ Version: 0.1
 import pandas as pd
 import numpy as np
 import time
+import calendar
 import SWEET_python.defaults_2019 as defaults_2019
 pd.set_option("display.max_rows", None)
 
@@ -199,9 +200,16 @@ class SWEET:
         monthly_dates = pd.date_range(start=start_date, end=end_date, freq='MS')
         n_months = len(monthly_dates)
         years = monthly_dates.year
+        # Month length in years (variable by month and leap years)
+        month_days = monthly_dates.days_in_month.values
+        year_days = np.array([366 if calendar.isleap(y) else 365 for y in years])
+        month_fracs = month_days / year_days
 
         # Expand annual factors to monthly arrays
         def expand_to_months(annual_series_or_value):
+            # Supports dict (year->value), pd.Series (indexed by year), or scalar
+            if isinstance(annual_series_or_value, dict):
+                annual_series_or_value = pd.Series(annual_series_or_value)
             if isinstance(annual_series_or_value, pd.Series):
                 return annual_series_or_value.reindex(years, fill_value=0).values
             else:
@@ -211,11 +219,8 @@ class SWEET:
         oxidation_values = expand_to_months(oxidation_factor)
         flare_values = expand_to_months(flare_efficiency if flare_efficiency is not None else 0.98)
 
-        # Setup for decay matrix
-        t_emit = monthly_dates.values[:, None]
-        t_add = monthly_dates.values[None, :]
-        months_since = (t_emit - t_add) / pd.Timedelta(days=30.44)
-        mask_valid = months_since >= 0
+        # Setup mask for valid emission-addition month pairs (emit month >= add month)
+        mask_valid = np.tri(n_months, n_months, k=0, dtype=bool)
 
         # Prepare result arrays
         ch4_df = np.zeros((n_months, len(components)))
@@ -228,20 +233,28 @@ class SWEET:
             L0 = defaults_2019.L_0[waste]
 
             # Monthly series
-            waste_mass_monthly = waste_mass_df.get(waste, pd.Series(0, index=waste_mass_df.index)) \
-                .reindex(years, fill_value=0).values / 12
+            annual_mass = waste_mass_df.get(waste, pd.Series(0, index=waste_mass_df.index)) \
+                .reindex(years, fill_value=0).values
+            # Distribute annual mass by actual days per month (sums to annual)
+            waste_mass_monthly = annual_mass * month_fracs
             ks_monthly = ks[waste].reindex(years, fill_value=0).values
             mcf_monthly = mcf.reindex(years, fill_value=0).values
 
-            # Prepare vectors for decay
-            ks_matrix = ks_monthly[:, None]
-            decay = np.exp(-ks_matrix * months_since / 12)
+            # Prepare decay using integral of k over variable month lengths
+            cum_k_ext = np.concatenate(([0.0], np.cumsum(ks_monthly * month_fracs)))
+            # Use cumulative up to the start of each month for emit/add so i==j yields zero integral
+            cum_emit = cum_k_ext[:-1]
+            cum_add = cum_k_ext[:-1]
+            integral = cum_emit[:, None] - cum_add[None, :]
+            decay = np.exp(-integral)
             decay[~mask_valid] = 0
 
-            # Vectorized CH4 production
+            # Vectorized CH4 production (emission-time k)
             waste_input = waste_mass_monthly[None, :]
+            k_emit = ks_monthly[:, None]
             mcf_matrix = mcf_monthly[:, None]
-            ch4_matrix = ks_matrix * L0 * waste_input * decay * mcf_matrix * (1/12)
+            dt_emit = month_fracs[:, None]
+            ch4_matrix = (L0 * waste_input * decay) * (k_emit * dt_emit) * mcf_matrix
             ch4_total = ch4_matrix.sum(axis=1)
 
             # Vectorized waste in place
