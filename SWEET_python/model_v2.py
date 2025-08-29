@@ -263,7 +263,7 @@ class SWEET:
 
             # Capture and emissions
             capture = ch4_total * gas_capture_values * flare_values
-            emissions = (ch4_total - capture) * (1 - oxidation_values) + capture * 0.02
+            emissions = (ch4_total - capture) * (1 - oxidation_values)
 
             # Store in result arrays
             ch4_df[:, i] = ch4_total

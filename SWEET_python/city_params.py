@@ -3175,7 +3175,16 @@ class City:
 
             # 5) Convert to shares of *landfill inflow* using population proxy and renormalize each year
             W = P.mul(pop_w, axis=1)                         # weight_i,t = pop_w_i * pct_i,t
-            fraction_of_waste_df = W.div(W.sum(axis=1), axis=0)
+            # row_sums = W.sum(axis=1)
+            # # Identify years with no information (sum == 0 or all NaN)
+            # zero_or_nan_rows = row_sums.isna() | (np.isclose(row_sums, 0.0))
+            # if zero_or_nan_rows.any():
+            #     # Fill those years with population weights so rows still sum to 1
+            #     # Ensure pop_w aligns to columns
+            #     pop_w_aligned = pop_w.reindex(W.columns).fillna(0.0)
+            #     # Assign the same weights across the problematic rows
+            #     W.loc[zero_or_nan_rows, :] = pop_w_aligned
+            fraction_of_waste_df = W.div(W.sum(axis=1), axis=0).fillna(0.0)
 
             for city_id in cities_to_model:
                 new_landfill = Landfill(
@@ -3521,10 +3530,10 @@ class City:
             else:
                 # Multiple rows - create time series
                 waste_mass_defaults = False
-                year_of_data_msw = 2020  # Set to 2020 as requested
+                year_of_data_msw = time_series_rows['incoming_waste_year'].max()
 
-                # Get rows with incoming_waste_year >= 2017
-                recent_rows = time_series_rows[time_series_rows['incoming_waste_year'] >= 2017]
+                # Get rows with incoming_waste_year >= 2010
+                recent_rows = time_series_rows[time_series_rows['incoming_waste_year'] >= 2010]
 
                 if len(recent_rows) > 0:
                     # Calculate average annual incoming waste for recent years
