@@ -41,6 +41,7 @@ class Landfill:
         ks: DecompositionRates = None,
         biocover: int = 0,
         rmi_id: int = None,
+        city_id: int = None,
     ):
         """
         Initializes a Landfill object.
@@ -93,14 +94,17 @@ class Landfill:
         if ks is None:
             self.ks = self.city_params_dict["ks"]
         else:
-            ks_dict = {
-                "food": ks.food,
-                "green": ks.green,
-                "wood": ks.wood,
-                "paper_cardboard": ks.paper_cardboard,
-                "textiles": ks.textiles,
-            }
-            self.ks = ks_dict
+            if isinstance(ks, DecompositionRates):
+                ks_dict = {
+                    "food": ks.food,
+                    "green": ks.green,
+                    "wood": ks.wood,
+                    "paper_cardboard": ks.paper_cardboard,
+                    "textiles": ks.textiles,
+                }
+                self.ks = ks_dict
+            else:
+                self.ks = ks
 
         self.doing_fancy_ox = self.fancy_ox
         # if isinstance(self.doing_fancy_ox, dict):
@@ -310,7 +314,7 @@ class Landfill:
     #         series = pd.Series(values, index=years)
     #         self.oxidation_factor = series
 
-    def estimate_emissions(self, skip_ox=False) -> tuple:
+    def estimate_emissions(self, skip_ox=False, trace_monthly=False) -> tuple:
         """
         Estimate emissions using an instance of the SWEET class.
 
@@ -344,9 +348,14 @@ class Landfill:
             )
 
         start_time = time.time()
-        self.waste_mass_after_degredation, self.emissions, self.ch4, self.captured = (
-            self.model.estimate_emissions2()
-        )
+        if trace_monthly:
+            self.waste_mass_after_degredation, self.emissions, self.ch4, self.captured = (
+                self.model.estimate_emissions_monthly()
+            )
+        else:
+            self.waste_mass_after_degredation, self.emissions, self.ch4, self.captured = (
+                self.model.estimate_emissions2()
+            )
         end_time = time.time()
         # print(f"Time taken to estimate emissions in Landfill: {end_time - start_time} seconds")
 

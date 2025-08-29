@@ -28,7 +28,9 @@ Version: 0.1
 import pandas as pd
 import numpy as np
 import time
+import calendar
 import SWEET_python.defaults_2019 as defaults_2019
+pd.set_option("display.max_rows", None)
 
 
 # Based on EPA's SWEET excel model for calculating methane emissions from municipal solid waste
@@ -52,127 +54,6 @@ ages. This amount is reduced by the amount of methane captured at the landfill.
 Unit: m3 CH4/year
 """
 
-# class SWEET:
-#     def __init__(self, city_instance_attrs: dict, city_params_dict: dict, landfill_instance_attrs: dict):
-#         """
-#         Initializes a SWEET instance.
-
-#         Args:
-#             landfill (Landfill): An instance containing landfill-specific parameters.
-#             scenario (int): The scenario identifier.
-#             city_params (dict): Additional city-specific parameters.
-#         """
-
-#         self.landfill_instance_attrs = landfill_instance_attrs
-#         self.city_instance_attrs = city_instance_attrs
-#         self.city_params_dict = city_params_dict
-
-#     def estimate_emissions(self):
-#         """
-#         Estimates methane emissions based on the SWEET model. It considers the amount and type of waste generated
-#         annually, how much of that waste is diverted to different facilities, and how waste biodegrades over time
-#         to produce methane. The results are aggregated annually.
-
-#         Returns:
-#             tuple: Four pandas DataFrames, respectively containing:
-#                 0. Landfilled waste masses for each year and type.
-#                 1. Net methane emissions for each year.
-#                 2. Methane produced (before capture) for each year and waste type.
-#                 3. Amount of methane captured at the landfill for each year.
-#         """
-#         self.qs = {}
-#         self.ms = {}
-#         self.captured = {}
-#         self.ch4_produced = {}
-
-#         # if self.div_masses is None:
-#         #     doing_div_masses = True
-#         #     div_masses = {key: {} for key in ["compost", "anaerobic", "combustion", "recycling"]}
-#         # else:
-#         #     doing_div_masses = False
-#         #     div_masses = self.div_masses.model_dump()
-
-#         for year in range(self.landfill_instance_attrs['open_date'], self.landfill_instance_attrs['close_date']):
-#             t = year - self.city_params_dict['year_of_data_pop']
-#             self.qs[year] = {}
-#             self.ms[year] = {}
-#             self.ch4_produced[year] = {}
-
-#             # if doing_div_masses:
-#             #     for key in ["compost", "anaerobic", "combustion", "recycling"]:
-#             #         div_masses[key][year] = {}
-
-#             caps = []
-#             growth_rate = self.city_params_dict['growth_rate_historic'] if year < self.city_params_dict['year_of_data_pop'] else self.city_params_dict['growth_rate_future']
-
-#             # if self.scenario == 0:
-#             #     divs = self.divs
-#             #     fraction_of_waste = self.landfill.fraction_of_waste
-#             # else:
-#             #     if year >= self.dst_implement_year:
-#             #         divs = self.scenario_parameters[self.scenario].divs
-#             #         fraction_of_waste = self.landfill.fraction_of_waste[self.landfill.landfill_index] # Need to figure out how to handle multiple fraction of waste values. make a df indexed by year? Or bring back new
-#             #     else:
-#             #         divs = self.divs
-#             #         fraction_of_waste = self.landfill.fraction_of_waste
-
-#             for waste in self.city_instance_attrs['components']:
-#                 # self.ms[year][waste] = (
-#                 #     self.waste_mass * getattr(self.waste_fractions, waste) -
-#                 #     sum(getattr(getattr(divs, key), waste) for key in ["compost", "anaerobic", "combustion", "recycling"])) * \
-#                 #     fraction_of_waste * (growth_rate ** t)
-
-#                 # if doing_div_masses:
-#                 #     for key in self.divs.model_dump().keys():
-#                 #         div_masses[key][year][waste] = getattr(getattr(divs, key), waste) * (growth_rate ** t)
-
-#                 ch4_produced = []
-#                 ch4 = []
-#                 for y in range(self.landfill_instance_attrs['open_date'], year):
-#                     years_back = year - y
-#                     ch4_produce = (
-#                         self.city_params_dict['ks'][waste] *
-#                         defaults_2019.L_0[waste] *
-#                         self.landfill_instance_attrs['waste_mass_df'].at[y, waste] *
-#                         np.exp(-self.city_params_dict['ks'][waste] * (years_back - 0.5)) *
-#                         self.landfill_instance_attrs['mcf']
-#                     )
-#                     ch4_produced.append(ch4_produce)
-#                     ch4_capture = ch4_produce * self.landfill_instance_attrs['gas_capture_efficiency']
-#                     caps.append(ch4_capture)
-#                     val = (ch4_produce - ch4_capture) * (1 - self.landfill_instance_attrs['oxidation_factor']) + ch4_capture * 0.02
-#                     ch4.append(val)
-
-#                 self.qs[year][waste] = sum(ch4)
-#                 self.ch4_produced[year][waste] = sum(ch4_produced)
-
-#             self.captured[year] = sum(caps) / 365 / 24
-
-#         self.q_df = pd.DataFrame(self.qs).T
-#         self.q_df['total'] = self.q_df.sum(axis=1)
-#         self.m_df = pd.DataFrame(self.ms).T
-#         self.ch4_df = pd.DataFrame(self.ch4_produced).T
-
-#         # if doing_div_masses:
-#         #     for key in ["compost", "anaerobic", "combustion", "recycling"]:
-#         #         div_masses[key] = pd.DataFrame(div_masses[key]).T
-
-#         #     div_masses_annual = DivMassesAnnual(
-#         #         compost=div_masses['compost'],
-#         #         anaerobic=div_masses['anaerobic'],
-#         #         combustion=div_masses['combustion'],
-#         #         recycling=div_masses['recycling']
-#         #     )
-
-#         #     if self.scenario == 0:
-#         #         self.div_masses = div_masses_annual
-#         #     else:
-#         #         self.scenario_parameters[self.scenario].div_masses = div_masses_annual
-
-#         return self.m_df, self.q_df, self.ch4_df, self.captured
-
-pd.set_option("display.max_rows", None)
-
 
 class SWEET:
     def __init__(
@@ -184,111 +65,6 @@ class SWEET:
         self.landfill_instance_attrs = landfill_instance_attrs
         self.city_instance_attrs = city_instance_attrs
         self.city_params_dict = city_params_dict
-
-    #def estimate_emissions(self):
-    #    start_time = time.time()
-    #    open_date = self.landfill_instance_attrs["open_date"]
-    #    # close_date = self.landfill_instance_attrs['close_date']
-    #    # advanced = self.landfill_instance_attrs['advanced']
-    #    year_of_data_pop = self.city_params_dict["year_of_data_pop"]
-    #    # growth_rate_historic = self.city_params_dict['growth_rate_historic']
-    #    # growth_rate_future = self.city_params_dict['growth_rate_future']
-    #    ks = self.city_params_dict["ks"]
-    #    waste_mass_df = self.landfill_instance_attrs["waste_mass_df"]
-    #    mcf = self.landfill_instance_attrs["mcf"]
-    #    gas_capture_efficiency = self.landfill_instance_attrs["gas_capture_efficiency"]
-    #    oxidation_factor = self.landfill_instance_attrs["oxidation_factor"]
-    #    components = self.city_instance_attrs["components"]
-
-    #    years = np.arange(1960, 2074)
-    #    t = years - year_of_data_pop
-    #    # growth_rates = np.where(years < year_of_data_pop, growth_rate_historic, growth_rate_future) ** t
-
-    #    qs = {}
-    #    ch4_produced = {}
-    #    captured = {}
-
-    #    end_time = time.time()
-    #    print(f"Model setup: {end_time - start_time} seconds")
-
-    #    start_time = time.time()
-    #    for year in years:
-    #        ch4_year = {}
-    #        ch4_produced_year = {}
-
-    #        # Get some values I don't need to reget every waste type iteration
-    #        mcf_loop = mcf.loc[np.arange(open_date, year)].values
-    #        if isinstance(gas_capture_efficiency, pd.Series):
-    #            gce_loop = gas_capture_efficiency.at[year]
-    #        else:
-    #            gce_loop = gas_capture_efficiency
-
-    #        if isinstance(oxidation_factor, pd.Series):
-    #            ox_loop = oxidation_factor.loc[np.arange(open_date, year)].values
-    #        else:
-    #            ox_loop = oxidation_factor
-
-    #        for waste in components:
-    #            ch4_year[waste] = 0
-    #            ch4_produced_year[waste] = 0
-
-    #            years_back = year - np.arange(open_date, year)
-    #            # is this the right range of years...verify
-    #            exp_term = np.exp(
-    #                -ks[waste].loc[np.arange(open_date, year)] * (years_back - 0.5)
-    #            )
-    #            waste_masses = waste_mass_df.loc[open_date : year - 1, waste]  # .values
-    #            # Make sure the use of decay rate time series makes sense.
-    #            ch4_produce = (
-    #                ks[waste].loc[np.arange(open_date, year)]
-    #                * defaults_2019.L_0[waste]
-    #                * waste_masses
-    #                * exp_term
-    #                * mcf_loop
-    #            )
-    #            # This np sum could maybe be replaced with pandas
-    #            ch4_produced_year[waste] = np.sum(ch4_produce)
-    #            ch4_capture = ch4_produce * gce_loop
-    #            if (len(ch4_produce) == 0) and (len(ch4_capture) == 0):
-    #                ch4_year[waste] = 0
-    #            else:
-    #                try:
-    #                    ch4_year[waste] = np.sum(
-    #                        (ch4_produce - ch4_capture) * (1 - ox_loop)
-    #                        + ch4_capture * 0.02
-    #                    )
-    #                except:
-    #                    print("break point")
-    #            # else:
-    #            #     ch4_year[waste] = np.sum((ch4_produce - ch4_capture) * (1 - oxidation_factor) + ch4_capture * 0.02)
-
-    #        qs[year] = ch4_year
-    #        ch4_produced[year] = ch4_produced_year
-    #        if isinstance(gas_capture_efficiency, pd.Series):
-    #            captured[year] = np.sum(
-    #                [
-    #                    ch4_produced_year[w] * gas_capture_efficiency.at[year]
-    #                    for w in components
-    #                ]
-    #            )  # / 365 / 24
-    #        else:
-    #            captured[year] = np.sum(
-    #                [ch4_produced_year[w] * gas_capture_efficiency for w in components]
-    #            )  # / 365 / 24
-
-    #    end_time = time.time()
-    #    print(f"Model run: {end_time - start_time} seconds")
-
-    #    start_time = time.time()
-
-    #    q_df = pd.DataFrame(qs).T
-    #    q_df["total"] = q_df.sum(axis=1)
-    #    ch4_df = pd.DataFrame(ch4_produced).T
-
-    #    end_time = time.time()
-    #    print(f"Model post-processing: {end_time - start_time} seconds")
-
-    #    return None, q_df, ch4_df, captured
 
     def estimate_emissions2(self):
         start_time = time.time()
@@ -307,7 +83,6 @@ class SWEET:
         flare_efficiency = self.landfill_instance_attrs["flaring"]
 
         # Precompute factors outside of the loop for all years
-        # growth_rates = np.where(years < year_of_data_pop, growth_rate_historic, growth_rate_future) ** (years - year_of_data_pop)
         year_range = np.arange(open_date, 2074)
         if flare_efficiency is None:
             flare_efficiency = pd.Series([1 for x in year_range], index=year_range)
@@ -335,8 +110,8 @@ class SWEET:
             ks_values = ks[waste].loc[year_range].values[:, None]
             exp_term = np.exp(-ks_values * (years_back_matrix - 0.5))
 
-            # Vectorized waste mass, L_0, and MCF computation
-            waste_masses = waste_mass_df.loc[open_date:, waste].values[:, None]
+            # FIXED: Vectorized waste mass, L_0, and MCF computation
+            waste_masses = waste_mass_df.loc[open_date:, waste].values[:, None]  # FIXED: removed reference to undefined 'year'
             mcf_values = mcf.loc[year_range].values[:, None]
             ch4_produce = (
                 ks_values
@@ -404,5 +179,105 @@ class SWEET:
 
         end_time = time.time()
         # print(f"Model post-processing: {end_time - start_time} seconds")
+
+        return waste_in_place_df, q_df, ch4_df, captured_df
+    
+
+    def estimate_emissions_monthly(self):
+        open_date = self.landfill_instance_attrs["open_date"] or 1990
+        close_date = self.landfill_instance_attrs["close_date"]
+        ks = self.landfill_instance_attrs["ks"]
+        waste_mass_df = self.landfill_instance_attrs["waste_mass_df"]
+        mcf = self.landfill_instance_attrs["mcf"]
+        gas_capture_efficiency = self.landfill_instance_attrs["gas_capture_efficiency"]
+        oxidation_factor = self.landfill_instance_attrs["oxidation_factor"]
+        components = list(self.city_instance_attrs["components"])
+        flare_efficiency = self.landfill_instance_attrs["flaring"]
+
+        # Monthly date range
+        start_date = pd.Timestamp(f'{int(open_date)}-01-01')
+        end_date = pd.Timestamp('2073-12-31')
+        monthly_dates = pd.date_range(start=start_date, end=end_date, freq='MS')
+        n_months = len(monthly_dates)
+        years = monthly_dates.year
+        # Month length in years (variable by month and leap years)
+        month_days = monthly_dates.days_in_month.values
+        year_days = np.array([366 if calendar.isleap(y) else 365 for y in years])
+        month_fracs = month_days / year_days
+
+        # Expand annual factors to monthly arrays
+        def expand_to_months(annual_series_or_value):
+            # Supports dict (year->value), pd.Series (indexed by year), or scalar
+            if isinstance(annual_series_or_value, dict):
+                annual_series_or_value = pd.Series(annual_series_or_value)
+            if isinstance(annual_series_or_value, pd.Series):
+                return annual_series_or_value.reindex(years, fill_value=0).values
+            else:
+                return np.full(n_months, annual_series_or_value)
+
+        gas_capture_values = expand_to_months(gas_capture_efficiency)
+        oxidation_values = expand_to_months(oxidation_factor)
+        flare_values = expand_to_months(flare_efficiency if flare_efficiency is not None else 0.98)
+
+        # Setup mask for valid emission-addition month pairs (emit month >= add month)
+        mask_valid = np.tri(n_months, n_months, k=0, dtype=bool)
+
+        # Prepare result arrays
+        ch4_df = np.zeros((n_months, len(components)))
+        waste_in_place_df = np.zeros_like(ch4_df)
+        captured_df = np.zeros_like(ch4_df)
+        emissions_df = np.zeros_like(ch4_df)
+
+        for i, waste in enumerate(components):
+            # Get constants
+            L0 = defaults_2019.L_0[waste]
+
+            # Monthly series
+            annual_mass = waste_mass_df.get(waste, pd.Series(0, index=waste_mass_df.index)) \
+                .reindex(years, fill_value=0).values
+            # Distribute annual mass by actual days per month (sums to annual)
+            waste_mass_monthly = annual_mass * month_fracs
+            ks_monthly = ks[waste].reindex(years, fill_value=0).values
+            mcf_monthly = mcf.reindex(years, fill_value=0).values
+
+            # Prepare decay using integral of k over variable month lengths
+            cum_k_ext = np.concatenate(([0.0], np.cumsum(ks_monthly * month_fracs)))
+            # Use cumulative up to the start of each month for emit/add so i==j yields zero integral
+            cum_emit = cum_k_ext[:-1]
+            cum_add = cum_k_ext[:-1]
+            integral = cum_emit[:, None] - cum_add[None, :]
+            decay = np.exp(-integral)
+            decay[~mask_valid] = 0
+
+            # Vectorized CH4 production (emission-time k)
+            waste_input = waste_mass_monthly[None, :]
+            k_emit = ks_monthly[:, None]
+            mcf_matrix = mcf_monthly[:, None]
+            dt_emit = month_fracs[:, None]
+            ch4_matrix = (L0 * waste_input * decay) * (k_emit * dt_emit) * mcf_matrix
+            ch4_total = ch4_matrix.sum(axis=1)
+
+            # Vectorized waste in place
+            waste_matrix = waste_input * decay
+            wip_total = waste_matrix.sum(axis=1)
+
+            # Capture and emissions
+            capture = ch4_total * gas_capture_values * flare_values
+            emissions = (ch4_total - capture) * (1 - oxidation_values)
+
+            # Store in result arrays
+            ch4_df[:, i] = ch4_total
+            waste_in_place_df[:, i] = wip_total
+            captured_df[:, i] = capture
+            emissions_df[:, i] = emissions
+
+        # Wrap up as DataFrames
+        columns = components
+        index = monthly_dates
+        ch4_df = pd.DataFrame(ch4_df, columns=columns, index=index)
+        waste_in_place_df = pd.DataFrame(waste_in_place_df, columns=columns, index=index)
+        captured_df = pd.DataFrame(captured_df, columns=columns, index=index)
+        q_df = pd.DataFrame(emissions_df, columns=columns, index=index)
+        q_df["total"] = q_df.sum(axis=1)
 
         return waste_in_place_df, q_df, ch4_df, captured_df
