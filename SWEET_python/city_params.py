@@ -2759,12 +2759,24 @@ class City:
         else:
             gas_capture_presence = canonical_row['other7']
 
-        if gas_capture_presence == "Yes" or gas_capture_presence == True:
+        if (gas_capture_presence == "Yes") or (gas_capture_presence == True):
             gas_capture_presence = True
             oxidation_value = ox_options["ox_cap"][site_type]
         else:
-            gas_capture_presence = False
-            oxidation_value = ox_options["ox_nocap"][site_type]
+            try:
+                if gas_capture_presence == gas_capture_presence:
+                    if gas_capture_presence > 0:
+                        gas_capture_presence = True
+                        oxidation_value = ox_options["ox_cap"][site_type]
+                    else:
+                        gas_capture_presence = False
+                        oxidation_value = ox_options["ox_nocap"][site_type]
+                else:
+                    gas_capture_presence = False
+                    oxidation_value = ox_options["ox_nocap"][site_type]
+            except:
+                gas_capture_presence = False
+                oxidation_value = ox_options["ox_nocap"][site_type]
         
         if isinstance(time_series_rows, pd.DataFrame):
             if time_series_rows['gas_collection_efficiency'].notna().any():
@@ -2774,13 +2786,18 @@ class City:
                 gas_capture_efficiency = pd.Series(gas_capture_efficiency_mean, index=self.years_range)
                 gas_capture_efficiency.loc[gascap_df['reported_emissions_year'].values] = gascap_df['gas_collection_efficiency'].values
             else:
-                gas_capture_efficiency = gas_eff_options[site_type]
+                if gas_capture_presence is True:
+                    gas_capture_efficiency = gas_eff_options[site_type]
+                else:
+                    gas_capture_efficiency = 0
                 gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=self.years_range)
-
         else:
             gas_capture_efficiency = canonical_row['gas_collection_efficiency']
             if pd.isna(gas_capture_efficiency):
-                gas_capture_efficiency = gas_eff_options[site_type]
+                if gas_capture_presence is True:
+                    gas_capture_efficiency = gas_eff_options[site_type]
+                else:
+                    gas_capture_efficiency = 0
             gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=self.years_range)
         
         if (depth > 5.0) and (site_type_idx in (1, 2)):
