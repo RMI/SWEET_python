@@ -7,3 +7,4 @@ pycountry
 asyncpg
 fastapi
 psycopg2
+sqlalchemy
