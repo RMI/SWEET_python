@@ -184,11 +184,14 @@ class WasteGeneratedDF(BaseModel):
         years = np.arange(start_year, end_year + 1)
         t = years - year_of_data_pop
 
-        # Create growth rate array, using growth_rate_historic for years before year_of_data_pop and growth_rate_future after
-        growth_rate = np.where(
-            years < year_of_data_pop, growth_rate_historic, growth_rate_future
-        )
-        growth_factors = growth_rate**t
+        if (growth_rate_future == growth_rate_future) and (growth_rate_future == 0.0):
+            growth_factors = np.ones(len(years))
+        else:
+            # Create growth rate array, using growth_rate_historic for years before year_of_data_pop and growth_rate_future after
+            growth_rate = np.where(
+                years < year_of_data_pop, growth_rate_historic, growth_rate_future
+            )
+            growth_factors = growth_rate**t
 
         # Apply growth factors to each row of the DataFrame
         adjusted_data = waste_masses_df.multiply(growth_factors, axis=0)

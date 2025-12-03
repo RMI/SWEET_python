@@ -83,7 +83,7 @@ class SWEET:
         flare_efficiency = self.landfill_instance_attrs["flaring"]
 
         # Precompute factors outside of the loop for all years
-        year_range = np.arange(open_date, 2074)
+        year_range = np.arange(open_date, 2051)
         if flare_efficiency is None:
             flare_efficiency = pd.Series([1 for x in year_range], index=year_range)
         elif isinstance(flare_efficiency, dict):
@@ -196,9 +196,12 @@ class SWEET:
         components = list(self.city_instance_attrs["components"])
         flare_efficiency = self.landfill_instance_attrs["flaring"]
 
+        for k, df in ks.items():
+            ks[k] = df.loc[1990:2050]
+
         # Monthly date range
         start_date = pd.Timestamp(f'{int(open_date)}-01-01')
-        end_date = pd.Timestamp('2073-12-31')
+        end_date = pd.Timestamp('2050-12-31')
         monthly_dates = pd.date_range(start=start_date, end=end_date, freq='MS')
         n_months = len(monthly_dates)
         years = monthly_dates.year

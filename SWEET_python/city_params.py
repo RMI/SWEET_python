@@ -73,6 +73,7 @@ class CityParameters(BaseModel):
     sites_method: Optional[bool] = None
     sites_info_dict: Optional[Dict[str, Any]] = None
     bf: Optional[float] = None
+    fraction_of_waste_df: Optional[pd.DataFrame] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -441,7 +442,7 @@ class CityParameters(BaseModel):
         def create_series(
             kc, tf, fm, implement_year=None, advanced_baseline=False, advanced_dst=False
         ):
-            years = pd.Series(index=range(1960, 2074))
+            years = pd.Series(index=range(1990, 2051))
             if advanced_dst:
                 # Create baseline series for years up to the implement year
                 baseline_series = kc["baseline"] * tf * fm
@@ -587,7 +588,7 @@ class City:
         }
         self.latitude = None
         self.longitude = None
-        self.years_range = range(1960, 2074)
+        self.years_range = range(1990, 2051)
 
     def load_from_csv(self, db: pd.DataFrame, scenario: int = 0) -> None:
         """
@@ -850,7 +851,7 @@ class City:
         self.country = city_data["Country ISO3"].values[0]
 
         # Define the range of years
-        years = range(1960, 2074)
+        years = range(1990, 2051)
 
         waste_fractions = WasteFractions(
             food=city_data["Waste Components: Food (%)"].values[0] / 100,
@@ -1187,7 +1188,7 @@ class City:
         year_of_data_msw = int(year_of_data_msw)
 
         # Define the range of years
-        years = range(1960, 2074)
+        years = range(1990, 2051)
 
         # Hardcode missing population values
         population = float(row["population_count"])
@@ -1635,9 +1636,9 @@ class City:
         # if self.iso3 == 'NGA':
         #     self.split_fractions = {'landfill_w_capture': 0.0, 'landfill_wo_capture': 0.0, 'dumpsite': 1.0}
         # Instantiate landfills
-        # self.landfill_w_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=self.split_fractions['landfill_w_capture'], gas_capture=True)
-        # self.landfill_wo_capture = Landfill(self, 1960, 2073, 'landfill', 1, fraction_of_waste=self.split_fractions['landfill_wo_capture'], gas_capture=False)
-        # self.dumpsite = Landfill(self, 1960, 2073, 'dumpsite', 0.4, fraction_of_waste=self.split_fractions['dumpsite'], gas_capture=False)
+        # self.landfill_w_capture = Landfill(self, 1990, 2051, 'landfill', 1, fraction_of_waste=self.split_fractions['landfill_w_capture'], gas_capture=True)
+        # self.landfill_wo_capture = Landfill(self, 1990, 2051, 'landfill', 1, fraction_of_waste=self.split_fractions['landfill_wo_capture'], gas_capture=False)
+        # self.dumpsite = Landfill(self, 1990, 2051, 'dumpsite', 0.4, fraction_of_waste=self.split_fractions['dumpsite'], gas_capture=False)
 
         # landfills = [self.landfill_w_capture, self.landfill_wo_capture, self.dumpsite]
         # Only running model on landfills with non-zero waste reduces computation
@@ -1766,8 +1767,8 @@ class City:
         waste_masses_df = waste_fractions.multiply(waste_mass, axis=0)
         waste_generated_df = WasteGeneratedDF.create(
             waste_masses_df,
-            1960,
-            2073,
+            1990,
+            2050,
             year_of_data_pop,
             growth_rate_historic,
             growth_rate_future,
@@ -1863,7 +1864,7 @@ class City:
                 open_date=lifespans[i][0],
                 close_date=lifespans[i][1],
                 site_type=site_types[i],
-                mcf=pd.Series(mcfs[i], index=range(lifespans[i][0], 2074)),
+                mcf=pd.Series(mcfs[i], index=range(lifespans[i][0], 2051)),
                 city_params_dict=city_params_dict,
                 city_instance_attrs=baseline.city_instance_attrs,
                 landfill_index=i,
@@ -1872,7 +1873,7 @@ class City:
                 scenario=0,
                 new_baseline=True,
                 gas_capture_efficiency=pd.Series(
-                    gas_capture_efficiencies[i], index=range(lifespans[i][0], 2074)
+                    gas_capture_efficiencies[i], index=range(lifespans[i][0], 2051)
                 ),
                 # flaring=pd.Series(flaring, index=year_range),
                 # leachate_circulate=leachate_circulate[i],
@@ -1883,7 +1884,7 @@ class City:
                 latlon=latitudes_longitudes[i],
                 ks=baseline.ks,
                 oxidation_factor=pd.Series(
-                    oxidation_values[i], index=range(lifespans[i][0], 2074)
+                    oxidation_values[i], index=range(lifespans[i][0], 2051)
                 ),
                 rmi_id=rmi_ids[i],
             )
@@ -1894,8 +1895,8 @@ class City:
         )
         baseline.waste_generated_df = WasteGeneratedDF.create(
             waste_masses_df,
-            1960,
-            2073,
+            1990,
+            2050,
             baseline.year_of_data_pop,
             baseline.growth_rate_historic,
             baseline.growth_rate_future,
@@ -1946,7 +1947,7 @@ class City:
         # Basic information
         # idx = row[0]
         row = row[1]
-        self.years_range = range(1990, 2073)
+        self.years_range = range(1990, 2051)
 
         # Import basic information
         basics_dict = self.import_basics(row)
@@ -2112,7 +2113,7 @@ class City:
                 ].unique()
                 last_mention_in_data = int(site_data["ctf_year"].iat[0])
                 if len(closes) == 1 and np.isnan(closes[0]):
-                    close = 2074
+                    close = 2050
                 else:
                     close = int(sorted(closes, reverse=True)[0])
                     if last_mention_in_data > close:
@@ -2198,7 +2199,7 @@ class City:
                 last_mention_in_data = int(site_data["ctf_year"].iat[0])
                 if len(closes) == 1 and np.isnan(closes[0]):
                     if last_landfill:
-                        close = 2074
+                        close = 2050
                     else:
                         close = last_mention_in_data
                 else:
@@ -2327,7 +2328,7 @@ class City:
                 close_date=lifespans[landfill][1],
                 site_type=site_types[landfill],
                 mcf=pd.Series(
-                    mcfs[landfill], index=range(lifespans[landfill][0], 2074)
+                    mcfs[landfill], index=range(lifespans[landfill][0], 2051)
                 ),
                 city_params_dict=city_params_dict,
                 city_instance_attrs=baseline.city_instance_attrs,
@@ -2338,7 +2339,7 @@ class City:
                 new_baseline=True,
                 gas_capture_efficiency=pd.Series(
                     gas_capture_efficiencies[landfill],
-                    index=range(lifespans[landfill][0], 2074),
+                    index=range(lifespans[landfill][0], 2051),
                 ),
                 # flaring=pd.Series(flaring, index=year_range),
                 # leachate_circulate=leachate_circulate[i],
@@ -2390,7 +2391,7 @@ class City:
             None
         """
         # Basic information
-        self.years_range = range(1980, 2074)
+        self.years_range = range(1990, 2051)
 
         # Import basic information
         basics_dict = self.import_basics_site(row, pop_data)
@@ -2544,10 +2545,10 @@ class City:
             mcf = 0.8
         else:
             mcf = mcf_options[site_type]
-        open_date = row['Site Open Year'].fillna(1980).values[0]
-        if open_date < 1980:
-            open_date = 1980
-        close_date = row['Site Close Year'].fillna(2074).values[0]
+        open_date = row['Site Open Year'].fillna(1990).values[0]
+        if open_date < 1990:
+            open_date = 1990
+        close_date = row['Site Close Year'].fillna(2051).values[0]
         fration_of_waste_vector = pd.Series(
                 0.0, index=self.years_range
             )
@@ -2608,7 +2609,7 @@ class City:
             None
         """
         # Basic information
-        self.years_range = range(1990, 2074)
+        self.years_range = range(1990, 2051)
 
         # Import basic information
         basics_dict = self.import_basics_site(canonical_row, pop_data, usecase="trace", time_series_rows=time_series_rows)
@@ -2829,7 +2830,7 @@ class City:
                 close_date = int(close_date)
         else:
             if pd.isna(close_date) or close_date is None:
-                close_date = 2074
+                close_date = 2050
             else:
                 close_date = int(close_date)
         fraction_of_waste_vector = pd.Series(
@@ -2893,7 +2894,7 @@ class City:
             None
         """
         # Basic information
-        self.years_range = range(1990, 2074)
+        self.years_range = range(1990, 2051)
 
         # Import basic information
         basics_dict = self.import_basics_site(canonical_row, pop_data, usecase="trace", time_series_rows=time_series_rows)
@@ -3099,11 +3100,12 @@ class City:
                 close_date = int(close_date)
         else:
             if pd.isna(close_date) or close_date is None:
-                close_date = 2074
+                close_date = 2050
             else:
                 close_date = int(close_date)
 
         id = int(canonical_row['asset_identifier'])
+        baseline._singapore_k(advanced_baseline=True)
         if (citysite_rows is None) or (isinstance(citysite_rows, pd.Series)):
             fraction_of_waste_vector = pd.Series(
                     0.0, index=self.years_range
@@ -3202,6 +3204,7 @@ class City:
             #     # Assign the same weights across the problematic rows
             #     W.loc[zero_or_nan_rows, :] = pop_w_aligned
             fraction_of_waste_df = W.div(W.sum(axis=1), axis=0).fillna(0.0)
+            baseline.fraction_of_waste_df = fraction_of_waste_df
 
             for city_id in cities_to_model:
                 new_landfill = Landfill(
@@ -3227,7 +3230,8 @@ class City:
                     city_id=city_id,
                 )
                 baseline.landfills.append(new_landfill)
-
+        
+            
         baseline.repopulate_attr_dicts()
         for i, landfill in enumerate(baseline.landfills):
             # Might be able to do this more efficienctly...i'm looping over the pre implementation years twice sort of
@@ -3400,7 +3404,7 @@ class City:
         # Normalize waste fractions to sum to 1
         s = sum([x for x in waste_fractions.values()])
         waste_fractions = {x: waste_fractions[x] / s for x in waste_fractions.keys()}
-        self.years_range = range(1960, 2074)
+        self.years_range = range(1990, 2051)
         waste_fractions = pd.DataFrame(waste_fractions, index=self.years_range)
         waste_masses = waste_mass * waste_fractions
 
@@ -3462,8 +3466,8 @@ class City:
         # Calculate waste generated, which is like waste masses but adjusts for population growth
         waste_generated_df = WasteGeneratedDF.create(
             waste_masses,
-            1960,
-            2073,
+            1990,
+            2050,
             year_of_data_pop,
             growth_rate_historic,
             growth_rate_future,
@@ -3563,8 +3567,8 @@ class City:
                 growth_rate_historic = pop_data.at[self.iso3, 'growth_rate_historic']
                 growth_rate_future = pop_data.at[self.iso3, 'growth_rate_future']
 
-                # Create time series from 1990 to 2073
-                years = np.arange(1990, 2074)
+                # Create time series from 1990 to 2050
+                years = np.arange(1990, 2051)
                 waste_series = np.zeros(len(years))
 
                 # Set 2020 as the baseline year
@@ -3690,7 +3694,7 @@ class City:
                 index=self.years_range,
                 columns=wf_norm.index
             )
-            waste_fractions = waste_fractions.loc[1990:2073]
+            waste_fractions = waste_fractions.loc[1990:2050]
             waste_masses = waste_fractions.multiply(waste_mass, axis=0)
 
             try:
@@ -3750,9 +3754,9 @@ class City:
 
             # Calculate waste generated, which is like waste masses but adjusts for population growth
             waste_generated_df = WasteGeneratedDF.create(
-                waste_masses,
+                waste_masses.loc[1990:2050, :],
                 1990,
-                2073,
+                2050,
                 year_of_data_pop,
                 growth_rate_historic,
                 growth_rate_future,
@@ -3964,8 +3968,8 @@ class City:
             # Calculate waste generated, which is like waste masses but adjusts for population growth
             waste_generated_df = WasteGeneratedDF.create(
                 waste_masses,
-                1980,
-                2073,
+                1990,
+                2050,
                 year_of_data_pop,
                 growth_rate_historic,
                 growth_rate_future,
@@ -4253,8 +4257,8 @@ class City:
         city_parameters._singapore_k()
 
         # Create city-level dataframes
-        start_year = 1960
-        end_year = 2073
+        start_year = 1990
+        end_year = 2050
         years = range(start_year, end_year + 1)
 
         waste_masses_df = city_parameters.waste_fractions.multiply(
@@ -4291,8 +4295,8 @@ class City:
 
         if not advanced_baseline and not advanced_dst:
             landfill_w_capture = Landfill(
-                open_date=1960,
-                close_date=2073,
+                open_date=1990,
+                close_date=2050,
                 site_type="landfill",
                 mcf=pd.Series(1, index=years),
                 city_params_dict=city_params_dict,
@@ -4302,8 +4306,8 @@ class City:
                 gas_capture=True,
             )
             landfill_wo_capture = Landfill(
-                open_date=1960,
-                close_date=2073,
+                open_date=1990,
+                close_date=2050,
                 site_type="landfill",
                 mcf=pd.Series(1, index=years),
                 city_params_dict=city_params_dict,
@@ -4314,8 +4318,8 @@ class City:
                 gas_capture_efficiency=0.0,
             )
             dumpsite = Landfill(
-                open_date=1960,
-                close_date=2073,
+                open_date=1990,
+                close_date=2050,
                 site_type="dumpsite",
                 mcf=pd.Series(0.4, index=years),
                 city_params_dict=city_params_dict,
@@ -4433,7 +4437,7 @@ class City:
         # Unsure if this is the right place for this...
         if isinstance(parameters.div_component_fractions.combustion, WasteFractions):
             div_component_fractions = parameters.div_component_fractions
-            years = range(1960, 2074)
+            years = range(1990, 2051)
             compost_dict = div_component_fractions.compost.model_dump()
             compost = pd.DataFrame(compost_dict, index=years)[
                 list(self.div_components["compost"])
@@ -4571,7 +4575,7 @@ class City:
             raise ValueError(f"Region for ISO3 code '{iso3}' not found.")
 
         precip_zone = defaults_2019.get_precipitation_zone(precipitation)
-        years = range(1960, 2074)
+        years = range(1990, 2051)
 
         # Calculate growth rates
         population_1950 = 751_000_000
@@ -4667,7 +4671,7 @@ class City:
             )
 
         # Instantiate landfill objects
-        years_range = range(1960, 2074)
+        years_range = range(1990, 2051)
         city_instance_attrs = {
             "city_name": self.city_name,
             "country": country,
@@ -4768,8 +4772,8 @@ class City:
         waste_masses_df = waste_fractions_df * waste_mass
         waste_generated_df = WasteGeneratedDF.create(
             waste_masses_df,
-            1960,
-            2073,
+            1990,
+            2050,
             year_of_data_pop,
             growth_rate_historic,
             growth_rate_future,
@@ -4820,8 +4824,8 @@ class City:
         self._calculate_divs()
 
         # landfill_w_capture = Landfill(
-        #     open_date=1960,
-        #     close_date=2073,
+        #     open_date=1990,
+        #     close_date=2051,
         #     site_type='landfill',
         #     mcf=pd.Series(1.0, index=years_range),
         #     city_params_dict=city_params_dict,
@@ -4831,8 +4835,8 @@ class City:
         #     gas_capture=True
         # )
         # landfill_wo_capture = Landfill(
-        #     open_date=1960,
-        #     close_date=2073,
+        #     open_date=1990,
+        #     close_date=2051,
         #     site_type='landfill',
         #     mcf=pd.Series(1.0, index=years_range),
         #     city_params_dict=city_params_dict,
@@ -4842,8 +4846,8 @@ class City:
         #     gas_capture=False
         # )
         # dumpsite = Landfill(
-        #     open_date=1960,
-        #     close_date=2073,
+        #     open_date=1990,
+        #     close_date=2051,
         #     site_type='dumpsite',
         #     mcf=pd.Series(0.4, index=years_range),
         #     city_params_dict=city_params_dict,
@@ -6652,11 +6656,11 @@ class City:
             ]
         )
         parameters.non_compostable_not_targeted_total = pd.Series(
-            non_compostable_not_targeted_total, np.arange(1960, 2074)
+            non_compostable_not_targeted_total, np.arange(1990, 2051)
         )
         if parameters.non_compostable_not_targeted_total.isna().all():
             parameters.non_compostable_not_targeted_total = pd.Series(
-                0, index=np.arange(1960, 2074)
+                0, index=np.arange(1990, 2051)
             )
 
         # Deal with waste mass that changes at implement_date first.
@@ -6809,8 +6813,8 @@ class City:
 
     #    implement_year = self.scenario_parameters[0].implement_year
 
-    #    baseline_data = {year: {waste: getattr(baseline_divs, waste) for waste in baseline_divs.model_dump()} for year in range(1960, implement_year)}
-    #    scenario_data = {year: {waste: getattr(scenario_divs, waste) for waste in scenario_divs.model_dump()} for year in range(implement_year, 2074)}
+    #    baseline_data = {year: {waste: getattr(baseline_divs, waste) for waste in baseline_divs.model_dump()} for year in range(1990, implement_year)}
+    #    scenario_data = {year: {waste: getattr(scenario_divs, waste) for waste in scenario_divs.model_dump()} for year in range(implement_year, 2051)}
 
     #    df = pd.concat([pd.DataFrame(baseline_data).T, pd.DataFrame(scenario_data).T])
 
@@ -6834,8 +6838,8 @@ class City:
     #        scenario_waste_fractions = self.scenario_parameters[0].waste_fractions
     #    implement_year = self.scenario_parameters[0].implement_year
 
-    #    baseline_data = {year: {waste: getattr(baseline_waste_fractions, waste) for waste in baseline_waste_fractions.model_dump()} for year in range(1960, implement_year)}
-    #    scenario_data = {year: {waste: getattr(scenario_waste_fractions, waste) for waste in scenario_waste_fractions.model_dump()} for year in range(implement_year, 2074)}
+    #    baseline_data = {year: {waste: getattr(baseline_waste_fractions, waste) for waste in baseline_waste_fractions.model_dump()} for year in range(1990, implement_year)}
+    #    scenario_data = {year: {waste: getattr(scenario_waste_fractions, waste) for waste in scenario_waste_fractions.model_dump()} for year in range(implement_year, 2051)}
 
     #    df = pd.concat([pd.DataFrame(baseline_data).T, pd.DataFrame(scenario_data).T])
 
@@ -6915,7 +6919,7 @@ class City:
         if not parameters.waste_masses:
             waste_mass_dict = {}
             for col in self.waste_types:
-                fraction = parameters.waste_fractions.at[1960, col]
+                fraction = parameters.waste_fractions.at[1990, col]
                 waste_mass_dict[col] = parameters.waste_mass.iloc[0] * fraction
             parameters.waste_masses = WasteMasses(**waste_mass_dict)
 
@@ -7011,7 +7015,7 @@ class City:
         self.scenario_parameters[scenario - 1] = scenario_parameters
         scenario_parameters.div_fractions = new_div_fractions
 
-        food_fraction = scenario_parameters.waste_fractions.at[1960, "food"]
+        food_fraction = scenario_parameters.waste_fractions.at[1990, "food"]
         food_waste_prevented = (
             food_waste_prevention * food_fraction * scenario_parameters.waste_mass
         )
@@ -7020,7 +7024,7 @@ class City:
         new_total_waste_fracs = 1 - food_waste_prevention * food_fraction
         if food_waste_prevention > 0:
             for frac in scenario_parameters.waste_fractions.columns:
-                old_val = scenario_parameters.waste_fractions.at[1960, frac]
+                old_val = scenario_parameters.waste_fractions.at[1990, frac]
                 new_val = old_val / new_total_waste_fracs
                 scenario_parameters.waste_fractions.loc[:, frac] = new_val
 
@@ -7189,8 +7193,8 @@ class City:
         scenario_parameters.divs_df = DivsDF.create_simple(
             baseline_divs=baseline_divs,
             scenario_divs=scenario_parameters.divs,
-            start_year=1960,
-            end_year=2073,
+            start_year=1990,
+            end_year=2050,
             implement_year=implement_year,
             year_of_data_pop=yr_pop,
             growth_rate_historic=scenario_parameters.growth_rate_historic,
@@ -7296,45 +7300,45 @@ class City:
             skip_ox = False
             if add_gas:
                 scenario_parameters.landfills[0].gas_capture_efficiency = pd.Series(
-                    0.6, index=range(1960, 2074)
+                    0.6, index=range(1990, 2051)
                 )
                 scenario_parameters.landfills[0].oxidation_factor = pd.Series(
-                    0.22, index=range(1960, 2074)
+                    0.22, index=range(1990, 2051)
                 )
                 scenario_parameters.landfills[0].mcf = pd.Series(
-                    1, index=range(1960, 2074)
+                    1, index=range(1990, 2051)
                 )
 
                 scenario_parameters.landfills[1].gas_capture_efficiency = pd.Series(
-                    0.6, index=range(1960, 2074)
+                    0.6, index=range(1990, 2051)
                 )
                 scenario_parameters.landfills[1].gas_capture_efficiency.loc[
                     :implement_year
                 ] = 0.0
                 scenario_parameters.landfills[1].oxidation_factor = pd.Series(
-                    0.22, index=range(1960, 2074)
+                    0.22, index=range(1990, 2051)
                 )
                 scenario_parameters.landfills[1].oxidation_factor.loc[
                     :implement_year
                 ] = 0.1
                 scenario_parameters.landfills[1].mcf = pd.Series(
-                    1, index=range(1960, 2074)
+                    1, index=range(1990, 2051)
                 )
                 # Here we convert the dumpsite to a controlled dumpsite w gas capture
                 scenario_parameters.landfills[2].gas_capture_efficiency = pd.Series(
-                    0.3, index=range(1960, 2074)
+                    0.3, index=range(1990, 2051)
                 )
                 scenario_parameters.landfills[2].gas_capture_efficiency.loc[
                     :implement_year
                 ] = 0.0
                 scenario_parameters.landfills[2].oxidation_factor = pd.Series(
-                    0.1, index=range(1960, 2074)
+                    0.1, index=range(1990, 2051)
                 )
                 scenario_parameters.landfills[2].oxidation_factor.loc[
                     :implement_year
                 ] = 0.0
                 scenario_parameters.landfills[2].mcf = pd.Series(
-                    0.7, index=range(1960, 2074)
+                    0.7, index=range(1990, 2051)
                 )
                 scenario_parameters.landfills[2].mcf.loc[:implement_year] = 0.4
                 skip_ox = True
@@ -7449,9 +7453,9 @@ class City:
                 fraction_of_waste_vector.loc[implement_year:] = new_gas_pct
                 new_landfill = Landfill(
                     open_date=implement_year,
-                    close_date=2074,
+                    close_date=2050,
                     site_type="Sanitary Landfill",
-                    mcf=pd.Series(1, index=range(implement_year, 2074)),
+                    mcf=pd.Series(1, index=range(implement_year, 2051)),
                     city_params_dict=scenario_parameters.landfills[i].city_params_dict,
                     city_instance_attrs=scenario_parameters.landfills[
                         i
@@ -7462,7 +7466,7 @@ class City:
                     scenario=0,
                     new_baseline=False,
                     gas_capture_efficiency=pd.Series(
-                        0.6, index=range(implement_year, 2074)
+                        0.6, index=range(implement_year, 2051)
                     ),
                     # flaring=pd.Series(flaring, index=year_range),
                     # leachate_circulate=leachate_circulate[i],
@@ -7470,7 +7474,7 @@ class City:
                     advanced=True,
                     latlon=lf.latlon,
                     ks=scenario_parameters.ks,
-                    oxidation_factor=pd.Series(0.22, index=range(implement_year, 2074)),
+                    oxidation_factor=pd.Series(0.22, index=range(implement_year, 2051)),
                     rmi_id=999999999,
                 )
                 scenario_parameters.landfills.append(new_landfill)
@@ -7611,8 +7615,8 @@ class City:
         scenario_parameters.divs_df = DivsDF.create_simple(
             baseline_divs=baseline_divs,
             scenario_divs=scenario_parameters.divs,
-            start_year=1960,
-            end_year=2073,
+            start_year=1990,
+            end_year=2050,
             implement_year=implement_year,
             year_of_data_pop=yr_pop,
             growth_rate_historic=scenario_parameters.growth_rate_historic,
@@ -7635,8 +7639,8 @@ class City:
 
         scenario_parameters.waste_generated_df = WasteGeneratedDF.create(
             waste_masses_df,
-            1960,
-            2073,
+            1990,
+            2050,
             scenario_parameters.year_of_data_pop,
             scenario_parameters.growth_rate_historic,
             scenario_parameters.growth_rate_future,
@@ -7739,7 +7743,7 @@ class City:
             new_waste_mass["scenario"] = scenario_parameters.waste_mass.iat[0]
         scenario_parameters.waste_mass = new_waste_mass
 
-        years = pd.Index(range(1960, 2074))
+        years = pd.Index(range(1990, 2051))
         waste_mass_series = pd.Series(index=years)
         waste_mass_series.loc[: waste_mass_year - 1] = new_waste_mass["baseline"]
         waste_mass_series.loc[waste_mass_year:] = new_waste_mass["scenario"]
@@ -7840,8 +7844,8 @@ class City:
         # Update waste generated
         scenario_parameters.waste_generated_df = WasteGeneratedDF.create_advanced(
             waste_masses_df=waste_masses_df,
-            start_year=1960,
-            end_year=2073,
+            start_year=1990,
+            end_year=2050,
             year_of_data_pop=scenario_parameters.year_of_data_pop["baseline"],
             growth_rate_historic=scenario_parameters.growth_rate_historic,
             growth_rate_future=scenario_parameters.growth_rate_future,
@@ -7869,7 +7873,7 @@ class City:
         scenario_parameters.landfills = []
         for i, lf_type in enumerate(new_landfill_types["scenario"]):
             # Make the MCF, oxidation, and efficiency vectors
-            years = pd.Index(range(1960, 2074))
+            years = pd.Index(range(1990, 2051))
             mcf = {}
             ox_value = {}
             gas_eff = {}
@@ -8195,7 +8199,7 @@ class City:
 
         # scenario_parameters.repopulate_attr_dicts() # does this need to come sooner? Does anything in the above functions rely on the attr dicts?
         for landfill in scenario_parameters.landfills:
-            landfill.estimate_emissions()
+            landfill.estimate_emissions(skip_ox=True)
 
         self.estimate_diversion_emissions(scenario=scenario)
         self.sum_landfill_emissions(scenario=scenario)
@@ -8220,6 +8224,353 @@ class City:
         #         scenario_parameters.total_emissions.index, fill_value=0
         #     )
         #     scenario_parameters.total_emissions['total'] += scenario_parameters.waste_burning_emissions
+
+    def sdst_v1_5(
+        self,
+        population: float,
+        precipitation: float,
+        new_waste_mass: Dict,
+        new_waste_fractions: Dict,
+        new_landfill_types: Dict,
+        new_landfill_open_close_dates: Dict,
+        implement_year: float,
+        scenario: int,
+        landfill_split_timeline: Dict,
+        new_gas_efficiency: Dict,  # 0 means no gas capture, blank means figure out the efficiency for me
+        new_landfill_fracs: Dict = None,
+        new_landfill_flaring: Dict = None,
+        new_landfill_cover: Dict = None,
+        leachate_circulate: Dict = None,
+        new_landfill_latlons: Dict = None,
+        new_landfill_areas: Dict = None,
+        new_covertypes: Dict = None,
+        new_coverthicknesses: Dict = None,
+        waste_burning: Dict = None,
+        fancy_ox: Dict = {"baseline": False, "scenario": False},
+        depths: Dict = None,
+        k_values: Dict = None,
+        waste_mass_year: int = None,
+        ks_overrides: Dict = None,
+        biocover: Dict = {"baseline": 0.0, "scenario": 0.0},
+        oxidation_override: Dict = None,
+        baseline_data: pd.DataFrame = None,
+        growth_rate_override: float = None,
+    ) -> None:
+        """
+        API endpoint function for implementing advanced diversion scenario changes.
+        Args:
+            Lots
+        Returns:
+            None
+        """
+
+        scenario_parameters = copy.deepcopy(self.baseline_parameters)
+        baseline_parameters = copy.deepcopy(self.baseline_parameters)
+        scenario_parameters.implement_year = implement_year
+
+        years = pd.Index(range(1990, 2051))
+        if baseline_data is not None:
+            trace_waste_mass_df = baseline_data.get("waste_mass")
+            trace_value_at_baseline_year = trace_waste_mass_df.loc[waste_mass_year['baseline']].sum()
+            trace_value_at_scenario_year = trace_waste_mass_df.loc[waste_mass_year['scenario']].sum()
+            baseline_ratio = new_waste_mass['baseline'] / trace_value_at_baseline_year
+            scenario_ratio = new_waste_mass['scenario'] / trace_value_at_scenario_year
+            waste_masses_df_baseline = trace_waste_mass_df.copy() * baseline_ratio
+            waste_masses_df_scenario = trace_waste_mass_df.copy() * scenario_ratio
+            waste_masses_df_scenario.loc[:implement_year-1, :] = waste_masses_df_baseline.loc[:implement_year-1, :]
+        else:
+            waste_mass_series_baseline = pd.Series(new_waste_mass['baseline'], index=years)
+            waste_mass_series_scenario = waste_mass_series_baseline.copy()
+            waste_mass_series_scenario.loc[implement_year:] = new_waste_mass['scenario']
+            waste_masses_df_baseline_unadjusted = waste_mass_series_baseline * new_waste_fractions['baseline']
+            waste_masses_df_scenario_unadjusted = waste_mass_series_scenario * new_waste_fractions['scenario']
+            waste_masses_df_baseline = WasteGeneratedDF.create_advanced(
+                waste_masses_df=waste_masses_df_baseline_unadjusted,
+                start_year=1990,
+                end_year=2050,
+                year_of_data_pop=waste_mass_year.baseline,
+                growth_rate_historic=growth_rate_override,
+                growth_rate_future=growth_rate_override,
+                implement_year=waste_mass_year.baseline,
+            ).df
+            waste_masses_df_scenario = WasteGeneratedDF.create_advanced(
+                waste_masses_df=waste_masses_df_scenario_unadjusted,
+                start_year=1990,
+                end_year=2050,
+                year_of_data_pop=waste_mass_year.scenario,
+                growth_rate_historic=growth_rate_override,
+                growth_rate_future=growth_rate_override,
+                implement_year=waste_mass_year.scenario,
+            ).df
+        # Adjust for waste burning
+        waste_burned = {}
+        wb = None
+        if waste_burning["baseline"] > 0:
+            waste_burned["baseline"] = waste_burning["baseline"] * waste_masses_df_baseline
+            waste_masses_df_baseline -= waste_burned["baseline"]
+            wb_baseline = waste_burned["baseline"]
+
+        if waste_burning["scenario"] > 0:
+            waste_burned["scenario"] = pd.concat([
+                waste_burning["baseline"] * waste_masses_df_scenario.loc[:implement_year-1, :],
+                waste_burning["scenario"] * waste_masses_df_scenario.loc[implement_year:, :]
+            ]) 
+            waste_masses_df_scenario -= waste_burned["scenario"]
+
+            wb_scenario = waste_burned["scenario"]
+        
+        # Make waste fractions dfs
+        waste_fractions_df_baseline = new_waste_fractions["baseline"]
+        waste_fractions_df_scenario = new_waste_fractions["scenario"]
+
+        baseline_parameters.waste_fractions = waste_fractions_df_baseline
+        scenario_parameters.waste_fractions = waste_fractions_df_scenario
+
+        # Create a DataFrame for fraction_waste_timeline
+        fraction_df = pd.DataFrame(landfill_split_timeline).transpose()
+        fraction_df.columns = [f"Landfill_{i}" for i in range(fraction_df.shape[1])]
+        fraction_df.index.name = "Year"
+
+        # Set up new landfills
+        city_params_dict = self.update_cityparams_dict(scenario_parameters)
+        # mcfs = [1, 0.7, 0.4] # Should this include ameliorated?
+        # mcf_ameliorated = [0.7, 0.4, 0.1]
+        mcf_options = [1, 0.6, 0.4]
+        gas_capture_efficiencies = {}
+        gas_capture_efficiencies["ameliorated"] = [0.5, 0.3, 0]
+        gas_capture_efficiencies["not_ameliorated"] = [0.6, 0.45, 0]
+        self.ox_options = {
+            "ox_nocap": {"landfill": 0.1, "controlled_dumpsite": 0.05, "dumpsite": 0},
+            "ox_cap": {"landfill": 0.22, "controlled_dumpsite": 0.1, "dumpsite": 0},
+        }
+        landfill_types = ["landfill", "controlled_dumpsite", "dumpsite"]
+        scenario_parameters.landfills = []
+
+        # trace_mcf = baseline_data.get("mcf")
+        # trace_gccs_efficiency = baseline_data.get("gas_capture_efficiency")
+        # trace_oxidation_factor = baseline_data.get("oxidation_factor")
+
+        new_lf_type = new_landfill_types["scenario"][0]
+        # Make the MCF, oxidation, and efficiency vectors
+        mcf = {}
+        ox_value = {}
+        gas_eff = {}
+
+        # Get MCF
+        old_lf_type = new_landfill_types["baseline"][0]
+        mcf["baseline"] = mcf_options[old_lf_type]
+        mcf["scenario"] = mcf_options[new_lf_type]
+
+        if (depths["baseline"][0] > 5) and (old_lf_type in (1, 2)):
+            mcf["baseline"] = 0.8
+
+        if (depths["scenario"][0] > 5) and (new_lf_type in (1, 2)):
+            mcf["scenario"] = 0.8
+
+        # Handle baseline first
+        if new_gas_efficiency["baseline"][0] == 0.0:
+            ox_value["baseline"] = self.ox_options["ox_nocap"][
+                landfill_types[old_lf_type]
+            ]
+            gas_eff["baseline"] = 0
+        # If there is gas capture, use the number or figure it out
+        elif new_gas_efficiency["baseline"][0] > 0.0:
+            ox_value["baseline"] = self.ox_options["ox_cap"][
+                landfill_types[old_lf_type]
+            ]
+            gas_eff["baseline"] = (
+                new_gas_efficiency["baseline"][0]
+                if new_gas_efficiency["baseline"][0] is not None
+                else gas_capture_efficiencies["not_ameliorated"][old_lf_type]
+            )
+        else:
+            print("invalid gas efficiency value")
+
+        # For scenario, handle no gas capture first
+        if new_gas_efficiency["scenario"][0] == 0:
+            ox_value["scenario"] = self.ox_options["ox_nocap"][
+                landfill_types[new_lf_type]
+            ]
+            gas_eff["scenario"] = 0
+        # If there is gas capture, use the number or figure it out
+        elif new_gas_efficiency["scenario"][0] > 0.0:
+            if (
+                new_landfill_types["scenario"][0]
+                < new_landfill_types["baseline"][0]
+            ):
+                ameliorated = True
+                if new_lf_type == 0:
+                    ox_value["scenario"] = 0.18
+                else:
+                    ox_value["scenario"] = self.ox_options["ox_cap"][
+                        landfill_types[new_lf_type]
+                    ]
+                gas_eff["scenario"] = (
+                    new_gas_efficiency["baseline"][0]
+                    if new_gas_efficiency["baseline"][0] is not None
+                    else gas_capture_efficiencies["ameliorated"][new_lf_type]
+                )
+            else:
+                ameliorated = False
+                ox_value["scenario"] = self.ox_options["ox_cap"][
+                    landfill_types[new_lf_type]
+                ]
+                gas_eff["scenario"] = (
+                    new_gas_efficiency["baseline"][0]
+                    if new_gas_efficiency["baseline"][0] is not None
+                    else gas_capture_efficiencies["not_ameliorated"][new_lf_type]
+                )
+        else:
+            print("invalid gas efficiency value")
+
+        if new_gas_efficiency["baseline"][0] is not None:
+            gas_eff["baseline"] = new_gas_efficiency["baseline"][0]
+        if new_gas_efficiency["scenario"][0] is not None:
+            gas_eff["scenario"] = new_gas_efficiency["scenario"][0]
+
+        # Create pandas Series for each: mcf, ox_value, and gas_eff
+        mcf_series_baseline = pd.Series(mcf["baseline"], index=years)
+        mcf_series_scenario = mcf_series_baseline.copy()
+        mcf_series_scenario.loc[implement_year:] = mcf["scenario"]
+        ox_value_series_baseline = pd.Series(ox_value["baseline"], index=years)
+        ox_value_series_scenario = ox_value_series_baseline.copy()
+        ox_value_series_scenario.loc[implement_year:] = ox_value["scenario"]
+        gas_eff_series_baseline = pd.Series(gas_eff["baseline"], index=years)
+        gas_eff_series_scenario = gas_eff_series_baseline.copy()
+        gas_eff_series_scenario.loc[implement_year:] = gas_eff["scenario"]
+
+        doing_fancy_ox = fancy_ox
+
+        if ks_overrides is not None:
+            ks_series_baseline = pd.Series([ks_overrides["baseline"]] * len(years), index=years)
+            ks_series_scenario = ks_series_baseline.copy()
+            ks_series_scenario.loc[implement_year:] = ks_overrides["scenario"]
+            landfill_ks_baseline = DecompositionRates(
+                food=ks_series_baseline,
+                green=ks_series_baseline,
+                wood=ks_series_baseline,
+                paper_cardboard=ks_series_baseline,
+                textiles=ks_series_baseline,
+            )
+            landfill_ks_scenario = DecompositionRates(
+                food=ks_series_scenario,
+                green=ks_series_scenario,
+                wood=ks_series_scenario,
+                paper_cardboard=ks_series_scenario,
+                textiles=ks_series_scenario,
+            )
+        else:
+            landfill_ks_baseline = scenario_parameters.ks
+            landfill_ks_scenario = landfill_ks_baseline.copy()
+
+        if oxidation_override:
+            if oxidation_override["baseline"]:
+                ox_value_series_baseline.loc[:] = oxidation_override["baseline"]
+            if oxidation_override["scenario"]:
+                ox_value_series_scenario = ox_value_series_baseline.copy()
+                ox_value_series_scenario.loc[implement_year:] = oxidation_override["scenario"]
+
+        # Check if flaring is defined as a variable
+        try:
+            flaring_series_baseline = pd.Series(flaring["baseline"], index=years)
+            flaring_series_scenario = flaring_series_baseline.copy()
+            flaring_series_scenario.loc[implement_year:] = flaring["scenario"]
+        except:
+            flaring_series_baseline = pd.Series(0.98, index=years)
+            flaring_series_scenario = flaring_series_baseline.copy()
+
+        new_landfill_baseline = Landfill(
+            open_date=new_landfill_open_close_dates["baseline"][0][0],
+            close_date=new_landfill_open_close_dates["baseline"][0][1],
+            site_type=landfill_types[old_lf_type],
+            mcf=mcf_series_baseline,
+            city_params_dict=city_params_dict,
+            city_instance_attrs=scenario_parameters.city_instance_attrs,
+            landfill_index=0,
+            # fraction_of_waste=new_landfill_fracs[i],
+            gas_capture=False if new_gas_efficiency["baseline"][0] == 0.0 else True,
+            scenario=scenario,
+            new_baseline=False,
+            gas_capture_efficiency=gas_eff_series_baseline,
+            flaring=flaring_series_baseline,
+            # leachate_circulate=leachate_circulate['scenario'][i],
+            cover_thicknesses=(
+                new_coverthicknesses["baseline"][0] if doing_fancy_ox else None
+            ),
+            oxidation_factor=ox_value_series_baseline if not doing_fancy_ox else None,
+            fancy_ox=fancy_ox,
+            implementation_year=implement_year,
+            ks=landfill_ks_baseline,
+            advanced=True,
+        )
+        baseline_parameters.landfills = [new_landfill_baseline]
+
+        new_landfill_scenario = Landfill(
+            open_date=new_landfill_open_close_dates["scenario"][0][0],
+            close_date=new_landfill_open_close_dates["scenario"][0][1],
+            site_type=landfill_types[new_lf_type],
+            mcf=mcf_series_scenario,
+            city_params_dict=city_params_dict,
+            city_instance_attrs=scenario_parameters.city_instance_attrs,
+            landfill_index=0,
+            gas_capture=False if new_gas_efficiency["scenario"][0] == 0.0 else True,
+            scenario=scenario,
+            new_baseline=False,
+            gas_capture_efficiency=gas_eff_series_scenario,
+            flaring=flaring_series_scenario,
+            # leachate_circulate=leachate_circulate['scenario'][i],
+            cover_thicknesses=(
+                new_coverthicknesses["scenario"][0] if doing_fancy_ox else None
+            ),
+            oxidation_factor=ox_value_series_scenario if not doing_fancy_ox else None,
+            fancy_ox=fancy_ox,
+            implementation_year=implement_year,
+            ks=landfill_ks_scenario,
+            advanced=True,
+        )
+        scenario_parameters.landfills = [new_landfill_scenario]
+
+        baseline_parameters.repopulate_attr_dicts()
+        scenario_parameters.repopulate_attr_dicts()
+        for landfill in baseline_parameters.landfills:
+            landfill.waste_mass_df = waste_masses_df_baseline
+            landfill.oxidation_factor = ox_value_series_baseline
+        for landfill in scenario_parameters.landfills:
+            landfill.waste_mass_df = waste_masses_df_scenario
+            landfill.oxidation_factor = ox_value_series_scenario
+
+        for landfill in baseline_parameters.landfills:
+            landfill.estimate_emissions(skip_ox=True)
+        for landfill in scenario_parameters.landfills:
+            landfill.estimate_emissions(skip_ox=True)
+
+        components = ["food", "green", "wood", "paper_cardboard", "textiles"]
+        baseline_parameters.organic_emissions = pd.DataFrame(0, index=years, columns=components)
+        scenario_parameters.organic_emissions = pd.DataFrame(0, index=years, columns=components)
+        self.baseline_parameters = baseline_parameters
+        self.scenario_parameters[0] = scenario_parameters
+        self.sum_landfill_emissions(scenario=0)
+        self.sum_landfill_emissions(scenario=1)
+
+        # ADD WASTE BURNING EMISSIONS
+        if (waste_burning["baseline"] > 0) or (waste_burning["scenario"] > 0):
+            baseline_parameters.waste_burning_emissions = (
+                waste_burned * 3.7 * 1000 / 1000 / 1000
+            )  # g ch4 / kg waste to ton ch4 / ton waste
+            scenario_parameters.waste_burning_emissions = (
+                waste_burned * 3.7 * 1000 / 1000 / 1000
+            )  # g ch4 / kg waste to ton ch4 / ton waste
+
+            baseline_parameters.waste_burning_emissions = (
+                baseline_parameters.waste_burning_emissions.reindex(
+                baseline_parameters.total_emissions.index, fill_value=0
+            ))
+            scenario_parameters.waste_burning_emissions = (
+                scenario_parameters.waste_burning_emissions.reindex(
+                scenario_parameters.total_emissions.index, fill_value=0
+            ))
+            baseline_parameters.total_emissions["total"] += baseline_parameters.waste_burning_emissions
+            scenario_parameters.total_emissions["total"] += scenario_parameters.waste_burning_emissions
 
     def advanced_baseline(
         self,
@@ -8262,7 +8613,7 @@ class City:
         self.scenario_parameters[scenario - 1] = scenario_parameters
         scenario_parameters.div_fractions = new_div_fractions
 
-        years = pd.Index(range(1960, 2074))
+        years = pd.Index(range(1990, 2051))
         waste_fractions_dict = new_waste_fractions.model_dump()
         new_waste_fractions = pd.DataFrame(waste_fractions_dict, index=years)
         scenario_parameters.waste_fractions = new_waste_fractions
@@ -8311,8 +8662,8 @@ class City:
         # Update waste generated
         scenario_parameters.waste_generated_df = WasteGeneratedDF.create(
             waste_masses,
-            1960,
-            2073,
+            1990,
+            2050,
             scenario_parameters.year_of_data_pop["baseline"],
             scenario_parameters.growth_rate_historic,
             scenario_parameters.growth_rate_future,
@@ -8345,7 +8696,7 @@ class City:
         scenario_parameters.landfills = []
         for i, lf_type in enumerate(new_landfill_types):
             # Make the MCF, oxidation, and efficiency vectors
-            years = pd.Index(range(1960, 2074))
+            years = pd.Index(range(1990, 2051))
             mcf = mcf_options[lf_type]
             if (depth > 5) and (lf_type in (1, 2)):
                 mcf = 0.8
@@ -8494,7 +8845,7 @@ class City:
 
         # scenario_parameters.repopulate_attr_dicts() # does this need to come sooner? Does anything in the above functions rely on the attr dicts?
         for landfill in scenario_parameters.landfills:
-            landfill.estimate_emissions()
+            landfill.estimate_emissions(skip_ox=True)
 
         self.estimate_diversion_emissions(scenario=scenario)
         self.sum_landfill_emissions(scenario=scenario)
@@ -8631,7 +8982,17 @@ class City:
         await conn.close()
 
         # Convert the asyncpg Record objects into a list of dictionaries
-        weather_data = [dict(row) for row in rows][0]
+        try:
+            weather_data = [dict(row) for row in rows][0]
+        except IndexError:
+            weather_data = {
+                "avg_total_precip": 1000,
+                "avg_temperature": 20,
+            }
+            # raise HTTPException(
+            #     status_code=500,
+            #     detail="No weather data found for the given latitude and longitude.",
+            # )
 
         # Waste fractions
         if iso3 in defaults_2019.waste_fractions_country:
@@ -8641,7 +9002,7 @@ class City:
 
         # Normalize the waste fractions so that they sum to 1.
         waste_fractions = waste_fractions / waste_fractions.sum()
-        years = pd.Index(range(1960, 2074))
+        years = pd.Index(range(1990, 2051))
         waste_fractions_df = pd.DataFrame(
             np.tile(waste_fractions.values, (len(years), 1)),
             index=years,

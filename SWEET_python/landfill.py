@@ -90,6 +90,7 @@ class Landfill:
         self.implementation_year = implementation_year
         self.biocover = biocover
         self.rmi_id = rmi_id
+        self.city_id = city_id
 
         if ks is None:
             self.ks = self.city_params_dict["ks"]
@@ -106,7 +107,7 @@ class Landfill:
             else:
                 self.ks = ks
 
-        self.doing_fancy_ox = self.fancy_ox
+        self.doing_fancy_ox = False
         # if isinstance(self.doing_fancy_ox, dict):
         #     if self.doing_fancy_ox['baseline'] or self.doing_fancy_ox['scenario']:
         #         self.doing_fancy_ox = True
