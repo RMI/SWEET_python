@@ -23,6 +23,7 @@ import SWEET_python.defaults_2019 as defaults_2019
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from sqlalchemy import create_engine, text
+from datetime import datetime
 
 
 # The way this model is set up is based on the unit of a City, corresponding to the City class.
@@ -8227,7 +8228,6 @@ class City:
 
     def sdst_v1_5(
         self,
-        population: float,
         precipitation: float,
         new_waste_mass: Dict,
         new_waste_fractions: Dict,
@@ -8255,6 +8255,7 @@ class City:
         oxidation_override: Dict = None,
         baseline_data: pd.DataFrame = None,
         growth_rate_override: float = None,
+        country_growth_defaults: List[float] = None,
     ) -> None:
         """
         API endpoint function for implementing advanced diversion scenario changes.
@@ -8270,11 +8271,16 @@ class City:
 
         years = pd.Index(range(1990, 2051))
         if baseline_data is not None:
-            trace_waste_mass_df = baseline_data.get("waste_mass")
-            trace_value_at_baseline_year = trace_waste_mass_df.loc[waste_mass_year['baseline']].sum()
-            trace_value_at_scenario_year = trace_waste_mass_df.loc[waste_mass_year['scenario']].sum()
-            baseline_ratio = new_waste_mass['baseline'] / trace_value_at_baseline_year
-            scenario_ratio = new_waste_mass['scenario'] / trace_value_at_scenario_year
+            trace_waste_mass_df = baseline_data.get("incoming_waste_df")
+            # Check if this is a no-FOD site. If it is, incoming_waste_df is total only, not broken out by component, so we have to use default waste fractions
+            # to get a full df by waste type
+            fod_site = bool(baseline_data.get("FOD", False))
+            if not fod_site:
+                trace_waste_mass_df = new_waste_fractions['baseline'].mul(trace_waste_mass_df["incoming_waste"], axis=0)
+            trace_values_around_baseline_year = trace_waste_mass_df.loc[waste_mass_year['baseline']-5:waste_mass_year['baseline']+5].mean()
+            trace_values_around_scenario_year = trace_waste_mass_df.loc[waste_mass_year['scenario']-5:waste_mass_year['scenario']+5].mean()
+            baseline_ratio = new_waste_mass['baseline'] / trace_values_around_baseline_year
+            scenario_ratio = new_waste_mass['scenario'] / trace_values_around_scenario_year
             waste_masses_df_baseline = trace_waste_mass_df.copy() * baseline_ratio
             waste_masses_df_scenario = trace_waste_mass_df.copy() * scenario_ratio
             waste_masses_df_scenario.loc[:implement_year-1, :] = waste_masses_df_baseline.loc[:implement_year-1, :]
@@ -8282,15 +8288,15 @@ class City:
             waste_mass_series_baseline = pd.Series(new_waste_mass['baseline'], index=years)
             waste_mass_series_scenario = waste_mass_series_baseline.copy()
             waste_mass_series_scenario.loc[implement_year:] = new_waste_mass['scenario']
-            waste_masses_df_baseline_unadjusted = waste_mass_series_baseline * new_waste_fractions['baseline']
-            waste_masses_df_scenario_unadjusted = waste_mass_series_scenario * new_waste_fractions['scenario']
+            waste_masses_df_baseline_unadjusted = new_waste_fractions['baseline'].mul(waste_mass_series_baseline, axis=0)
+            waste_masses_df_scenario_unadjusted = new_waste_fractions['scenario'].mul(waste_mass_series_scenario, axis=0)
             waste_masses_df_baseline = WasteGeneratedDF.create_advanced(
                 waste_masses_df=waste_masses_df_baseline_unadjusted,
                 start_year=1990,
                 end_year=2050,
                 year_of_data_pop=waste_mass_year.baseline,
-                growth_rate_historic=growth_rate_override,
-                growth_rate_future=growth_rate_override,
+                growth_rate_historic=1+growth_rate_override,
+                growth_rate_future=1+growth_rate_override,
                 implement_year=waste_mass_year.baseline,
             ).df
             waste_masses_df_scenario = WasteGeneratedDF.create_advanced(
@@ -8298,8 +8304,8 @@ class City:
                 start_year=1990,
                 end_year=2050,
                 year_of_data_pop=waste_mass_year.scenario,
-                growth_rate_historic=growth_rate_override,
-                growth_rate_future=growth_rate_override,
+                growth_rate_historic=1+growth_rate_override,
+                growth_rate_future=1+growth_rate_override,
                 implement_year=waste_mass_year.scenario,
             ).df
         # Adjust for waste burning
@@ -8551,6 +8557,29 @@ class City:
         self.scenario_parameters[0] = scenario_parameters
         self.sum_landfill_emissions(scenario=0)
         self.sum_landfill_emissions(scenario=1)
+
+        # Adjust estimates to match previously-generated baseline in 2025 if no-FOD site
+        if baseline_data:
+            fod_site = bool(baseline_data.get("FOD", False))
+            if not fod_site:
+                current_year = datetime.now().year
+                old_emissions_baseline = baseline_data.get("emissions_df")
+                old_emissions_baseline = old_emissions_baseline.resample("YS").sum()
+                old_emissions_baseline.index = old_emissions_baseline.index.year
+                #old_current_year_value = old_emissions_baseline.loc[current_year]
+                #new_current_year_value = baseline_parameters.total_emissions.loc[current_year, 'total']
+                #noFOD_scale_factor = new_current_year_value / old_current_year_value
+                window = slice(current_year - 5, current_year + 5)
+                num = old_emissions_baseline.loc[window, "total"]  # Series
+                den = baseline_parameters.total_emissions.loc[window, "total"]  # Series
+                valid = den != 0
+                if valid.any():
+                    ratio = num[valid] / den[valid]
+                    noFOD_scale_factor = ratio.mean()
+                else:
+                    noFOD_scale_factor = 1
+                baseline_parameters.total_emissions = baseline_parameters.total_emissions.mul(noFOD_scale_factor, axis=0)
+                scenario_parameters.total_emissions = scenario_parameters.total_emissions.mul(noFOD_scale_factor, axis=0)
 
         # ADD WASTE BURNING EMISSIONS
         if (waste_burning["baseline"] > 0) or (waste_burning["scenario"] > 0):
@@ -8965,18 +8994,33 @@ class City:
                 detail=f"Cannot reach database at {DB_SERVER_IP}:{DB_PORT}: {e}",
             )
 
-        # Connect asynchronously to the PostgreSQL database using asyncpg
-        conn = await asyncpg.connect(
-            user=DB_USER,
-            password=DB_PASSWORD,
-            database=DB_NAME,
-            host=DB_SERVER_IP,
-            port=DB_PORT,
-            ssl=DB_SSLMODE,
-        )
+        conn = None
+        rows = []
+        try:
+            # Connect asynchronously to the PostgreSQL database using asyncpg
+            conn = await asyncpg.connect(
+                user=DB_USER,
+                password=DB_PASSWORD,
+                database=DB_NAME,
+                host=DB_SERVER_IP,
+                port=DB_PORT,
+                ssl=DB_SSLMODE,
+            )
 
-        # Execute the query with the latitude and longitude from latlon
-        rows = await conn.fetch(QUERY_WEATHER, latlon[0], latlon[1])
+            # Execute the query with the latitude and longitude from latlon
+            rows = await conn.fetch(QUERY_WEATHER, latlon[0], latlon[1])
+        except Exception as exc:
+            # Surface enough context to debug weather lookups but keep the service running
+            print(
+                f"Weather lookup failed (latlon={latlon}, db={DB_SERVER_IP}:{DB_PORT}/{DB_NAME}): {exc}"
+            )
+            rows = []
+        finally:
+            if conn:
+                try:
+                    await conn.close()
+                except Exception as close_exc:
+                    print(f"Failed to close weather DB connection: {close_exc}")
 
         # Close the connection
         await conn.close()
@@ -9036,9 +9080,9 @@ class City:
                 ].values[0]
         else:
             waste_mass = 10_000  # Default value if not provided
-            waste_mass_year = 2024
+            waste_mass_year = 2025
             site_open_year = 2010
-            site_close_year = np.nan
+            site_close_year = 2050
         
         return {
             "temperature": parameters.temperature,
@@ -9052,7 +9096,7 @@ class City:
             "waste_mass": float(waste_mass),
             "waste_mass_year": int(waste_mass_year),
             'site_open_year': int(site_open_year) if pd.notna(site_open_year) else int(2010),
-            'site_close_year': int(site_close_year) if pd.notna(site_close_year) else None
+            'site_close_year': int(site_close_year) if pd.notna(site_close_year) else 2050
         }
 
 def create_geolocator(
