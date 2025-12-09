@@ -3563,6 +3563,8 @@ class City:
                 else:
                     # Fallback if no recent data
                     avg_annual_waste = time_series_rows['annual_incoming_waste'].mean()
+                if np.isnan(avg_annual_waste):
+                    avg_annual_waste = canonical_row['annual_incoming_waste']
 
                 # Get growth rates
                 growth_rate_historic = pop_data.at[self.iso3, 'growth_rate_historic']
@@ -3592,7 +3594,9 @@ class City:
                     if not pd.isna(data_row['incoming_waste_year']):
                         year_idx = int(data_row['incoming_waste_year']) - 1990
                         if 0 <= year_idx < len(waste_series):
-                            waste_series[year_idx] = data_row['annual_incoming_waste']
+                            val = data_row['annual_incoming_waste']
+                            if not np.isnan(val):
+                                waste_series[year_idx] = val
 
                 # Store the time series
                 self.waste_time_series = pd.Series(waste_series, index=years)
@@ -8270,13 +8274,23 @@ class City:
         scenario_parameters.implement_year = implement_year
 
         years = pd.Index(range(1990, 2051))
+        annoying_missing_incoming = False
         if baseline_data is not None:
             trace_waste_mass_df = baseline_data.get("incoming_waste_df")
+            if trace_waste_mass_df is None:
+                annoying_missing_incoming = True
+                trace_waste_mass_df = pd.DataFrame(index=years, columns=["incoming_waste"])
+                trace_waste_mass_df.iloc[:, :] = 10000.0
+
             # Check if this is a no-FOD site. If it is, incoming_waste_df is total only, not broken out by component, so we have to use default waste fractions
             # to get a full df by waste type
+            # Actually some no-FOD sites now have full breakdowns by waste type
             fod_site = bool(baseline_data.get("FOD", False))
             if not fod_site:
-                trace_waste_mass_df = new_waste_fractions['baseline'].mul(trace_waste_mass_df["incoming_waste"], axis=0)
+                if trace_waste_mass_df.shape[1] > 2:
+                    pass
+                else:
+                    trace_waste_mass_df = new_waste_fractions['baseline'].mul(trace_waste_mass_df["incoming_waste"], axis=0)
             trace_values_around_baseline_year = trace_waste_mass_df.loc[waste_mass_year['baseline']-5:waste_mass_year['baseline']+5].mean()
             trace_values_around_scenario_year = trace_waste_mass_df.loc[waste_mass_year['scenario']-5:waste_mass_year['scenario']+5].mean()
             baseline_ratio = new_waste_mass['baseline'] / trace_values_around_baseline_year
