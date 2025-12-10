@@ -8291,13 +8291,21 @@ class City:
                     pass
                 else:
                     trace_waste_mass_df = new_waste_fractions['baseline'].mul(trace_waste_mass_df["incoming_waste"], axis=0)
-            trace_values_around_baseline_year = trace_waste_mass_df.loc[waste_mass_year['baseline']-5:waste_mass_year['baseline']+5].mean()
-            trace_values_around_scenario_year = trace_waste_mass_df.loc[waste_mass_year['scenario']-5:waste_mass_year['scenario']+5].mean()
-            baseline_ratio = new_waste_mass['baseline'] / trace_values_around_baseline_year
-            scenario_ratio = new_waste_mass['scenario'] / trace_values_around_scenario_year
-            waste_masses_df_baseline = trace_waste_mass_df.copy() * baseline_ratio
-            waste_masses_df_scenario = trace_waste_mass_df.copy() * scenario_ratio
-            waste_masses_df_scenario.loc[:implement_year-1, :] = waste_masses_df_baseline.loc[:implement_year-1, :]
+                trace_values_around_baseline_year = trace_waste_mass_df.loc[waste_mass_year['baseline']-5:waste_mass_year['baseline']+5].mean().sum()
+                trace_values_around_scenario_year = trace_waste_mass_df.loc[waste_mass_year['scenario']-5:waste_mass_year['scenario']+5].mean().sum()
+                baseline_ratio = new_waste_mass['baseline'] / trace_values_around_baseline_year
+                scenario_ratio = new_waste_mass['scenario'] / trace_values_around_scenario_year
+                waste_masses_df_baseline = trace_waste_mass_df.copy() * baseline_ratio
+                waste_masses_df_scenario = trace_waste_mass_df.copy() * scenario_ratio
+                waste_masses_df_scenario.loc[:implement_year-1, :] = waste_masses_df_baseline.loc[:implement_year-1, :]
+            else:
+                trace_value_baseline_year = trace_waste_mass_df.loc[waste_mass_year['baseline'], :].sum()
+                trace_value_scenario_year = trace_waste_mass_df.loc[waste_mass_year['scenario'], :].sum()
+                baseline_ratio = new_waste_mass['baseline'] / trace_value_baseline_year
+                scenario_ratio = new_waste_mass['scenario'] / trace_value_scenario_year
+                waste_masses_df_baseline = trace_waste_mass_df.copy() * baseline_ratio
+                waste_masses_df_scenario = trace_waste_mass_df.copy() * scenario_ratio
+                waste_masses_df_scenario.loc[:implement_year-1, :] = waste_masses_df_baseline.loc[:implement_year-1, :]
         else:
             waste_mass_series_baseline = pd.Series(new_waste_mass['baseline'], index=years)
             waste_mass_series_scenario = waste_mass_series_baseline.copy()
