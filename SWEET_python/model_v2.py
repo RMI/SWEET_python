@@ -180,8 +180,6 @@ class SWEET:
         end_time = time.time()
         # print(f"Model post-processing: {end_time - start_time} seconds")
 
-        q_df.to_csv("q_df.csv")
-
         return waste_in_place_df, q_df, ch4_df, captured_df
     
 
@@ -296,7 +294,5 @@ class SWEET:
         captured_df = pd.DataFrame(captured_df, columns=columns, index=index)
         q_df = pd.DataFrame(emissions_df, columns=columns, index=index)
         q_df["total"] = q_df.sum(axis=1)
-
-        q_df.to_csv("q_df.csv")
 
         return waste_in_place_df, q_df, ch4_df, captured_df

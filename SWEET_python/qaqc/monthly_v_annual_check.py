@@ -134,13 +134,13 @@ def run_check(tol_pct: float = 1.0) -> bool:
     _, annual_q_df, _, _ = model.estimate_emissions2()
     _, monthly_q_df, _, _ = model.estimate_emissions_monthly()
 
-    # Restrict comparison to years <= 2050
-    annual_q_df = annual_q_df.loc[annual_q_df.index <= 2050]
+    # Restrict comparison to years 1991-2050 (exclude first year where annual is 0)
+    annual_q_df = annual_q_df.loc[(annual_q_df.index >= 1991) & (annual_q_df.index <= 2050)]
 
     # Aggregate monthly results to annual
     monthly_annual = monthly_q_df.resample("YE").sum()
     monthly_annual.index = monthly_annual.index.year
-    monthly_annual = monthly_annual.loc[monthly_annual.index <= 2050]
+    monthly_annual = monthly_annual.loc[(monthly_annual.index >= 1991) & (monthly_annual.index <= 2050)]
     monthly_annual = monthly_annual.loc[annual_q_df.index]
 
     # Align columns and compute absolute differences
@@ -189,11 +189,9 @@ def run_check(tol_pct: float = 1.0) -> bool:
     print("annual totals:", annual_q_df.sum())
     print("monthly aggregated totals:", monthly_annual.sum())
 
-    # Use percent difference for tolerance check (excluding 1990 which has inf due to 0 annual)
-    pct_diff_excl_first = pct_diff.loc[pct_diff.index > annual_q_df.index.min()]
-    max_pct_excl_first = pct_diff_excl_first.max().max()
-    print(f"\nMax percent diff (excluding first year): {max_pct_excl_first:.4f}%")
-    return bool(max_pct_excl_first <= tol_pct)
+    # Use percent difference for tolerance check
+    print(f"\nMax percent diff: {max_pct:.4f}%")
+    return bool(max_pct <= tol_pct)
 
 
 if __name__ == "__main__":
