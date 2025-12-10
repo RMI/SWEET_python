@@ -251,8 +251,20 @@ class SWEET:
             cum_emit = cum_k_ext[:-1]
             cum_add = cum_k_ext[:-1]
             integral = cum_emit[:, None] - cum_add[None, :]
-            decay = np.exp(-integral)
+            
+            # Apply half-year offset to match annual model's -0.5 convention
+            # The annual model uses exp(-k * (years_back - 0.5)), which assumes waste 
+            # deposited mid-year. We subtract 0.5 * k (at deposit month) from the integral.
+            half_year_offset = 0.5 * ks_monthly[None, :]  # k at deposit month
+            integral_adjusted = integral - half_year_offset
+            
+            # Mask out emissions where integral_adjusted <= 0
+            # This is analogous to the annual model's mask for years_back <= 0
+            # (no emissions until ~0.5 years after deposit)
+            mask_positive_integral = integral_adjusted > 0
+            decay = np.exp(-integral_adjusted)
             decay[~mask_valid] = 0
+            decay[~mask_positive_integral] = 0
 
             # Vectorized CH4 production (emission-time k)
             waste_input = waste_mass_monthly[None, :]
