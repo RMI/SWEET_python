@@ -8580,28 +8580,28 @@ class City:
         self.sum_landfill_emissions(scenario=0)
         self.sum_landfill_emissions(scenario=1)
 
-        # Adjust estimates to match previously-generated baseline in 2025 if no-FOD site
-        if baseline_data:
-            fod_site = bool(baseline_data.get("FOD", False))
-            if not fod_site:
-                current_year = datetime.now().year
-                old_emissions_baseline = baseline_data.get("emissions_df")
-                old_emissions_baseline = old_emissions_baseline.resample("YS").sum()
-                old_emissions_baseline.index = old_emissions_baseline.index.year
-                #old_current_year_value = old_emissions_baseline.loc[current_year]
-                #new_current_year_value = baseline_parameters.total_emissions.loc[current_year, 'total']
-                #noFOD_scale_factor = new_current_year_value / old_current_year_value
-                window = slice(current_year - 5, current_year + 5)
-                num = old_emissions_baseline.loc[window, "total"]  # Series
-                den = baseline_parameters.total_emissions.loc[window, "total"]  # Series
-                valid = den != 0
-                if valid.any():
-                    ratio = num[valid] / den[valid]
-                    noFOD_scale_factor = ratio.mean()
-                else:
-                    noFOD_scale_factor = 1
-                baseline_parameters.total_emissions = baseline_parameters.total_emissions.mul(noFOD_scale_factor, axis=0)
-                scenario_parameters.total_emissions = scenario_parameters.total_emissions.mul(noFOD_scale_factor, axis=0)
+        # # Adjust estimates to match previously-generated baseline in 2025 if no-FOD site
+        # if baseline_data:
+        #     fod_site = bool(baseline_data.get("FOD", False))
+        #     if not fod_site:
+        #         current_year = datetime.now().year
+        #         old_emissions_baseline = baseline_data.get("emissions_df")
+        #         old_emissions_baseline = old_emissions_baseline.resample("YS").sum()
+        #         old_emissions_baseline.index = old_emissions_baseline.index.year
+        #         #old_current_year_value = old_emissions_baseline.loc[current_year]
+        #         #new_current_year_value = baseline_parameters.total_emissions.loc[current_year, 'total']
+        #         #noFOD_scale_factor = new_current_year_value / old_current_year_value
+        #         window = slice(current_year - 5, current_year + 5)
+        #         num = old_emissions_baseline.loc[window, "total"]  # Series
+        #         den = baseline_parameters.total_emissions.loc[window, "total"]  # Series
+        #         valid = den != 0
+        #         if valid.any():
+        #             ratio = num[valid] / den[valid]
+        #             noFOD_scale_factor = ratio.mean()
+        #         else:
+        #             noFOD_scale_factor = 1
+        #         baseline_parameters.total_emissions = baseline_parameters.total_emissions.mul(noFOD_scale_factor, axis=0)
+        #         scenario_parameters.total_emissions = scenario_parameters.total_emissions.mul(noFOD_scale_factor, axis=0)
 
         # ADD WASTE BURNING EMISSIONS
         if (waste_burning["baseline"] > 0) or (waste_burning["scenario"] > 0):
