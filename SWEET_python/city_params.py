@@ -8301,8 +8301,12 @@ class City:
             else:
                 trace_value_baseline_year = trace_waste_mass_df.loc[waste_mass_year['baseline'], :].sum()
                 trace_value_scenario_year = trace_waste_mass_df.loc[waste_mass_year['scenario'], :].sum()
-                baseline_ratio = new_waste_mass['baseline'] / trace_value_baseline_year
-                scenario_ratio = new_waste_mass['scenario'] / trace_value_scenario_year
+                try:
+                    baseline_ratio = new_waste_mass['baseline'] / trace_value_baseline_year
+                    scenario_ratio = new_waste_mass['scenario'] / trace_value_scenario_year
+                except:
+                    baseline_ratio = 1
+                    scenario_ratio = 1
                 waste_masses_df_baseline = trace_waste_mass_df.copy() * baseline_ratio
                 waste_masses_df_scenario = trace_waste_mass_df.copy() * scenario_ratio
                 waste_masses_df_scenario.loc[:implement_year-1, :] = waste_masses_df_baseline.loc[:implement_year-1, :]
