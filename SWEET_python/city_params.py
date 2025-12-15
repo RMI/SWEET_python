@@ -8293,8 +8293,30 @@ class City:
                     trace_waste_mass_df = new_waste_fractions['baseline'].mul(trace_waste_mass_df["incoming_waste"], axis=0)
                 trace_values_around_baseline_year = trace_waste_mass_df.loc[waste_mass_year['baseline']-5:waste_mass_year['baseline']+5].mean().sum()
                 trace_values_around_scenario_year = trace_waste_mass_df.loc[waste_mass_year['scenario']-5:waste_mass_year['scenario']+5].mean().sum()
-                baseline_ratio = new_waste_mass['baseline'] / trace_values_around_baseline_year
-                scenario_ratio = new_waste_mass['scenario'] / trace_values_around_scenario_year
+                try:
+                    if trace_values_around_baseline_year == 0:
+                        baseline_ratio = 0
+                    else:
+                        baseline_ratio = new_waste_mass['baseline'] / trace_values_around_baseline_year
+                    if trace_values_around_scenario_year == 0:
+                        trace_waste_mass_df_unadjusted = new_waste_fractions['scenario'].mul(new_waste_mass['scenario'], axis=0)
+                        trace_waste_mass_df_unadjusted.loc[:implement_year-1, :] = 0
+                        trace_waste_mass_df = WasteGeneratedDF.create_advanced(
+                            waste_masses_df=trace_waste_mass_df_unadjusted,
+                            start_year=1990,
+                            end_year=2050,
+                            year_of_data_pop=waste_mass_year.scenario,
+                            growth_rate_historic=1+growth_rate_override,
+                            growth_rate_future=1+growth_rate_override,
+                            implement_year=implement_year,
+                        ).df
+                        scenario_ratio = 1
+                    else:
+                        scenario_ratio = new_waste_mass['scenario'] / trace_values_around_scenario_year
+                except:
+                    print('Error in waste mass ratio fudge')
+                    baseline_ratio = 1
+                    scenario_ratio = 1
                 waste_masses_df_baseline = trace_waste_mass_df.copy() * baseline_ratio
                 waste_masses_df_scenario = trace_waste_mass_df.copy() * scenario_ratio
                 waste_masses_df_scenario.loc[:implement_year-1, :] = waste_masses_df_baseline.loc[:implement_year-1, :]
@@ -8323,7 +8345,7 @@ class City:
                 year_of_data_pop=waste_mass_year.baseline,
                 growth_rate_historic=1+growth_rate_override,
                 growth_rate_future=1+growth_rate_override,
-                implement_year=waste_mass_year.baseline,
+                implement_year=implement_year, # Should this be implement year?
             ).df
             waste_masses_df_scenario = WasteGeneratedDF.create_advanced(
                 waste_masses_df=waste_masses_df_scenario_unadjusted,
@@ -8332,7 +8354,7 @@ class City:
                 year_of_data_pop=waste_mass_year.scenario,
                 growth_rate_historic=1+growth_rate_override,
                 growth_rate_future=1+growth_rate_override,
-                implement_year=waste_mass_year.scenario,
+                implement_year=implement_year,
             ).df
         # Adjust for waste burning
         waste_burned = {}
