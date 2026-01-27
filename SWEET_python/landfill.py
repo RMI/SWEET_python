@@ -207,9 +207,7 @@ class Landfill:
             #     self.fraction_of_waste,
             #     self.city_instance_attrs['components']
             # )
-            self.waste_mass_df = (
-                self.city_params_dict["net_masses"] * self.fraction_of_waste
-            )
+            self.waste_mass_df = (self.city_params_dict["net_masses"] * self.fraction_of_waste)
 
     # def update_landfill_attrs_dict(self, city_parameters: dict) -> None:
     #     """
