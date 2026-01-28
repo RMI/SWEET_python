@@ -8339,20 +8339,22 @@ class City:
             waste_mass_series_scenario.loc[implement_year:] = new_waste_mass['scenario']
             waste_masses_df_baseline_unadjusted = new_waste_fractions['baseline'].mul(waste_mass_series_baseline, axis=0)
             waste_masses_df_scenario_unadjusted = new_waste_fractions['scenario'].mul(waste_mass_series_scenario, axis=0)
-            waste_masses_df_baseline = WasteGeneratedDF.create_advanced(
+            waste_masses_df_baseline = WasteGeneratedDF.create_advanced_2(
                 waste_masses_df=waste_masses_df_baseline_unadjusted,
                 start_year=1990,
                 end_year=2050,
-                year_of_data_pop=waste_mass_year.baseline,
+                year_of_data_pop_baseline=waste_mass_year.baseline,
+                year_of_data_pop_scenario=waste_mass_year.scenario,
                 growth_rate_historic=1+growth_rate_override,
                 growth_rate_future=1+growth_rate_override,
-                implement_year=implement_year, # Should this be implement year?
+                implement_year=None,
             ).df
-            waste_masses_df_scenario = WasteGeneratedDF.create_advanced(
+            waste_masses_df_scenario = WasteGeneratedDF.create_advanced_2(
                 waste_masses_df=waste_masses_df_scenario_unadjusted,
                 start_year=1990,
                 end_year=2050,
-                year_of_data_pop=waste_mass_year.scenario,
+                year_of_data_pop_baseline=waste_mass_year.baseline,
+                year_of_data_pop_scenario=waste_mass_year.scenario,
                 growth_rate_historic=1+growth_rate_override,
                 growth_rate_future=1+growth_rate_override,
                 implement_year=implement_year,
