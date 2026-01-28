@@ -211,31 +211,46 @@ class WasteGeneratedDF(BaseModel):
 
         return cls(df=adjusted_data)
 
-    # def dst_implement_advanced(self, waste_masses: pd.DataFrame, implement_year: int, new_waste_mass: float, new_waste_fractions: WasteFractions, year_of_data_pop: int, growth_rate_historic: float, growth_rate_future: float):
-    #     # Ensure implement_year is within the DataFrame's index range
-    #     if implement_year < waste_masses.index.min() or implement_year > waste_masses.index.max():
-    #         raise ValueError(f"Implement year {implement_year} is out of the DataFrame's index range.")
+    @classmethod
+    def create_advanced_2(
+        cls,
+        waste_masses_df: pd.DataFrame,
+        start_year: int,
+        end_year: int,
+        year_of_data_pop_baseline: int,
+        year_of_data_pop_scenario: int,
+        growth_rate_historic: float,
+        growth_rate_future: float,
+        implement_year: Optional[int] = None,
+    ):
+        years = np.arange(start_year, end_year + 1)
+        t = years - year_of_data_pop_baseline
 
-    #     # Create new data starting from the implement_year
-    #     waste_types = new_waste_fractions.model_dump().keys()
-    #     years = list(range(implement_year, waste_masses.index.max() + 1))
-    #     new_data = {waste: [] for waste in waste_types}
+        if (growth_rate_future == growth_rate_future) and (growth_rate_future == 0.0):
+            growth_factors = np.ones(len(years))
+        else:
+            # Create growth rate array, using growth_rate_historic for years before year_of_data_pop and growth_rate_future after
+            growth_rate = np.where(
+                years < year_of_data_pop_baseline, growth_rate_historic, growth_rate_future
+            )
+            growth_factors = growth_rate**t
 
-    #     for year in years:
-    #         t = year - year_of_data_pop
-    #         growth_rate = growth_rate_historic if year < year_of_data_pop else growth_rate_future
-    #         for waste in waste_types:
-    #             value = new_waste_mass * getattr(new_waste_fractions, waste) * (growth_rate ** t)
-    #             new_data[waste].append(value)
+        # Apply growth factors to each row of the DataFrame
+        adjusted_data = waste_masses_df.multiply(growth_factors, axis=0)
 
-    #     # Create a DataFrame for new data
-    #     new_df = pd.DataFrame(new_data, index=years)
+        # Repeat with the implement_year if it is provided
+        if implement_year is not None:
+            t = years - year_of_data_pop_scenario
+            growth_rate = np.where(
+                years < year_of_data_pop_scenario, growth_rate_historic, growth_rate_future
+            )
+            growth_factors = growth_rate**t
+            adjusted_data2 = waste_masses_df.multiply(growth_factors, axis=0)
 
-    #     # Update the original DataFrame
-    #     updated_df = waste_masses.copy()
-    #     updated_df.loc[implement_year:] = new_df
+            # Update the original DataFrame
+            adjusted_data.loc[implement_year:] = adjusted_data2.loc[implement_year:]
 
-    #     self.df = updated_df
+        return cls(df=adjusted_data)
 
 
 class DivsDF(BaseModel):
