@@ -7452,7 +7452,7 @@ class City:
                         implement_year:
                     ] *= new_nongas_pct
 
-                fraction_of_waste_vector = pd.Series(0, index=self.years_range)
+                fraction_of_waste_vector = pd.Series(0.0, index=self.years_range)
                 fraction_of_waste_vector.loc[implement_year:] = new_gas_pct
                 new_landfill = Landfill(
                     open_date=implement_year,
@@ -8330,6 +8330,9 @@ class City:
                 waste_masses_df_baseline = trace_waste_mass_df.copy() * baseline_ratio
                 waste_masses_df_scenario = trace_waste_mass_df.copy() * scenario_ratio
                 waste_masses_df_scenario.loc[:implement_year-1, :] = waste_masses_df_baseline.loc[:implement_year-1, :]
+                waste_masses_df_baseline.loc[new_landfill_open_close_dates['baseline'][0][1]:] = 0
+                waste_masses_df_scenario.loc[new_landfill_open_close_dates['scenario'][0][1]:] = 0
+
         else:
             waste_mass_series_baseline = pd.Series(new_waste_mass['baseline'], index=years)
             waste_mass_series_scenario = waste_mass_series_baseline.copy()
@@ -8530,6 +8533,14 @@ class City:
         except:
             flaring_series_baseline = pd.Series(0.98, index=years)
             flaring_series_scenario = flaring_series_baseline.copy()
+
+        if biocover["baseline"] > 0:
+            ox_value_series_baseline.loc[ox_value_series_baseline < biocover["baseline"]] = biocover["baseline"]
+        if biocover["scenario"] > 0:
+            mask_biocover = biocover["scenario"] > ox_value_series_scenario
+            mask_implement_year = implement_year <= ox_value_series_scenario.index
+            mask_combined = mask_biocover & mask_implement_year
+            ox_value_series_scenario.loc[mask_combined] = biocover["scenario"]
 
         new_landfill_baseline = Landfill(
             open_date=new_landfill_open_close_dates["baseline"][0][0],
@@ -9131,6 +9142,7 @@ class City:
             site_close_year = 2050
         
         return {
+            "iso3": iso3,
             "temperature": parameters.temperature,
             "precipitation": parameters.precip,
             "waste_fractions": wf_out,
