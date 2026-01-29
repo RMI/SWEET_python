@@ -8331,8 +8331,9 @@ class City:
                 waste_masses_df_scenario = trace_waste_mass_df.copy() * scenario_ratio
                 waste_masses_df_scenario.loc[:implement_year-1, :] = waste_masses_df_baseline.loc[:implement_year-1, :]
                 waste_masses_df_baseline.loc[new_landfill_open_close_dates['baseline'][0][1]:] = 0
+                waste_masses_df_baseline.loc[:new_landfill_open_close_dates['baseline'][0][0]] = 0
                 waste_masses_df_scenario.loc[new_landfill_open_close_dates['scenario'][0][1]:] = 0
-
+                waste_masses_df_scenario.loc[:new_landfill_open_close_dates['scenario'][0][0]] = 0
         else:
             waste_mass_series_baseline = pd.Series(new_waste_mass['baseline'], index=years)
             waste_mass_series_scenario = waste_mass_series_baseline.copy()
@@ -8359,6 +8360,10 @@ class City:
                 growth_rate_future=1+growth_rate_override,
                 implement_year=implement_year,
             ).df
+            waste_masses_df_baseline.loc[new_landfill_open_close_dates['baseline'][0][1]:] = 0
+            waste_masses_df_baseline.loc[:new_landfill_open_close_dates['baseline'][0][0]] = 0
+            waste_masses_df_scenario.loc[new_landfill_open_close_dates['scenario'][0][1]:] = 0
+            waste_masses_df_scenario.loc[:new_landfill_open_close_dates['scenario'][0][0]] = 0
         # Adjust for waste burning
         waste_burned = {}
         wb = None
@@ -9140,7 +9145,7 @@ class City:
         else:
             waste_mass = 10_000  # Default value if not provided
             waste_mass_year = 2025
-            site_open_year = 2010
+            site_open_year = 1990
             site_close_year = 2050
         
         return {
