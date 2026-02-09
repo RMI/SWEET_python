@@ -3500,7 +3500,7 @@ class City:
         if usecase == "trace":
             #data_source_waste = row['area_source']
             self.iso3 = canonical_row["iso3_country"]
-            iso3s = pd.read_csv(Path(__file__).parent / 'iso3.csv')
+            iso3s = pd.read_csv(defaults_2019._find_iso3_csv())
             self.country = iso3s[iso3s['iso3'] == self.iso3]['name'].values[0]
             self.region = defaults_2019.region_lookup[self.country]
             population = 100

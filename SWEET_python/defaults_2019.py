@@ -7,9 +7,27 @@ from pathlib import Path
 
 # The path to the current module's directory
 current_dir = Path(__file__).parent
-# lut = pd.read_csv(current_dir / 'ipcc_lut.csv')
-# country_to_iso3 = lut.set_index('country')['iso3'].to_dict()
-country_to_iso3 = pd.read_csv(current_dir / "iso3.csv")
+
+
+def _find_iso3_csv() -> Path:
+    """Locate iso3.csv, checking package dir, static data cache, and env var."""
+    # 1. Co-located with this module (editable install / local dev)
+    pkg_path = current_dir / "iso3.csv"
+    if pkg_path.exists():
+        return pkg_path
+    # 2. Static data cache used by the Climate TRACE pipeline
+    cache_path = Path(os.environ.get("STATIC_DATA_CACHE_DIR", "/tmp/static_data_cache")) / "iso3.csv"
+    if cache_path.exists():
+        return cache_path
+    # 3. Explicit override via environment variable
+    env_path = os.environ.get("ISO3_CSV_PATH", "")
+    if env_path and Path(env_path).exists():
+        return Path(env_path)
+    # Fallback: return the package path (will raise FileNotFoundError downstream)
+    return pkg_path
+
+
+country_to_iso3 = pd.read_csv(_find_iso3_csv())
 country_to_iso3 = country_to_iso3.set_index("name")["iso3"].to_dict()
 # %%
 waste_fraction_defaults = {
