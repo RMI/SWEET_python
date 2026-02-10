@@ -2751,7 +2751,11 @@ class City:
         else:
             gas_capture_presence = canonical_row['other7']
 
-        if (gas_capture_presence == "Yes") or (gas_capture_presence == True):
+        # Handle pd.NA / missing: avoid "boolean value of NA is ambiguous" in comparisons
+        if pd.isna(gas_capture_presence):
+            gas_capture_presence = False
+            oxidation_value = ox_options["ox_nocap"][site_type]
+        elif (gas_capture_presence == "Yes") or (gas_capture_presence is True) or (gas_capture_presence == True):
             gas_capture_presence = True
             oxidation_value = ox_options["ox_cap"][site_type]
         else:
