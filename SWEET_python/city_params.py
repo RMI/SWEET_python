@@ -3633,13 +3633,24 @@ class City:
             SELECT * FROM global_weather_table;
             """
             from dotenv import load_dotenv
-            load_dotenv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/SWEET/hugh.env')
-
-            DB_SERVER_IP = os.getenv("host")
-            DB_PORT = 5432
-            DB_USER = os.getenv("user")
-            DB_PASSWORD = os.getenv("password")
-            DB_NAME = "postgres"
+            # Try env vars first (Azure sets DB_HOST, DB_USER, etc.)
+            DB_SERVER_IP = os.getenv("host") or os.getenv("DB_HOST")
+            DB_PORT = int(os.getenv("port") or os.getenv("DB_PORT") or "5432")
+            DB_USER = os.getenv("user") or os.getenv("DB_USER")
+            DB_PASSWORD = os.getenv("password") or os.getenv("DB_PASSWORD")
+            DB_NAME = os.getenv("dbname") or os.getenv("DB_NAME") or "postgres"
+            # Fallback: local run, load from env file at known path
+            if not all([DB_SERVER_IP, DB_USER, DB_PASSWORD]):
+                load_dotenv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/SWEET/hugh.env')
+                DB_SERVER_IP = os.getenv("host") or os.getenv("DB_HOST")
+                DB_PORT = int(os.getenv("port") or os.getenv("DB_PORT") or "5432")
+                DB_USER = os.getenv("user") or os.getenv("DB_USER")
+                DB_PASSWORD = os.getenv("password") or os.getenv("DB_PASSWORD")
+                DB_NAME = os.getenv("dbname") or os.getenv("DB_NAME") or "postgres"
+            if not all([DB_SERVER_IP, DB_USER, DB_PASSWORD]):
+                raise ValueError(
+                    "Missing database credentials. Set DB_HOST, DB_USER, DB_PASSWORD (or host, user, password)."
+                )
             ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             ssl_context.check_hostname = False
             ssl_context.verify_mode = ssl.CERT_NONE
@@ -3824,13 +3835,24 @@ class City:
             SELECT * FROM global_weather_table;
             """
             from dotenv import load_dotenv
-            load_dotenv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/SWEET/hugh.env')
-
-            DB_SERVER_IP = os.getenv("host")
-            DB_PORT = 5432
-            DB_USER = os.getenv("user")
-            DB_PASSWORD = os.getenv("password")
-            DB_NAME = "postgres"
+            # Try env vars first (Azure sets DB_HOST, DB_USER, etc.)
+            DB_SERVER_IP = os.getenv("host") or os.getenv("DB_HOST")
+            DB_PORT = int(os.getenv("port") or os.getenv("DB_PORT") or "5432")
+            DB_USER = os.getenv("user") or os.getenv("DB_USER")
+            DB_PASSWORD = os.getenv("password") or os.getenv("DB_PASSWORD")
+            DB_NAME = os.getenv("dbname") or os.getenv("DB_NAME") or "postgres"
+            # Fallback: local run, load from env file at known path
+            if not all([DB_SERVER_IP, DB_USER, DB_PASSWORD]):
+                load_dotenv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/SWEET/hugh.env')
+                DB_SERVER_IP = os.getenv("host") or os.getenv("DB_HOST")
+                DB_PORT = int(os.getenv("port") or os.getenv("DB_PORT") or "5432")
+                DB_USER = os.getenv("user") or os.getenv("DB_USER")
+                DB_PASSWORD = os.getenv("password") or os.getenv("DB_PASSWORD")
+                DB_NAME = os.getenv("dbname") or os.getenv("DB_NAME") or "postgres"
+            if not all([DB_SERVER_IP, DB_USER, DB_PASSWORD]):
+                raise ValueError(
+                    "Missing database credentials. Set DB_HOST, DB_USER, DB_PASSWORD (or host, user, password)."
+                )
             ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             ssl_context.check_hostname = False
             ssl_context.verify_mode = ssl.CERT_NONE
