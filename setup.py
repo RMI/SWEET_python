@@ -13,7 +13,7 @@ requirements = [
 setup(
     name="SWEET_python",
     version="0.1",
-    packages=["SWEET_python"],
+    packages=find_packages(),
     include_package_data=True,
     install_requires=requirements,
 )
