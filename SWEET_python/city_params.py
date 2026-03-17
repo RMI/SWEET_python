@@ -3271,133 +3271,182 @@ class City:
             year_of_data_pop = 2024
 
             # Temperature and precipitation
-            # SQL query to get average precipitation and temperature using provided latitude and longitude
-            QUERY_WEATHER = """
-            WITH city_selection AS (
-                SELECT
-                    'CustomCity' AS name,
-                    :latitude AS latitude,
-                    :longitude AS longitude
-            ),
-            global_weather_table AS (
-                SELECT
-                    cs.name,
-                    ROUND(AVG(value) FILTER (WHERE weather_type = 'precipitation')::numeric, 2) AS avg_total_precip,
-                    ROUND(AVG(value) FILTER (WHERE weather_type = 'temperature')::numeric, 2) AS avg_temperature
-                FROM global_weather_data gwd
-                JOIN city_selection cs
-                    ON gwd.weather_type IN ('precipitation', 'temperature')
-                   AND gwd.bbox_geometry && ST_Buffer(
-                        ST_SetSRID(ST_MakePoint(cs.longitude, cs.latitude), 4326),
-                        0.5   -- degrees of buffer; tweak smaller/larger as needed
-                   )
-                   AND ST_Intersects(
-                        gwd.bbox_geometry,
-                        ST_Buffer(
+            # Prefer caller-provided weather values (e.g., TRACE pipeline already joined
+            # precipitation/temperature onto each site). Only fall back to DB lookup
+            # for legacy callers that do not provide these fields.
+
+            def _get_canonical_value(row_like, key: str):
+                try:
+                    if isinstance(row_like, dict):
+                        return row_like.get(key)
+                    if isinstance(row_like, pd.Series):
+                        return row_like.get(key)
+                    if isinstance(row_like, pd.DataFrame):
+                        if key in row_like.columns and len(row_like) > 0:
+                            return row_like.iloc[0][key]
+                    # Fallback to __getitem__ for other row-likes
+                    return row_like[key]
+                except Exception:
+                    return None
+
+            _precip_provided = _get_canonical_value(canonical_row, 'precipitation')
+            _temp_provided = _get_canonical_value(canonical_row, 'temperature')
+
+            # If either key exists on the input row, treat it as authoritative and
+            # skip the DB weather query entirely (even if values are NaN).
+            #
+            # NOTE: for pandas Series, `'x' in series` checks the index labels;
+            # for DataFrame it checks columns; for dict it checks keys.
+            _has_precip_key = False
+            _has_temp_key = False
+            try:
+                _has_precip_key = 'precipitation' in canonical_row
+                _has_temp_key = 'temperature' in canonical_row
+            except Exception:
+                _has_precip_key = False
+                _has_temp_key = False
+
+            if _has_precip_key or _has_temp_key:
+                try:
+                    precipitation = float(_precip_provided) if _precip_provided is not None and not pd.isna(_precip_provided) else np.nan
+                except Exception:
+                    precipitation = np.nan
+                try:
+                    temperature = float(_temp_provided) if _temp_provided is not None and not pd.isna(_temp_provided) else np.nan
+                except Exception:
+                    temperature = np.nan
+                try:
+                    precip_zone = defaults_2019.get_precipitation_zone(precipitation) if not np.isnan(precipitation) else np.nan
+                except Exception:
+                    precip_zone = np.nan
+            else:
+                # SQL query to get average precipitation and temperature using provided latitude and longitude
+                QUERY_WEATHER = """
+                WITH city_selection AS (
+                    SELECT
+                        'CustomCity' AS name,
+                        :latitude AS latitude,
+                        :longitude AS longitude
+                ),
+                global_weather_table AS (
+                    SELECT
+                        cs.name,
+                        ROUND(AVG(value) FILTER (WHERE weather_type = 'precipitation')::numeric, 2) AS avg_total_precip,
+                        ROUND(AVG(value) FILTER (WHERE weather_type = 'temperature')::numeric, 2) AS avg_temperature
+                    FROM global_weather_data gwd
+                    JOIN city_selection cs
+                        ON gwd.weather_type IN ('precipitation', 'temperature')
+                       AND gwd.bbox_geometry && ST_Buffer(
                             ST_SetSRID(ST_MakePoint(cs.longitude, cs.latitude), 4326),
-                            0.5
-                        )
-                   )
-                GROUP BY cs.name
-            )
-            SELECT * FROM global_weather_table;
-            """
-            from dotenv import load_dotenv
-            # Try env vars first (Azure sets DB_HOST, DB_USER, etc.)
-            DB_SERVER_IP = os.getenv("host") or os.getenv("DB_HOST")
-            DB_PORT = int(os.getenv("port") or os.getenv("DB_PORT") or "5432")
-            DB_USER = os.getenv("user") or os.getenv("DB_USER")
-            DB_PASSWORD = os.getenv("password") or os.getenv("DB_PASSWORD")
-            DB_NAME = os.getenv("dbname") or os.getenv("DB_NAME") or "postgres"
-            # Fallback: local run, load from env file at known path
-            if not all([DB_SERVER_IP, DB_USER, DB_PASSWORD]):
-                load_dotenv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/SWEET/hugh.env')
+                            0.5   -- degrees of buffer; tweak smaller/larger as needed
+                       )
+                       AND ST_Intersects(
+                            gwd.bbox_geometry,
+                            ST_Buffer(
+                                ST_SetSRID(ST_MakePoint(cs.longitude, cs.latitude), 4326),
+                                0.5
+                            )
+                       )
+                    GROUP BY cs.name
+                )
+                SELECT * FROM global_weather_table;
+                """
+                from dotenv import load_dotenv
+                # Try env vars first (Azure sets DB_HOST, DB_USER, etc.)
                 DB_SERVER_IP = os.getenv("host") or os.getenv("DB_HOST")
                 DB_PORT = int(os.getenv("port") or os.getenv("DB_PORT") or "5432")
                 DB_USER = os.getenv("user") or os.getenv("DB_USER")
                 DB_PASSWORD = os.getenv("password") or os.getenv("DB_PASSWORD")
                 DB_NAME = os.getenv("dbname") or os.getenv("DB_NAME") or "postgres"
-            if not all([DB_SERVER_IP, DB_USER, DB_PASSWORD]):
-                raise ValueError(
-                    "Missing database credentials. Set DB_HOST, DB_USER, DB_PASSWORD (or host, user, password)."
-                )
-            ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
-            DB_SSLMODE = ssl_context
+                # Fallback: local run, load from env file at known path
+                if not all([DB_SERVER_IP, DB_USER, DB_PASSWORD]):
+                    load_dotenv('/Users/hugh/Library/CloudStorage/OneDrive-RMI/Documents/RMI/SWEET/hugh.env')
+                    DB_SERVER_IP = os.getenv("host") or os.getenv("DB_HOST")
+                    DB_PORT = int(os.getenv("port") or os.getenv("DB_PORT") or "5432")
+                    DB_USER = os.getenv("user") or os.getenv("DB_USER")
+                    DB_PASSWORD = os.getenv("password") or os.getenv("DB_PASSWORD")
+                    DB_NAME = os.getenv("dbname") or os.getenv("DB_NAME") or "postgres"
+                if not all([DB_SERVER_IP, DB_USER, DB_PASSWORD]):
+                    raise ValueError(
+                        "Missing database credentials. Set DB_HOST, DB_USER, DB_PASSWORD (or host, user, password)."
+                    )
+                ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+                DB_SSLMODE = ssl_context
 
-            # Create the SQLAlchemy engine
-            def _is_transient_db_error(err: Exception) -> bool:
-                msg = str(err).lower()
-                return (
-                    "ssl syscall error" in msg
-                    or "eof detected" in msg
-                    or "server closed the connection" in msg
-                    or "connection reset" in msg
-                    or "in recovery mode" in msg
-                    or "terminating connection" in msg
-                )
+                # Create the SQLAlchemy engine
+                def _is_transient_db_error(err: Exception) -> bool:
+                    msg = str(err).lower()
+                    return (
+                        "ssl syscall error" in msg
+                        or "eof detected" in msg
+                        or "server closed the connection" in msg
+                        or "connection reset" in msg
+                        or "in recovery mode" in msg
+                        or "terminating connection" in msg
+                    )
 
-            max_attempts = int(os.getenv("DB_QUERY_MAX_ATTEMPTS", "5"))
-            base_sleep_s = float(os.getenv("DB_QUERY_RETRY_BASE_SECONDS", "1.5"))
-            statement_timeout_ms = int(os.getenv("DB_STATEMENT_TIMEOUT_MS", "120000"))
-            pool_recycle_s = int(os.getenv("DB_POOL_RECYCLE_SECONDS", "1800"))
-            connect_timeout_s = int(os.getenv("DB_CONNECT_TIMEOUT_SECONDS", "10"))
+                max_attempts = int(os.getenv("DB_QUERY_MAX_ATTEMPTS", "5"))
+                base_sleep_s = float(os.getenv("DB_QUERY_RETRY_BASE_SECONDS", "1.5"))
+                statement_timeout_ms = int(os.getenv("DB_STATEMENT_TIMEOUT_MS", "120000"))
+                pool_recycle_s = int(os.getenv("DB_POOL_RECYCLE_SECONDS", "1800"))
+                connect_timeout_s = int(os.getenv("DB_CONNECT_TIMEOUT_SECONDS", "10"))
 
-            weather_data = None
-            last_exc: Exception | None = None
-            for attempt in range(1, max_attempts + 1):
-                engine = create_engine(
-                    f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_SERVER_IP}:{DB_PORT}/{DB_NAME}",
-                    connect_args={
-                        "sslmode": "require",
-                        "connect_timeout": connect_timeout_s,
-                        "keepalives": 1,
-                        "keepalives_idle": 30,
-                        "keepalives_interval": 10,
-                        "keepalives_count": 5,
-                    },
-                    pool_pre_ping=True,
-                    pool_recycle=pool_recycle_s,
-                )
-                try:
-                    with engine.connect() as connection:
+                weather_data = None
+                last_exc: Exception | None = None
+                for attempt in range(1, max_attempts + 1):
+                    engine = create_engine(
+                        f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_SERVER_IP}:{DB_PORT}/{DB_NAME}",
+                        connect_args={
+                            "sslmode": "require",
+                            "connect_timeout": connect_timeout_s,
+                            "keepalives": 1,
+                            "keepalives_idle": 30,
+                            "keepalives_interval": 10,
+                            "keepalives_count": 5,
+                        },
+                        pool_pre_ping=True,
+                        pool_recycle=pool_recycle_s,
+                    )
+                    try:
+                        with engine.connect() as connection:
+                            try:
+                                connection.execute(text("SET statement_timeout = :t"), {"t": statement_timeout_ms})
+                            except Exception:
+                                pass
+                            result = connection.execute(
+                                text(QUERY_WEATHER),
+                                {"latitude": self.lat, "longitude": self.lon}
+                            )
+                            weather_data = result.mappings().fetchone()
+                        last_exc = None
+                        break
+                    except (psycopg2.OperationalError, SQLAlchemyOperationalError) as e:
+                        last_exc = e
+                        if attempt >= max_attempts or not _is_transient_db_error(e):
+                            break
+                        sleep_s = base_sleep_s * (2 ** (attempt - 1))
+                        print(f"Transient DB error during weather lookup (attempt {attempt}/{max_attempts}): {e}; retrying in {sleep_s:.1f}s")
+                        time.sleep(sleep_s)
+                    finally:
                         try:
-                            connection.execute(text("SET statement_timeout = :t"), {"t": statement_timeout_ms})
+                            engine.dispose()
                         except Exception:
                             pass
-                        result = connection.execute(
-                            text(QUERY_WEATHER),
-                            {"latitude": self.lat, "longitude": self.lon}
-                        )
-                        weather_data = result.mappings().fetchone()
-                    last_exc = None
-                    break
-                except (psycopg2.OperationalError, SQLAlchemyOperationalError) as e:
-                    last_exc = e
-                    if attempt >= max_attempts or not _is_transient_db_error(e):
-                        break
-                    sleep_s = base_sleep_s * (2 ** (attempt - 1))
-                    print(f"Transient DB error during weather lookup (attempt {attempt}/{max_attempts}): {e}; retrying in {sleep_s:.1f}s")
-                    time.sleep(sleep_s)
-                finally:
-                    try:
-                        engine.dispose()
-                    except Exception:
-                        pass
 
-            if weather_data is None and last_exc is not None:
-                raise last_exc
+                if weather_data is None and last_exc is not None:
+                    raise last_exc
 
-            # Process the weather data
-            if weather_data:
-                precipitation = float(weather_data["avg_total_precip"])
-                temperature = float(weather_data["avg_temperature"])
-                precip_zone = defaults_2019.get_precipitation_zone(precipitation)
-            else:
-                precipitation = np.nan
-                temperature = np.nan
-                precip_zone = np.nan
+                # Process the weather data
+                if weather_data:
+                    precipitation = float(weather_data["avg_total_precip"])
+                    temperature = float(weather_data["avg_temperature"])
+                    precip_zone = defaults_2019.get_precipitation_zone(precipitation)
+                else:
+                    precipitation = np.nan
+                    temperature = np.nan
+                    precip_zone = np.nan
 
             # Waste fractions
             waste_fractions_defaults = True
