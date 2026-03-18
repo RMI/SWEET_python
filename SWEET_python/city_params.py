@@ -3316,9 +3316,9 @@ class City:
                 except Exception:
                     temperature = np.nan
                 try:
-                    precip_zone = defaults_2019.get_precipitation_zone(precipitation) if not np.isnan(precipitation) else np.nan
+                    precip_zone = defaults_2019.get_precipitation_zone(precipitation) if not np.isnan(precipitation) else None
                 except Exception:
-                    precip_zone = np.nan
+                    precip_zone = None
             else:
                 # SQL query to get average precipitation and temperature using provided latitude and longitude
                 QUERY_WEATHER = """
@@ -3446,7 +3446,7 @@ class City:
                 else:
                     precipitation = np.nan
                     temperature = np.nan
-                    precip_zone = np.nan
+                    precip_zone = None
 
             # Waste fractions
             waste_fractions_defaults = True
@@ -3699,7 +3699,7 @@ class City:
             else:
                 precipitation = np.nan
                 temperature = np.nan
-                precip_zone = np.nan
+                precip_zone = None
 
             # Get waste total
             waste_mass_defaults = False
