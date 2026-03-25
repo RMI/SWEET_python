@@ -3165,12 +3165,19 @@ class City:
             self.region = defaults_2019.region_lookup[self.country]
             population = 100
             
+            current_year = datetime.now().year
+            general_reference_year = current_year - 1
+
             # Check if row is a single row or multiple rows
             if (time_series_rows is None) or isinstance(time_series_rows, pd.Series):
                 # Single row - use old method
                 year_of_data_msw = canonical_row['incoming_waste_year']
                 if np.isnan(year_of_data_msw):
-                    year_of_data_msw = 2024
+                    close_date = canonical_row['site_close_year']
+                    if not np.isnan(close_date) and close_date < general_reference_year:
+                        year_of_data_msw = close_date - 1
+                    else:
+                        year_of_data_msw = general_reference_year
                 year_of_data_pop = year_of_data_msw
                 growth_rate_historic = pop_data.at[self.iso3, 'growth_rate_historic']
                 growth_rate_future = pop_data.at[self.iso3, 'growth_rate_future']
@@ -3268,7 +3275,7 @@ class City:
                     self.lon = float(canonical_row.iloc[0]['longitude'])
                     self.lat = float(canonical_row.iloc[0]['latitude'])
 
-            year_of_data_pop = 2024
+            year_of_data_pop = year_of_data_msw  # Assume population data is from the same year as waste data if not provided
 
             # Temperature and precipitation
             # Prefer caller-provided weather values (e.g., TRACE pipeline already joined
