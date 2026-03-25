@@ -83,7 +83,7 @@ class SWEET:
         flare_efficiency = self.landfill_instance_attrs["flaring"]
 
         # Precompute factors outside of the loop for all years
-        year_range = np.arange(open_date, 2051)
+        year_range = np.arange(max(open_date, 1990), 2051)
         if flare_efficiency is None:
             flare_efficiency = pd.Series([1 for x in year_range], index=year_range)
         elif isinstance(flare_efficiency, dict):

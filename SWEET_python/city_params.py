@@ -2487,7 +2487,7 @@ class City:
         fraction_of_waste_vector = pd.Series(
                 0.0, index=self.years_range
             )
-        fraction_of_waste_vector.loc[open_date:close_date] = 1.0
+        fraction_of_waste_vector.loc[open_date:close_date-1] = 1.0
         id = int(canonical_row['asset_identifier'])
         new_landfill = Landfill(
             open_date=open_date,
