@@ -8350,11 +8350,12 @@ class City:
         mcf_series_baseline = pd.Series(mcf["baseline"], index=years)
         mcf_series_scenario = mcf_series_baseline.copy()
         mcf_series_scenario.loc[implement_year:] = mcf["scenario"]
-        # Oxidation factors can be fractional (e.g., biocover oxidation 0.5),
-        # so ensure float dtype up-front to avoid pandas int upcast errors.
-        ox_value_series_baseline = pd.Series(ox_value["baseline"], index=years, dtype=float)
-        ox_value_series_scenario = ox_value_series_baseline.copy()
-        ox_value_series_scenario.loc[implement_year:] = ox_value["scenario"]
+        # Oxidation factors can be fractional (e.g., biocover oxidation 0.5).
+        # Build baseline first, apply baseline-only adjustments, then copy into
+        # scenario so baseline/scenario match for all years < implement_year.
+        ox_value_series_baseline = pd.Series(
+            ox_value["baseline"], index=years, dtype=float
+        )
         gas_eff_series_baseline = pd.Series(gas_eff["baseline"], index=years)
         gas_eff_series_scenario = gas_eff_series_baseline.copy()
         gas_eff_series_scenario.loc[implement_year:] = gas_eff["scenario"]
@@ -8385,10 +8386,7 @@ class City:
 
         if oxidation_override:
             if oxidation_override["baseline"]:
-                ox_value_series_baseline.loc[:] = oxidation_override["baseline"]
-            if oxidation_override["scenario"]:
-                ox_value_series_scenario = ox_value_series_baseline.copy()
-                ox_value_series_scenario.loc[implement_year:] = oxidation_override["scenario"]
+                ox_value_series_baseline.loc[:] = float(oxidation_override["baseline"])
 
         # Check if flaring is defined as a variable
         try:
@@ -8400,12 +8398,27 @@ class City:
             flaring_series_scenario = flaring_series_baseline.copy()
 
         if biocover["baseline"] > 0:
-            ox_value_series_baseline.loc[ox_value_series_baseline < biocover["baseline"]] = biocover["baseline"]
+            baseline_biocover = float(biocover["baseline"])
+            ox_value_series_baseline.loc[
+                ox_value_series_baseline < baseline_biocover
+            ] = baseline_biocover
+
+        # Scenario starts as baseline, then applies scenario changes from implement_year onward.
+        ox_value_series_scenario = ox_value_series_baseline.copy()
+        ox_value_series_scenario.loc[implement_year:] = float(ox_value["scenario"])
+
+        if oxidation_override and oxidation_override["scenario"]:
+            ox_value_series_scenario.loc[implement_year:] = float(
+                oxidation_override["scenario"]
+            )
+
         if biocover["scenario"] > 0:
-            mask_biocover = biocover["scenario"] > ox_value_series_scenario
-            mask_implement_year = implement_year <= ox_value_series_scenario.index
-            mask_combined = mask_biocover & mask_implement_year
-            ox_value_series_scenario.loc[mask_combined] = biocover["scenario"]
+            scenario_biocover = float(biocover["scenario"])
+            mask_after_implement = ox_value_series_scenario.index >= implement_year
+            ox_value_series_scenario.loc[
+                mask_after_implement
+                & (ox_value_series_scenario < scenario_biocover)
+            ] = scenario_biocover
 
         new_landfill_baseline = Landfill(
             open_date=new_landfill_open_close_dates["baseline"][0][0],
