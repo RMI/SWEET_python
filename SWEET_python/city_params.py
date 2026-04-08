@@ -1127,7 +1127,7 @@ class City:
                             split_fractions = {
                                 "landfill_w_capture": 0,
                                 "landfill_wo_capture": 1,
-                                "dumpsite": 0,
+                                "dumpsite": 0.0,
                             }
                         else:
                             split_fractions = {
@@ -1710,18 +1710,18 @@ class City:
             "ox_nocap": {
                 "Sanitary Landfill": 0.1,
                 "Controlled Dumpsite": 0.05,
-                "Dumpsite": 0,
+                "Dumpsite": 0.0,
             },
             "ox_cap": {
                 "Sanitary Landfill": 0.22,
                 "Controlled Dumpsite": 0.1,
-                "Dumpsite": 0,
+                "Dumpsite": 0.0,
             },
         }
         gas_eff_options = {
             "Sanitary Landfill": 0.6,
             "Controlled Dumpsite": 0.45,
-            "Dumpsite": 0,
+            "Dumpsite": 0.0,
         }
         depth = 3
         landfills = linker["site_id"].unique().tolist()
@@ -2145,18 +2145,18 @@ class City:
             "ox_nocap": {
                 "Sanitary Landfill": 0.1,
                 "Controlled Dumpsite": 0.05,
-                "Dumpsite": 0,
+                "Dumpsite": 0.0,
             },
             "ox_cap": {
                 "Sanitary Landfill": 0.22,
                 "Controlled Dumpsite": 0.1,
-                "Dumpsite": 0,
+                "Dumpsite": 0.0,
             },
         }
         gas_eff_options = {
             "Sanitary Landfill": 0.6,
             "Controlled Dumpsite": 0.45,
-            "Dumpsite": 0,
+            "Dumpsite": 0.0,
         }
         depth = 3
         site_type = row["Site Type"].values[0]
@@ -2368,18 +2368,18 @@ class City:
             "ox_nocap": {
                 "Sanitary Landfill": 0.1,
                 "Controlled Dumpsite": 0.05,
-                "Dumpsite": 0,
+                "Dumpsite": 0.0,
             },
             "ox_cap": {
                 "Sanitary Landfill": 0.22,
                 "Controlled Dumpsite": 0.1,
-                "Dumpsite": 0,
+                "Dumpsite": 0.0,
             },
         }
         gas_eff_options = {
             "Sanitary Landfill": 0.6,
             "Controlled Dumpsite": 0.45,
-            "Dumpsite": 0,
+            "Dumpsite": 0.0,
         }
         # Get the most common non-NaN value, or 3 if all are NaN
         depth = canonical_row['waste_depth']
@@ -2657,18 +2657,18 @@ class City:
             "ox_nocap": {
                 "Sanitary Landfill": 0.1,
                 "Controlled Dumpsite": 0.05,
-                "Dumpsite": 0,
+                "Dumpsite": 0.0,
             },
             "ox_cap": {
                 "Sanitary Landfill": 0.22,
                 "Controlled Dumpsite": 0.1,
-                "Dumpsite": 0,
+                "Dumpsite": 0.0,
             },
         }
         gas_eff_options = {
             "Sanitary Landfill": 0.6,
             "Controlled Dumpsite": 0.45,
-            "Dumpsite": 0,
+            "Dumpsite": 0.0,
         }
         # Get the most common non-NaN value, or 3 if all are NaN
         depth = canonical_row['waste_depth']
@@ -7721,8 +7721,8 @@ class City:
         gas_capture_efficiencies["ameliorated"] = [0.5, 0.3, 0]
         gas_capture_efficiencies["not_ameliorated"] = [0.6, 0.45, 0]
         self.ox_options = {
-            "ox_nocap": {"landfill": 0.1, "controlled_dumpsite": 0.05, "dumpsite": 0},
-            "ox_cap": {"landfill": 0.22, "controlled_dumpsite": 0.1, "dumpsite": 0},
+            "ox_nocap": {"landfill": 0.1, "controlled_dumpsite": 0.05, "dumpsite": 0.0},
+            "ox_cap": {"landfill": 0.22, "controlled_dumpsite": 0.1, "dumpsite": 0.0},
         }
         landfill_types = ["landfill", "controlled_dumpsite", "dumpsite"]
         scenario_parameters.landfills = []
@@ -7746,7 +7746,7 @@ class City:
 
             # Handle baseline first
             if i >= len(new_gas_efficiency["baseline"]):
-                ox_value["baseline"] = 0
+                ox_value["baseline"] = 0.0
                 gas_eff["baseline"] = 0
             elif new_gas_efficiency["baseline"][i] == 0.0:
                 ox_value["baseline"] = self.ox_options["ox_nocap"][
@@ -8258,8 +8258,8 @@ class City:
         gas_capture_efficiencies["ameliorated"] = [0.5, 0.3, 0]
         gas_capture_efficiencies["not_ameliorated"] = [0.6, 0.45, 0]
         self.ox_options = {
-            "ox_nocap": {"landfill": 0.1, "controlled_dumpsite": 0.05, "dumpsite": 0},
-            "ox_cap": {"landfill": 0.22, "controlled_dumpsite": 0.1, "dumpsite": 0},
+            "ox_nocap": {"landfill": 0.1, "controlled_dumpsite": 0.05, "dumpsite": 0.0},
+            "ox_cap": {"landfill": 0.22, "controlled_dumpsite": 0.1, "dumpsite": 0.0},
         }
         landfill_types = ["landfill", "controlled_dumpsite", "dumpsite"]
         scenario_parameters.landfills = []
@@ -8350,7 +8350,9 @@ class City:
         mcf_series_baseline = pd.Series(mcf["baseline"], index=years)
         mcf_series_scenario = mcf_series_baseline.copy()
         mcf_series_scenario.loc[implement_year:] = mcf["scenario"]
-        ox_value_series_baseline = pd.Series(ox_value["baseline"], index=years)
+        # Oxidation factors can be fractional (e.g., biocover oxidation 0.5),
+        # so ensure float dtype up-front to avoid pandas int upcast errors.
+        ox_value_series_baseline = pd.Series(ox_value["baseline"], index=years, dtype=float)
         ox_value_series_scenario = ox_value_series_baseline.copy()
         ox_value_series_scenario.loc[implement_year:] = ox_value["scenario"]
         gas_eff_series_baseline = pd.Series(gas_eff["baseline"], index=years)
@@ -8638,8 +8640,8 @@ class City:
         gas_capture_efficiencies["ameliorated"] = [0.5, 0.3, 0]
         gas_capture_efficiencies["not_ameliorated"] = [0.6, 0.45, 0]
         self.ox_options = {
-            "ox_nocap": {"landfill": 0.1, "controlled_dumpsite": 0.05, "dumpsite": 0},
-            "ox_cap": {"landfill": 0.22, "controlled_dumpsite": 0.1, "dumpsite": 0},
+            "ox_nocap": {"landfill": 0.1, "controlled_dumpsite": 0.05, "dumpsite": 0.0},
+            "ox_cap": {"landfill": 0.22, "controlled_dumpsite": 0.1, "dumpsite": 0.0},
         }
         landfill_types = ["landfill", "controlled_dumpsite", "dumpsite"]
         scenario_parameters.landfills = []
@@ -8905,14 +8907,16 @@ class City:
         SELECT * FROM global_weather_table;
         """
 
-        # Ensure the database server is reachable via its IP and port
+        # Best-effort reachability check (non-fatal): if DB is unreachable,
+        # fall back to default weather values rather than crashing.
         try:
             socket.create_connection((DB_SERVER_IP, DB_PORT), timeout=5)
         except socket.error as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Cannot reach database at {DB_SERVER_IP}:{DB_PORT}: {e}",
+            print(
+                f"Weather lookup failed (latlon={latlon}, db={DB_SERVER_IP}:{DB_PORT}/{DB_NAME}): cannot reach database: {e}"
             )
+            rows = []
+            conn = None
 
         conn = None
         rows = []
@@ -8941,9 +8945,6 @@ class City:
                     await conn.close()
                 except Exception as close_exc:
                     print(f"Failed to close weather DB connection: {close_exc}")
-
-        # Close the connection
-        await conn.close()
 
         # Convert the asyncpg Record objects into a list of dictionaries
         try:
