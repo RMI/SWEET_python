@@ -8185,7 +8185,7 @@ class City:
                     scenario_ratio = 1
                 waste_masses_df_baseline = trace_waste_mass_df.copy() * baseline_ratio
                 waste_masses_df_scenario = trace_waste_mass_df.copy() * scenario_ratio
-                waste_masses_df_scenario.loc[:implement_year-1, :] = waste_masses_df_scenario.loc[:implement_year-1, :]
+                waste_masses_df_scenario.loc[:implement_year-1, :] = waste_masses_df_baseline.loc[:implement_year-1, :]
                 waste_masses_df_baseline.loc[new_landfill_open_close_dates['baseline'][0][1]:] = 0
                 waste_masses_df_baseline.loc[:new_landfill_open_close_dates['baseline'][0][0]] = 0
                 waste_masses_df_scenario.loc[new_landfill_open_close_dates['scenario'][0][1]:] = 0
