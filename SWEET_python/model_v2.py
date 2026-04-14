@@ -32,6 +32,10 @@ import calendar
 import SWEET_python.defaults_2019 as defaults_2019
 pd.set_option("display.max_rows", None)
 
+# Particulate emission factors (kg PM / m^3 CH4 destroyed by flaring)
+PM2P5_KG_PER_M3_CH4_FLARED: float = 0.00024
+PM10_KG_PER_M3_CH4_FLARED: float = 0.00024
+
 
 # Based on EPA's SWEET excel model for calculating methane emissions from municipal solid waste
 # (https://globalmethane.org/resources/details.aspx?resourceid=5176)
@@ -294,5 +298,17 @@ class SWEET:
         captured_df = pd.DataFrame(captured_df, columns=columns, index=index)
         q_df = pd.DataFrame(emissions_df, columns=columns, index=index)
         q_df["total"] = q_df.sum(axis=1)
+
+        # Compute particulate emissions from methane destroyed by flaring.
+        # NOTE: `captured_df` here is CH4 destroyed-by-flare (m^3 CH4/month),
+        # because flare_values represents destruction efficiency.
+        try:
+            flared_destroyed_m3 = captured_df.sum(axis=1).fillna(0.0)
+            self.pm2p5_kg_monthly = (flared_destroyed_m3 * PM2P5_KG_PER_M3_CH4_FLARED).astype(float)
+            self.pm10_kg_monthly = (flared_destroyed_m3 * PM10_KG_PER_M3_CH4_FLARED).astype(float)
+        except Exception:
+            # Keep attributes present even if something goes wrong; callers will treat missing/None as zero.
+            self.pm2p5_kg_monthly = None
+            self.pm10_kg_monthly = None
 
         return waste_in_place_df, q_df, ch4_df, captured_df

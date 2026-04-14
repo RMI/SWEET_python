@@ -2383,22 +2383,24 @@ class City:
         }
         # Get the most common non-NaN value, or 3 if all are NaN
         depth = canonical_row['waste_depth']
-        if self.region in defaults_2019.landfill_default_regions:
-            site_type = "Sanitary Landfill"
-        else:
-            site_type = "Dumpsite"
-        if site_type not in get_site_type_idx.keys():
-            if self.region in [
-                "Australia and New Zealand",
-                "Eastern Asia",
-                "North America",
-                "Northern Europe",
-                "Southern Europe",
-                "Western Europe"
-            ]:
+        site_type = canonical_row['type']
+        if pd.isna(site_type) or site_type == '':
+            if self.region in defaults_2019.landfill_default_regions:
                 site_type = "Sanitary Landfill"
             else:
                 site_type = "Dumpsite"
+            if site_type not in get_site_type_idx.keys():
+                if self.region in [
+                    "Australia and New Zealand",
+                    "Eastern Asia",
+                    "North America",
+                    "Northern Europe",
+                    "Southern Europe",
+                    "Western Europe"
+                ]:
+                    site_type = "Sanitary Landfill"
+                else:
+                    site_type = "Dumpsite"
         site_type_idx = get_site_type_idx[site_type]
         city_params_dict = baseline.update_cityparams_dict()
         baseline.landfills = []
@@ -2672,22 +2674,24 @@ class City:
         }
         # Get the most common non-NaN value, or 3 if all are NaN
         depth = canonical_row['waste_depth']
-        if self.region in defaults_2019.landfill_default_regions:
-            site_type = "Sanitary Landfill"
-        else:
-            site_type = "Dumpsite"
-        if site_type not in get_site_type_idx.keys():
-            if self.region in [
-                "Australia and New Zealand",
-                "Eastern Asia",
-                "North America",
-                "Northern Europe",
-                "Southern Europe",
-                "Western Europe"
-            ]:
+        site_type = canonical_row['type']
+        if pd.isna(site_type) or site_type == '':
+            if self.region in defaults_2019.landfill_default_regions:
                 site_type = "Sanitary Landfill"
             else:
                 site_type = "Dumpsite"
+            if site_type not in get_site_type_idx.keys():
+                if self.region in [
+                    "Australia and New Zealand",
+                    "Eastern Asia",
+                    "North America",
+                    "Northern Europe",
+                    "Southern Europe",
+                    "Western Europe"
+                ]:
+                    site_type = "Sanitary Landfill"
+                else:
+                    site_type = "Dumpsite"
         site_type_idx = get_site_type_idx[site_type]
         city_params_dict = baseline.update_cityparams_dict()
         baseline.landfills = []

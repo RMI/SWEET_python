@@ -185,6 +185,8 @@ class Landfill:
         self.emissions = None
         self.ch4 = None
         self.captured = None
+        self.pm2p5_kg_monthly = None
+        self.pm10_kg_monthly = None
 
         # if (advanced is True) and (new_baseline is True):
         #     pass
@@ -351,10 +353,22 @@ class Landfill:
             self.waste_mass_after_degredation, self.emissions, self.ch4, self.captured = (
                 self.model.estimate_emissions_monthly()
             )
+            # Optional: particulate emissions computed in the SWEET monthly model.
+            # These are derived from methane destroyed by flaring and are in kg/month.
+            try:
+                self.pm2p5_kg_monthly = getattr(self.model, "pm2p5_kg_monthly", None)
+            except Exception:
+                self.pm2p5_kg_monthly = None
+            try:
+                self.pm10_kg_monthly = getattr(self.model, "pm10_kg_monthly", None)
+            except Exception:
+                self.pm10_kg_monthly = None
         else:
             self.waste_mass_after_degredation, self.emissions, self.ch4, self.captured = (
                 self.model.estimate_emissions2()
             )
+            self.pm2p5_kg_monthly = None
+            self.pm10_kg_monthly = None
         end_time = time.time()
         # print(f"Time taken to estimate emissions in Landfill: {end_time - start_time} seconds")
 
