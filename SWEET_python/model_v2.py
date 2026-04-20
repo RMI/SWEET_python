@@ -84,6 +84,7 @@ class SWEET:
         gas_capture_efficiency = self.landfill_instance_attrs["gas_capture_efficiency"]
         oxidation_factor = self.landfill_instance_attrs["oxidation_factor"]
         components = self.city_instance_attrs["components"]
+        waste_mass_df = waste_mass_df.loc[:, list(components)]
         flare_efficiency = self.landfill_instance_attrs["flaring"]
 
         # Precompute factors outside of the loop for all years
@@ -196,6 +197,7 @@ class SWEET:
         gas_capture_efficiency = self.landfill_instance_attrs["gas_capture_efficiency"]
         oxidation_factor = self.landfill_instance_attrs["oxidation_factor"]
         components = list(self.city_instance_attrs["components"])
+        waste_mass_df = waste_mass_df.loc[:, components]
         flare_efficiency = self.landfill_instance_attrs["flaring"]
 
         for k, df in ks.items():
