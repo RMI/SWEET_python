@@ -987,6 +987,8 @@ fraction_open_dumped = {
     "Western Africa": 0.0,
     "Western Asia": 0.11,
     "Western Europe": 0.0,
+    "Rest of Oceania": 1.0, # np.nan
+    "Central Asia": 1.0, # np.nan
 }
 fraction_landfilled = {
     "Australia and New Zealand": 0.69,
@@ -1004,6 +1006,8 @@ fraction_landfilled = {
     "Western Africa": 0.64,
     "Western Asia": 0.68,
     "Western Europe": 0.08,
+    "Rest of Oceania": 0.0,  # np.nan
+    "Central Asia": 0.0,  # np.nan
 }
 fraction_incinerated = {
     "Australia and New Zealand": 0.04,
