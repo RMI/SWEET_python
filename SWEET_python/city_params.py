@@ -8125,9 +8125,157 @@ class City:
 
         scenario_parameters = copy.deepcopy(self.baseline_parameters)
         baseline_parameters = copy.deepcopy(self.baseline_parameters)
+        model_year_min = 1950
+        model_year_max = 2050
+
+        def _variant_value(value, label):
+            try:
+                return value[label]
+            except Exception:
+                return getattr(value, label, None)
+
+        baseline_open_close_dates = _variant_value(
+            new_landfill_open_close_dates, "baseline"
+        )
+        scenario_open_close_dates = _variant_value(
+            new_landfill_open_close_dates, "scenario"
+        ) or baseline_open_close_dates
+        all_open_close_dates = list(baseline_open_close_dates or []) + list(
+            scenario_open_close_dates or []
+        )
+        if not all_open_close_dates:
+            raise CustomError("INVALID_PARAMETERS", "Landfill open/close dates are required.")
+
+        open_years = [int(pair[0]) for pair in all_open_close_dates]
+        close_years = [int(pair[1]) for pair in all_open_close_dates]
+        if min(open_years) < model_year_min:
+            raise CustomError(
+                "INVALID_PARAMETERS",
+                f"Landfill open year must be {model_year_min} or later.",
+            )
+        if min(close_years) < model_year_min or max(open_years + close_years) > model_year_max:
+            raise CustomError(
+                "INVALID_PARAMETERS",
+                f"Landfill years must be between {model_year_min} and {model_year_max}.",
+            )
+        for open_year, close_year in zip(open_years, close_years):
+            if close_year < open_year:
+                raise CustomError(
+                    "INVALID_PARAMETERS",
+                    "Landfill close year must be after open year.",
+                )
+        if implement_year is None:
+            implement_year = min(open_years)
+        implement_year = int(implement_year)
+        if implement_year < min(open_years) or implement_year > model_year_max:
+            raise CustomError(
+                "INVALID_PARAMETERS",
+                f"Implementation year must be between {min(open_years)} and {model_year_max}.",
+            )
         scenario_parameters.implement_year = implement_year
 
-        years = pd.Index(range(1990, 2051))
+        model_start_year = min(open_years)
+        years = pd.Index(range(model_start_year, model_year_max + 1))
+
+        def _align_year_df(df: pd.DataFrame) -> pd.DataFrame:
+            aligned = df.copy()
+            aligned.index = pd.Index(aligned.index).astype(int)
+            aligned = aligned.sort_index()
+            return aligned.reindex(years).ffill().bfill()
+
+        new_waste_fractions = {
+            "baseline": _align_year_df(new_waste_fractions["baseline"]),
+            "scenario": _align_year_df(new_waste_fractions["scenario"]),
+        }
+
+        waste_year_baseline = int(_variant_value(waste_mass_year, "baseline"))
+        waste_year_scenario = _variant_value(waste_mass_year, "scenario")
+        waste_year_scenario = (
+            waste_year_baseline
+            if waste_year_scenario is None
+            else int(waste_year_scenario)
+        )
+        if (
+            waste_year_baseline < model_year_min
+            or waste_year_baseline > model_year_max
+            or waste_year_scenario < model_year_min
+            or waste_year_scenario > model_year_max
+        ):
+            raise CustomError(
+                "INVALID_PARAMETERS",
+                f"Waste mass year must be between {model_year_min} and {model_year_max}.",
+            )
+
+        def _generated_waste_masses() -> tuple[pd.DataFrame, pd.DataFrame]:
+            baseline_mass = float(_variant_value(new_waste_mass, "baseline"))
+            scenario_mass = _variant_value(new_waste_mass, "scenario")
+            scenario_mass = baseline_mass if scenario_mass is None else float(scenario_mass)
+
+            waste_mass_series_baseline = pd.Series(baseline_mass, index=years)
+            waste_mass_series_scenario = waste_mass_series_baseline.copy()
+            waste_mass_series_scenario.loc[implement_year:] = scenario_mass
+            waste_masses_df_baseline_unadjusted = new_waste_fractions[
+                "baseline"
+            ].mul(waste_mass_series_baseline, axis=0)
+            waste_masses_df_scenario_unadjusted = new_waste_fractions[
+                "scenario"
+            ].mul(waste_mass_series_scenario, axis=0)
+
+            waste_masses_df_baseline = WasteGeneratedDF.create_advanced_2(
+                waste_masses_df=waste_masses_df_baseline_unadjusted,
+                start_year=model_start_year,
+                end_year=model_year_max,
+                year_of_data_pop_baseline=waste_year_baseline,
+                year_of_data_pop_scenario=waste_year_scenario,
+                growth_rate_historic=1 + growth_rate_override,
+                growth_rate_future=1 + growth_rate_override,
+                implement_year=None,
+            ).df
+            waste_masses_df_scenario = WasteGeneratedDF.create_advanced_2(
+                waste_masses_df=waste_masses_df_scenario_unadjusted,
+                start_year=model_start_year,
+                end_year=model_year_max,
+                year_of_data_pop_baseline=waste_year_baseline,
+                year_of_data_pop_scenario=waste_year_scenario,
+                growth_rate_historic=1 + growth_rate_override,
+                growth_rate_future=1 + growth_rate_override,
+                implement_year=implement_year,
+            ).df
+            return waste_masses_df_baseline, waste_masses_df_scenario
+
+        generated_waste_masses_baseline, generated_waste_masses_scenario = (
+            _generated_waste_masses()
+        )
+
+        def _fill_leading_trace_years(
+            trace_waste_mass_df: pd.DataFrame,
+            ratio: float,
+            generated_waste_masses: pd.DataFrame,
+        ) -> pd.DataFrame:
+            scaled = trace_waste_mass_df.copy().reindex(years) * ratio
+            valid_trace_rows = trace_waste_mass_df.dropna(how="all")
+            if valid_trace_rows.empty:
+                return generated_waste_masses.copy()
+
+            first_trace_year = int(valid_trace_rows.index.min())
+            leading_years = scaled.index < first_trace_year
+            scaled.loc[leading_years] = scaled.loc[leading_years].combine_first(
+                generated_waste_masses.loc[leading_years]
+            )
+            return scaled
+
+        def _apply_open_close_window(
+            waste_masses_df: pd.DataFrame, variant: str
+        ) -> pd.DataFrame:
+            date_pairs = _variant_value(new_landfill_open_close_dates, variant)
+            if date_pairs is None and variant == "scenario":
+                date_pairs = baseline_open_close_dates
+            open_year, close_year = date_pairs[0]
+            windowed = waste_masses_df.copy()
+            windowed.loc[int(close_year) :] = 0
+            windowed.loc[: int(open_year) - 1] = 0
+            return windowed
+
         annoying_missing_incoming = False
         if baseline_data is not None:
             trace_waste_mass_df = baseline_data.get("incoming_waste_df")
@@ -8135,6 +8283,10 @@ class City:
                 annoying_missing_incoming = True
                 trace_waste_mass_df = pd.DataFrame(index=years, columns=["incoming_waste"])
                 trace_waste_mass_df.iloc[:, :] = 10000.0
+            else:
+                trace_waste_mass_df = trace_waste_mass_df.copy()
+                trace_waste_mass_df.index = pd.Index(trace_waste_mass_df.index).astype(int)
+                trace_waste_mass_df = trace_waste_mass_df.sort_index()
 
             # Check if this is a no-FOD site. If it is, incoming_waste_df is total only, not broken out by component, so we have to use default waste fractions
             # to get a full df by waste type
@@ -8145,21 +8297,21 @@ class City:
                     pass
                 else:
                     trace_waste_mass_df = new_waste_fractions['baseline'].mul(trace_waste_mass_df["incoming_waste"], axis=0)
-                trace_values_around_baseline_year = trace_waste_mass_df.loc[waste_mass_year['baseline']-5:waste_mass_year['baseline']+5].mean().sum()
-                trace_values_around_scenario_year = trace_waste_mass_df.loc[waste_mass_year['scenario']-5:waste_mass_year['scenario']+5].mean().sum()
+                trace_values_around_baseline_year = trace_waste_mass_df.loc[waste_year_baseline-5:waste_year_baseline+5].mean().sum()
+                trace_values_around_scenario_year = trace_waste_mass_df.loc[waste_year_scenario-5:waste_year_scenario+5].mean().sum()
                 try:
-                    if trace_values_around_baseline_year == 0:
-                        baseline_ratio = 0
+                    if pd.isna(trace_values_around_baseline_year) or trace_values_around_baseline_year == 0:
+                        baseline_ratio = 1
                     else:
                         baseline_ratio = new_waste_mass['baseline'] / trace_values_around_baseline_year
-                    if trace_values_around_scenario_year == 0:
+                    if pd.isna(trace_values_around_scenario_year) or trace_values_around_scenario_year == 0:
                         trace_waste_mass_df_unadjusted = new_waste_fractions['scenario'].mul(new_waste_mass['scenario'], axis=0)
                         trace_waste_mass_df_unadjusted.loc[:implement_year-1, :] = 0
                         trace_waste_mass_df = WasteGeneratedDF.create_advanced(
                             waste_masses_df=trace_waste_mass_df_unadjusted,
-                            start_year=1990,
-                            end_year=2050,
-                            year_of_data_pop=waste_mass_year.scenario,
+                            start_year=model_start_year,
+                            end_year=model_year_max,
+                            year_of_data_pop=waste_year_scenario,
                             growth_rate_historic=1+growth_rate_override,
                             growth_rate_future=1+growth_rate_override,
                             implement_year=implement_year,
@@ -8171,59 +8323,65 @@ class City:
                     print('Error in waste mass ratio fudge')
                     baseline_ratio = 1
                     scenario_ratio = 1
-                waste_masses_df_baseline = trace_waste_mass_df.copy() * baseline_ratio
-                waste_masses_df_scenario = trace_waste_mass_df.copy() * scenario_ratio
+                waste_masses_df_baseline = _fill_leading_trace_years(
+                    trace_waste_mass_df,
+                    baseline_ratio,
+                    generated_waste_masses_baseline,
+                )
+                waste_masses_df_scenario = _fill_leading_trace_years(
+                    trace_waste_mass_df,
+                    scenario_ratio,
+                    generated_waste_masses_scenario,
+                )
                 waste_masses_df_scenario.loc[:implement_year-1, :] = waste_masses_df_baseline.loc[:implement_year-1, :]
-                waste_masses_df_baseline.loc[new_landfill_open_close_dates['baseline'][0][1]:] = 0
-                waste_masses_df_baseline.loc[:new_landfill_open_close_dates['baseline'][0][0]] = 0
-                waste_masses_df_scenario.loc[new_landfill_open_close_dates['scenario'][0][1]:] = 0
-                waste_masses_df_scenario.loc[:new_landfill_open_close_dates['scenario'][0][0]] = 0
+                waste_masses_df_baseline = _apply_open_close_window(
+                    waste_masses_df_baseline, "baseline"
+                )
+                waste_masses_df_scenario = _apply_open_close_window(
+                    waste_masses_df_scenario, "scenario"
+                )
             else:
-                trace_value_baseline_year = trace_waste_mass_df.loc[waste_mass_year['baseline'], :].sum()
-                trace_value_scenario_year = trace_waste_mass_df.loc[waste_mass_year['scenario'], :].sum()
+                trace_waste_mass_for_ratio = trace_waste_mass_df.reindex(years)
+                trace_value_baseline_year = trace_waste_mass_for_ratio.loc[waste_year_baseline, :].sum()
+                trace_value_scenario_year = trace_waste_mass_for_ratio.loc[waste_year_scenario, :].sum()
                 try:
-                    baseline_ratio = new_waste_mass['baseline'] / trace_value_baseline_year
-                    scenario_ratio = new_waste_mass['scenario'] / trace_value_scenario_year
+                    baseline_ratio = (
+                        1
+                        if pd.isna(trace_value_baseline_year) or trace_value_baseline_year == 0
+                        else new_waste_mass['baseline'] / trace_value_baseline_year
+                    )
+                    scenario_ratio = (
+                        1
+                        if pd.isna(trace_value_scenario_year) or trace_value_scenario_year == 0
+                        else new_waste_mass['scenario'] / trace_value_scenario_year
+                    )
                 except:
                     baseline_ratio = 1
                     scenario_ratio = 1
-                waste_masses_df_baseline = trace_waste_mass_df.copy() * baseline_ratio
-                waste_masses_df_scenario = trace_waste_mass_df.copy() * scenario_ratio
+                waste_masses_df_baseline = _fill_leading_trace_years(
+                    trace_waste_mass_df,
+                    baseline_ratio,
+                    generated_waste_masses_baseline,
+                )
+                waste_masses_df_scenario = _fill_leading_trace_years(
+                    trace_waste_mass_df,
+                    scenario_ratio,
+                    generated_waste_masses_scenario,
+                )
                 waste_masses_df_scenario.loc[:implement_year-1, :] = waste_masses_df_baseline.loc[:implement_year-1, :]
-                waste_masses_df_baseline.loc[new_landfill_open_close_dates['baseline'][0][1]:] = 0
-                waste_masses_df_baseline.loc[:new_landfill_open_close_dates['baseline'][0][0]] = 0
-                waste_masses_df_scenario.loc[new_landfill_open_close_dates['scenario'][0][1]:] = 0
-                waste_masses_df_scenario.loc[:new_landfill_open_close_dates['scenario'][0][0]] = 0
+                waste_masses_df_baseline = _apply_open_close_window(
+                    waste_masses_df_baseline, "baseline"
+                )
+                waste_masses_df_scenario = _apply_open_close_window(
+                    waste_masses_df_scenario, "scenario"
+                )
         else:
-            waste_mass_series_baseline = pd.Series(new_waste_mass['baseline'], index=years)
-            waste_mass_series_scenario = waste_mass_series_baseline.copy()
-            waste_mass_series_scenario.loc[implement_year:] = new_waste_mass['scenario']
-            waste_masses_df_baseline_unadjusted = new_waste_fractions['baseline'].mul(waste_mass_series_baseline, axis=0)
-            waste_masses_df_scenario_unadjusted = new_waste_fractions['scenario'].mul(waste_mass_series_scenario, axis=0)
-            waste_masses_df_baseline = WasteGeneratedDF.create_advanced_2(
-                waste_masses_df=waste_masses_df_baseline_unadjusted,
-                start_year=1990,
-                end_year=2050,
-                year_of_data_pop_baseline=waste_mass_year.baseline,
-                year_of_data_pop_scenario=waste_mass_year.scenario,
-                growth_rate_historic=1+growth_rate_override,
-                growth_rate_future=1+growth_rate_override,
-                implement_year=None,
-            ).df
-            waste_masses_df_scenario = WasteGeneratedDF.create_advanced_2(
-                waste_masses_df=waste_masses_df_scenario_unadjusted,
-                start_year=1990,
-                end_year=2050,
-                year_of_data_pop_baseline=waste_mass_year.baseline,
-                year_of_data_pop_scenario=waste_mass_year.scenario,
-                growth_rate_historic=1+growth_rate_override,
-                growth_rate_future=1+growth_rate_override,
-                implement_year=implement_year,
-            ).df
-            waste_masses_df_baseline.loc[new_landfill_open_close_dates['baseline'][0][1]:] = 0
-            waste_masses_df_baseline.loc[:new_landfill_open_close_dates['baseline'][0][0]] = 0
-            waste_masses_df_scenario.loc[new_landfill_open_close_dates['scenario'][0][1]:] = 0
-            waste_masses_df_scenario.loc[:new_landfill_open_close_dates['scenario'][0][0]] = 0
+            waste_masses_df_baseline = _apply_open_close_window(
+                generated_waste_masses_baseline, "baseline"
+            )
+            waste_masses_df_scenario = _apply_open_close_window(
+                generated_waste_masses_scenario, "scenario"
+            )
         # Adjust for waste burning
         waste_burned = {}
         wb = None

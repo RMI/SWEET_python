@@ -87,8 +87,10 @@ class SWEET:
         waste_mass_df = waste_mass_df.loc[:, list(components)]
         flare_efficiency = self.landfill_instance_attrs["flaring"]
 
-        # Precompute factors outside of the loop for all years
-        year_range = np.arange(max(open_date, 1990), 2051)
+        # Precompute factors outside of the loop for all modeled years.
+        # Callers are responsible for providing aligned parameter vectors from
+        # the actual landfill open year through 2050.
+        year_range = np.arange(int(open_date), 2051)
         if flare_efficiency is None:
             flare_efficiency = pd.Series([1 for x in year_range], index=year_range)
         elif isinstance(flare_efficiency, dict):
@@ -115,8 +117,8 @@ class SWEET:
             ks_values = ks[waste].loc[year_range].values[:, None]
             exp_term = np.exp(-ks_values * (years_back_matrix - 0.5))
 
-            # FIXED: Vectorized waste mass, L_0, and MCF computation
-            waste_masses = waste_mass_df.loc[open_date:, waste].values[:, None]  # FIXED: removed reference to undefined 'year'
+            # Vectorized waste mass, L_0, and MCF computation.
+            waste_masses = waste_mass_df.loc[year_range, waste].values[:, None]
             mcf_values = mcf.loc[year_range].values[:, None]
             ch4_produce = (
                 ks_values
