@@ -12,7 +12,7 @@ from pydantic import BaseModel, validator
 from typing import List, Dict, Union, Any, Set, Optional
 import pandas as pd
 import numpy as np
-import pycountry  # What am i using this for...seems dumb
+import pycountry  # TODO: confirm whether this import is still needed.
 from SWEET_python.class_defs import *
 import copy
 from geopy.geocoders import Nominatim

@@ -966,9 +966,9 @@ landfill_default_regions = set(
         "Western Europe",
     ]
 )
-# These numbers are kind of weird. I think...
+# These numbers need additional review.
 # Does this mean...waste that isn't diverted? But also is landfilled, as opposed to untracked?
-# These are from IPCC, regions are slightly weird....SWEET has Central and Southern Asia, IPCC has south central and western...using south central for western here.
+# These are from IPCC. SWEET has Central and Southern Asia, while IPCC has south central and western; using south central for western here.
 # Africa is a single average and rest of oceania is from aus/nz
 fraction_open_dumped = {
     "Australia and New Zealand": 0.0,
