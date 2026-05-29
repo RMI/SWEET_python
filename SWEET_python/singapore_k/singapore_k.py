@@ -93,7 +93,7 @@ def _build_lookup_array():
     lookup_array[1, 5, 0] = 0.7
     lookup_array[2, 5, 0] = 0.5
 
-    # stupid fake one i need for some reason deal with later
+    # Placeholder value; confirm whether this case needs a real lookup.
     lookup_array[1, 5, 2] = 0.5
 
     lookup_array[0, 6, 2] = 0.6

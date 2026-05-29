@@ -285,7 +285,6 @@ waste_fraction_defaults.columns = [
 waste_fraction_defaults = waste_fraction_defaults.drop("total", axis=1)
 # waste_fraction_defaults.head()
 # waste_fraction_defaults = waste_fraction_defaults.T.to_dict()
-# Ah shit hungary is wrong.
 waste_fractions_country = {
     "Kazakhstan": [21.5, 2.8, 26.5, 0.0, 7.0, 0.0, 0.0, 16.8, 1.5, 11.8, 11.9],
     "Uzbekistan": [38.4, 0.0, 22.8, 4.9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 34.0],
@@ -953,8 +952,8 @@ oxidation_factor = {
         "remediated_to_landfill": 0.1,
     },
 }
-# mef_compost = 0.005876238822222 # Unit is Mg CO2e/Mg of organic waste, wtf
-mef_anaerobic = 0.26 / 1000 * 1.1023  # Unit is Mg CH4/Mg organic waste...wtf
+
+mef_anaerobic = 0.26 / 1000 * 1.1023  
 ch4_to_co2e = 28
 gas_capture_efficiency = {"landfill": 0.6, "controlled_dumpsite": 0.45, "dumpsite": 0}
 landfill_default_regions = set(
@@ -967,9 +966,9 @@ landfill_default_regions = set(
         "Western Europe",
     ]
 )
-# These numbers are kind of weird. I think...
+# These numbers need additional review.
 # Does this mean...waste that isn't diverted? But also is landfilled, as opposed to untracked?
-# These are from IPCC, regions are slightly weird....SWEET has Central and Southern Asia, IPCC has south central and western...using south central for western here.
+# These are from IPCC. SWEET has Central and Southern Asia, while IPCC has south central and western; using south central for western here.
 # Africa is a single average and rest of oceania is from aus/nz
 fraction_open_dumped = {
     "Australia and New Zealand": 0.0,

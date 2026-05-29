@@ -12,7 +12,7 @@ from pydantic import BaseModel, validator
 from typing import List, Dict, Union, Any, Set, Optional
 import pandas as pd
 import numpy as np
-import pycountry  # What am i using this for...seems dumb
+import pycountry  # TODO: confirm whether this import is still needed.
 from SWEET_python.class_defs import *
 import copy
 from geopy.geocoders import Nominatim
@@ -978,7 +978,6 @@ class City:
                     * 1.1023
                     * 0.7
                 )  # / 28
-                # Unit is Mg CO2e/Mg of organic waste, wtf, so convert to CH4. Mistake in sweet here
             except:
                 mef_compost = 0
 
@@ -3078,7 +3077,6 @@ class City:
                 * 1.1023
                 * 0.7
             )  # / 28
-            # Unit is Mg CO2e/Mg of organic waste, wtf, so convert to CH4. Mistake in sweet here
             mef_compost = mef_compost.at[2000]
         except:
             mef_compost = 0
@@ -3496,7 +3494,6 @@ class City:
                     * 1.1023
                     * 0.7
                 )  # / 28
-                # Unit is Mg CO2e/Mg of organic waste, wtf, so convert to CH4. Mistake in sweet here
                 mef_compost = mef_compost.at[2000]
             except:
                 mef_compost = 0
@@ -3775,7 +3772,6 @@ class City:
                     * 1.1023
                     * 0.7
                 )  # / 28
-                # Unit is Mg CO2e/Mg of organic waste, wtf, so convert to CH4. Mistake in sweet here
                 mef_compost = mef_compost.at[2000]
             except:
                 mef_compost = 0
@@ -5686,14 +5682,6 @@ class City:
                                 index=year_range,
                             )
                         )
-
-            # Make sure at some point this doesn't do crazy shit when implement_year is early or something
-            # if isinstance(parameters.waste_mass, dict):
-            #     ratio = parameters.waste_mass['scenario'] / parameters.waste_mass['baseline']
-            #     div_masses_df.compost.loc[parameters.implement_year:, :] *= ratio
-            #     div_masses_df.anaerobic.loc[parameters.implement_year:, :] *= ratio
-            #     div_masses_df.recycling.loc[parameters.implement_year:, :] *= ratio
-            #     div_masses_df.combustion.loc[parameters.implement_year:, :] *= ratio
 
             try:
                 # Create the final instances
