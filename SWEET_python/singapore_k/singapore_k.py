@@ -322,9 +322,11 @@ def _compute_temperature_factor(temperature):
     # boundary instead of extrapolating; with t = temperature + 10 this is
     # equivalent to clamping ambient temperature to [-10 C, 45 C]. tf is 0 at
     # both boundaries, and the k floor (K_MIN_PER_YEAR) downstream then keeps
-    # cold sites physical.
+    # cold sites physical. np.clip (unlike max/min) preserves NaN, so a missing
+    # temperature stays NaN -> NaN k rather than being silently floored; the
+    # caller (_singapore_k) logs which asset is missing a temperature.
     t = temperature + 10  # landfill is warmer than ambient
-    t = max(tmin, min(tmax, t))
+    t = np.clip(t, tmin, tmax)
 
     num = (t - tmax) * (t - tmin) ** 2
     denom = (topt - tmin) * (
