@@ -8,3 +8,6 @@ SWEET_python.egg-info/
 build/
 SWEET_python/unused
 SWEET_python.egg-info
+
+# Local Claude Code project instructions (not shared)
+/CLAUDE.md
