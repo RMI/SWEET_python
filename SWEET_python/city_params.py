@@ -130,6 +130,12 @@ class CityParameters(BaseModel):
             None
         """
         self.temp = self.temperature
+        if self.temperature is None or pd.isna(self.temperature):
+            asset = (self.city_instance_attrs or {}).get("city_name", self.rmi_id)
+            print(
+                f"WARNING: _singapore_k: missing temperature for asset {asset}; "
+                f"decomposition rate k will be NaN (this shouldn't happen)"
+            )
         self.ks, self.bf = compute_singapore_k(
             self.waste_fractions,
             self.temperature,
@@ -937,12 +943,7 @@ class City:
             self.waste_fractions_defaults = False
             if waste_fractions.isna().all():
                 self.waste_fractions_defaults = True
-                if iso3 in defaults_2019.waste_fractions_country:
-                    waste_fractions = defaults_2019.waste_fractions_country.loc[iso3, :]
-                else:
-                    # if region == "Rest of Oceania":
-                    #     print(self.city_name)
-                    waste_fractions = defaults_2019.waste_fraction_defaults.loc[region, :]
+                waste_fractions = defaults_2019.waste_composition_for(iso3, region)
             else:
                 waste_fractions.fillna(0, inplace=True)
                 # waste_fractions['textiles'] = 0
@@ -950,12 +951,7 @@ class City:
             if (waste_fractions.sum() < 0.98) or (waste_fractions.sum() > 1.02):
                 self.waste_fractions_defaults = True
                 # print('waste fractions do not sum to 1')
-                if iso3 in defaults_2019.waste_fractions_country:
-                    waste_fractions = defaults_2019.waste_fractions_country.loc[iso3, :]
-                else:
-                    # if region == "Rest of Oceania":
-                    #     print(self.city_name)
-                    waste_fractions = defaults_2019.waste_fraction_defaults.loc[region, :]
+                waste_fractions = defaults_2019.waste_composition_for(iso3, region)
 
             waste_fractions_dict = waste_fractions.to_dict()
 
@@ -3026,16 +3022,7 @@ class City:
         waste_fractions_defaults = False
         if waste_fractions.isna().all():
             waste_fractions_defaults = True
-            if self.iso3 in defaults_2019.waste_fractions_country:
-                waste_fractions = defaults_2019.waste_fractions_country.loc[
-                    self.iso3, :
-                ]
-            else:
-                # if self.region == "Rest of Oceania":
-                #     print('oceania, dunno', self.city_name)
-                waste_fractions = defaults_2019.waste_fraction_defaults.loc[
-                    self.region, :
-                ]
+            waste_fractions = defaults_2019.waste_composition_for(self.iso3, self.region)
         else:
             waste_fractions.fillna(0, inplace=True)
             # waste_fractions['textiles'] = 0
@@ -3043,16 +3030,7 @@ class City:
         if (waste_fractions.sum() < 0.98) or (waste_fractions.sum() > 1.02):
             waste_fractions_defaults = True
             # print('waste fractions do not sum to 1')
-            if self.iso3 in defaults_2019.waste_fractions_country:
-                waste_fractions = defaults_2019.waste_fractions_country.loc[
-                    self.iso3, :
-                ]
-            else:
-                # if self.region == "Rest of Oceania":
-                #     print('oceania, dunno', self.name)
-                waste_fractions = defaults_2019.waste_fraction_defaults.loc[
-                    self.region, :
-                ]
+            waste_fractions = defaults_2019.waste_composition_for(self.iso3, self.region)
 
         waste_fractions = waste_fractions.to_dict()
 
@@ -3459,16 +3437,7 @@ class City:
 
             # Waste fractions
             waste_fractions_defaults = True
-            if self.iso3 in defaults_2019.waste_fractions_country:
-                waste_fractions = defaults_2019.waste_fractions_country.loc[
-                    self.iso3, :
-                ]
-            else:
-                # if self.region == "Rest of Oceania":
-                #     print('oceania, dunno', self.city_name)
-                waste_fractions = defaults_2019.waste_fraction_defaults.loc[
-                    self.region, :
-                ]
+            waste_fractions = defaults_2019.waste_composition_for(self.iso3, self.region)
 
             # Normalize waste fractions to sum to 1
             wf_norm = waste_fractions / waste_fractions.sum()
@@ -3738,16 +3707,7 @@ class City:
 
             # Waste fractions
             waste_fractions_defaults = True
-            if self.iso3 in defaults_2019.waste_fractions_country:
-                waste_fractions = defaults_2019.waste_fractions_country.loc[
-                    self.iso3, :
-                ]
-            else:
-                # if self.region == "Rest of Oceania":
-                #     print('oceania, dunno', self.city_name)
-                waste_fractions = defaults_2019.waste_fraction_defaults.loc[
-                    self.region, :
-                ]
+            waste_fractions = defaults_2019.waste_composition_for(self.iso3, self.region)
 
             # Normalize waste fractions to sum to 1
             wf_norm = waste_fractions / waste_fractions.sum()
@@ -4443,12 +4403,7 @@ class City:
         waste_mass = waste_per_capita * population / 1000 * 365  # in tons/year
 
         # Retrieve and normalize waste fractions
-        if iso3 in defaults_2019.waste_fractions_country:
-            waste_fractions_series = defaults_2019.waste_fractions_country.loc[iso3, :]
-        else:
-            waste_fractions_series = defaults_2019.waste_fraction_defaults.loc[
-                region, :
-            ]
+        waste_fractions_series = defaults_2019.waste_composition_for(iso3, region)
 
         waste_fractions_normalized = (
             waste_fractions_series / waste_fractions_series.sum()
@@ -9123,10 +9078,7 @@ class City:
             # )
 
         # Waste fractions
-        if iso3 in defaults_2019.waste_fractions_country:
-            waste_fractions = defaults_2019.waste_fractions_country.loc[iso3, :]
-        else:
-            waste_fractions = defaults_2019.waste_fraction_defaults.loc[region, :]
+        waste_fractions = defaults_2019.waste_composition_for(iso3, region)
 
         # Normalize the waste fractions so that they sum to 1.
         waste_fractions = waste_fractions / waste_fractions.sum()

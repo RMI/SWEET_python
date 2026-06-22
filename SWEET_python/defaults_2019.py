@@ -383,13 +383,41 @@ waste_fractions_country.columns = [
     "textiles",
     "nappies",
     "rubber",
-    "plastics",
+    "plastic",  # singular to match waste_fraction_defaults and the model components
     "metal",
     "glass",
     "other",
 ]
 waste_fractions_country["other"] += waste_fractions_country["nappies"]
 waste_fractions_country = waste_fractions_country.drop("nappies", axis=1)
+
+
+def waste_composition_for(iso3, region):
+    """Default waste-fraction Series (normalized to sum 1) for a site.
+
+    Prefer the country-specific table, but fall back to the regional default
+    when the country is absent OR its plastic fraction is missing/zero. Several
+    country rows carry no plastic data; a zero plastic share is the tell-tale
+    of an incomplete row that would otherwise model an implausible no-plastic
+    waste stream (metal/glass are small and not worth rejecting a row over).
+
+    The country table is on a 0-100 (percent) scale and the regional table on a
+    0-1 (fraction) scale, so we normalize before returning to make the two
+    interchangeable for callers (some of which feed the result straight into the
+    model without their own normalization step).
+    """
+    row = None
+    if iso3 in waste_fractions_country.index:
+        candidate = waste_fractions_country.loc[iso3, :]
+        plastic = candidate.get("plastic")
+        if pd.notna(plastic) and plastic > 0:
+            row = candidate
+    if row is None:
+        row = waste_fraction_defaults.loc[region, :]
+    total = row.sum()
+    return row / total if total else row
+
+
 region_lookup = {
     "China": "Eastern Asia",
     "Japan": "Eastern Asia",
