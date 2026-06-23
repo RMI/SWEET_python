@@ -10,3 +10,6 @@ SWEET_python/unused
 SWEET_python.egg-info
 # Local PR-body drafts (edit in VS Code, sync to GitHub via `gh pr edit`)
 /pr-drafts/
+
+# Local-only Claude Code instructions (not for the repo)
+CLAUDE.md
