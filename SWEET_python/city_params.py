@@ -6806,21 +6806,24 @@ class City:
         ).iat[0]
         scenario_parameters.waste_mass -= food_waste_prevented
         scenario_parameters.waste_masses.food -= food_waste_prevented
-        old_nonfood_total = waste_fractions_sum - food_fraction
-        new_nonfood_total = waste_fractions_sum - food_fraction * (
-            1 - food_waste_prevention
-        )
-        normalization_factor = old_nonfood_total / new_nonfood_total
+        # Food prevention removes food mass and shrinks the total; every other
+        # type's mass is unchanged. Rescale ALL fractions by the same
+        # total-reduction factor (the factor waste_mass was just reduced by,
+        # above) so the invariant waste_fractions[w] * waste_mass == waste_masses[w]
+        # stays true. The previous non-food-only rescale (old_nonfood/new_nonfood)
+        # over-inflated non-food shares, so the allocator believed more
+        # metal/glass/other existed than the unchanged masses actually hold ->
+        # spurious "Negative mass for <type>".
+        total_scale = 1 - food_waste_prevention * food_fraction  # reduced_total / original_total
         if food_waste_prevention > 0:
             for frac in scenario_parameters.waste_fractions.columns:
                 if frac == "food":
                     scenario_parameters.waste_fractions.loc[:, "food"] = (
-                        food_fraction * (1 - food_waste_prevention)
+                        food_fraction * (1 - food_waste_prevention) / total_scale
                     )
                     continue
                 old_val = scenario_parameters.waste_fractions[frac].iat[0]
-                new_val = old_val / normalization_factor
-                scenario_parameters.waste_fractions.loc[:, frac] = new_val
+                scenario_parameters.waste_fractions.loc[:, frac] = old_val / total_scale
 
         if np.abs(scenario_parameters.waste_fractions.sum(axis=1).iat[0] - 1) > 1e-2:
             raise CustomError(
