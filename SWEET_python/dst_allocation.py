@@ -34,7 +34,7 @@ DEFAULT_ELIGIBILITY = {
     "compost": {"food", "green", "wood", "paper_cardboard"},
     "anaerobic": {"food", "green", "wood", "paper_cardboard"},
     "combustion": {"food", "green", "wood", "paper_cardboard",
-                   "textiles", "plastic", "rubber"},
+                   "textiles", "plastic", "rubber", "metal", "glass", "other"},
     "recycling": {"wood", "paper_cardboard", "textiles", "plastic",
                   "rubber", "metal", "glass", "other"},
 }
@@ -48,6 +48,11 @@ SCALE = 10 ** 9
 # so when combustion > 0 the three treatments spare combustibles for it. The
 # per-type contention degree breaks ties within a tier (protects shared
 # wood/paper). Max degree (3) << penalty, so the tiers never cross.
+# NOTE: with the current config every waste type is combustion-eligible, so this
+# penalty is added uniformly to all edges and is a no-op -- there are no
+# non-combustible types to steer the other treatments onto, and the combustion
+# remainder (total - compost - anaerobic - recycling) is independent of the
+# allocation. Kept for the general case (if a non-combustible type is reintroduced).
 _COMBUSTIBLE_PENALTY = 1000
 
 
