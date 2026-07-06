@@ -638,8 +638,30 @@ class City:
         if non_compostable_not_targeted_total.isna().all():
             non_compostable_not_targeted_total = pd.Series(0, index=years)
 
-        gas_capture_efficiency = city_data["Methane Capture Efficiency (%)"].values[0] / 100
-        gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=years)
+        def _normalize_capture_efficiency(raw):
+            # "Methane Capture Efficiency (%)" is usually null, but a few rows
+            # carry a real value that may be a fraction (0.25) or a percentage
+            # (25). Return a fraction in [0, 1], or None when there's no usable
+            # value (the landfill then falls back to the model default).
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                return None
+            if pd.isna(value) or value < 0:
+                return None
+            if value > 1:  # percentage form, e.g. 60 -> 0.60
+                value = value / 100.0
+            return min(value, 1.0)
+
+        _measured_capture_eff = _normalize_capture_efficiency(
+            city_data["Methane Capture Efficiency (%)"].values[0]
+        )
+        # None -> leave unset so the with-capture landfill fills the model default.
+        gas_capture_efficiency = (
+            pd.Series(_measured_capture_eff, index=years)
+            if _measured_capture_eff is not None
+            else None
+        )
 
         mef_compost = city_data["MEF: Compost"].values[0]
 
@@ -4111,6 +4133,9 @@ class City:
                 landfill_index=0,
                 fraction_of_waste=city_parameters.split_fractions.landfill_w_capture,
                 gas_capture=True,
+                # Use the city's measured capture efficiency when the source data
+                # provides one; None falls back to the model default in Landfill.
+                gas_capture_efficiency=city_parameters.gas_capture_efficiency,
                 fraction_of_waste_vector=pd.Series(city_parameters.split_fractions.landfill_w_capture, index=years),
             )
             landfill_wo_capture = Landfill(
