@@ -30,6 +30,24 @@ from datetime import datetime
 import time
 
 
+def _normalize_gas_capture_efficiency(raw, default: float = 0.6) -> float:
+    """Coerce a source gas-capture-efficiency value to a fraction in [0, 1].
+
+    The source column ``gas_capture_efficiency_percent`` is a percentage, e.g.
+    ``50`` -> ``0.50``; a value already given as a fraction (``<= 1``) is used
+    as-is. Missing / NaN / non-numeric -> ``default`` (the model default).
+    """
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return default
+    if pd.isna(value):
+        return default
+    if value > 1:
+        value = value / 100.0
+    return min(max(value, 0.0), 1.0)
+
+
 # The way this model is set up is based on the unit of a City, corresponding to the City class.
 # Cities can have multiple sets of CityParameters, one for each scenario.
 # Sets of CityParameters can have one or more landfills, dumpsites, waste to energy, etc.
@@ -1397,7 +1415,14 @@ class City:
             if non_compostable_not_targeted_total.isna().all():
                 non_compostable_not_targeted_total = pd.Series(0, index=years)
 
-            gas_capture_efficiency = pd.Series(0.6, index=years)
+            # Use the city's source-reported gas-capture efficiency when present
+            # (gas_capture_efficiency_percent, a %). Missing -> model default 0.6.
+            gas_capture_efficiency = pd.Series(
+                _normalize_gas_capture_efficiency(
+                    row.get("gas_capture_efficiency_percent")
+                ),
+                index=years,
+            )
 
             waste_mass = pd.Series(waste_mass, index=years)
 
