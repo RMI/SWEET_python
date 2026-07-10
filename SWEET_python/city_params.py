@@ -2547,6 +2547,12 @@ class City:
         oxidation_series = _build_oxidation_series(
             oxidation_value, canonical_row, time_series_rows, self.years_range
         )
+        # Baseline flaring destruction efficiency, set explicitly to the canonical default
+        # (was unset -> fell to model_v2's internal default). No per-site source exists;
+        # mitigation raises it to 0.98/0.99 via _gccs_flaring (max/clip). Local import
+        # avoids the dst_common <-> city_params import cycle.
+        from SWEET_python.dst_common import DEFAULT_FLARE_EFFICIENCY
+        flaring_series = pd.Series(DEFAULT_FLARE_EFFICIENCY, index=self.years_range)
         new_landfill = Landfill(
             open_date=open_date,
             close_date=close_date,
@@ -2561,7 +2567,7 @@ class City:
             scenario=0,
             new_baseline=True,
             gas_capture_efficiency=gas_capture_efficiency,
-            # flaring=pd.Series(flaring, index=year_range),
+            flaring=flaring_series,
             # leachate_circulate=leachate_circulate[i],
             fraction_of_waste_vector=fraction_of_waste_vector,
             advanced=True,
@@ -2819,6 +2825,11 @@ class City:
         oxidation_series = _build_oxidation_series(
             oxidation_value, canonical_row, time_series_rows, self.years_range
         )
+        # Baseline flaring destruction efficiency, set explicitly to the canonical default
+        # (see site_only_estimate_trace). Applies to both the single- and multi-city
+        # landfill constructors below. Local import avoids the dst_common import cycle.
+        from SWEET_python.dst_common import DEFAULT_FLARE_EFFICIENCY
+        flaring_series = pd.Series(DEFAULT_FLARE_EFFICIENCY, index=self.years_range)
         baseline._singapore_k(advanced_baseline=True)
         if (citysite_rows is None) or (isinstance(citysite_rows, pd.Series)):
             fraction_of_waste_vector = pd.Series(
@@ -2839,7 +2850,7 @@ class City:
                 scenario=0,
                 new_baseline=True,
                 gas_capture_efficiency=gas_capture_efficiency,
-                # flaring=pd.Series(flaring, index=year_range),
+                flaring=flaring_series,
                 # leachate_circulate=leachate_circulate[i],
                 fraction_of_waste_vector=fraction_of_waste_vector,
                 advanced=True,
@@ -2934,7 +2945,7 @@ class City:
                     scenario=0,
                     new_baseline=True,
                     gas_capture_efficiency=gas_capture_efficiency,
-                    # flaring=pd.Series(flaring, index=year_range),
+                    flaring=flaring_series,
                     # leachate_circulate=leachate_circulate[i],
                     fraction_of_waste_vector=fraction_of_waste_df[city_id],
                     advanced=True,
