@@ -63,6 +63,14 @@ def _build_oxidation_series(default_value, canonical_row, time_series_rows, year
     else:
         frame = None
 
+    # This default fallback is intentional and load-bearing for callers whose input
+    # frame carries no per-year `oxidation` column -- e.g. the older city DST /
+    # make_cities_table path, which predates per-year oxidation and supplies a single
+    # baseline value elsewhere. The Climate TRACE sites AND cities pipelines both SELECT
+    # `oxidation` into their multi-row frames (landfill_table_ops), so measured oxidation
+    # IS used there; this only defaults when the column is genuinely absent. (Edge case,
+    # not produced by any current caller: oxidation present only on canonical_row while a
+    # DataFrame time_series_rows lacks it would be skipped here.)
     if frame is None or 'oxidation' not in frame.columns:
         return series
 
