@@ -53,9 +53,12 @@ def _build_oxidation_series(default_value, canonical_row, time_series_rows, year
 
     # Assemble the site's input rows as a frame so single-row (Series) and multi-row
     # (DataFrame) sites are handled uniformly. Prefer the multi-row frame -- it holds
-    # every source record -- and fall back to the single canonical row.
+    # every source record -- then the single-row time_series_rows (documented Series
+    # case), and finally the single canonical row.
     if isinstance(time_series_rows, pd.DataFrame):
         frame = time_series_rows
+    elif isinstance(time_series_rows, pd.Series):
+        frame = time_series_rows.to_frame().T
     elif isinstance(canonical_row, pd.DataFrame):
         frame = canonical_row
     elif isinstance(canonical_row, pd.Series):
