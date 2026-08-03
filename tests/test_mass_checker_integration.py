@@ -24,7 +24,7 @@ WT = ["food", "green", "wood", "paper_cardboard", "textiles",
 ELIG = {
     "compost": ["food", "green", "wood", "paper_cardboard"],
     "anaerobic": ["food", "green", "wood", "paper_cardboard"],
-    "combustion": ["food", "green", "wood", "paper_cardboard", "textiles", "plastic", "rubber"],
+    "combustion": ["food", "green", "wood", "paper_cardboard", "textiles", "plastic", "rubber", "metal", "glass", "other"],
     "recycling": ["wood", "paper_cardboard", "textiles", "plastic", "rubber", "metal", "glass", "other"],
 }
 

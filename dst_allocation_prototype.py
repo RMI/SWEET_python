@@ -54,13 +54,13 @@ ELIGIBILITY = {
     "compost":    {"food", "green", "wood", "paper_cardboard"},
     "anaerobic":  {"food", "green", "wood", "paper_cardboard"},
     "combustion": {"food", "green", "wood", "paper_cardboard",
-                   "textiles", "plastic", "rubber"},
+                   "textiles", "plastic", "rubber", "metal", "glass", "other"},
     "recycling":  {"wood", "paper_cardboard", "textiles", "plastic",
                    "rubber", "metal", "glass", "other"},
 }
 NON_COMBUSTION = ("compost", "anaerobic", "recycling")
 COMBUSTIBLE = ELIGIBILITY["combustion"]            # types combustion can take
-NON_COMBUSTIBLE = set(WASTE_TYPES) - COMBUSTIBLE    # metal, glass, other
+NON_COMBUSTIBLE = set(WASTE_TYPES) - COMBUSTIBLE    # now empty: all types combustible
 
 # 1e9 grid: feasibility decided to ~1e-9, far below slider/display precision.
 SCALE = 10 ** 9
@@ -393,8 +393,8 @@ COMBUSTION_SCENARIOS = [
      "remainder 0 -> infeasible, must not ZeroDivisionError"),
     ("C-divzero combustion0 ok", wf(paper_cardboard=1.0),
      {"compost": 0.60, "recycling": 0.40, "combustion": 0.0}, True, ""),
-    ("C combustion on non-combustible only", wf(metal=1.0),
-     {"combustion": 0.10}, False, "remainder 0"),
+    ("C combustion on metal only (now combustible)", wf(metal=1.0),
+     {"combustion": 0.10}, True, "all types combustible -> remainder 1.0"),
     ("C full 4-slider tight boundary",
      wf(food=0.25, green=0.10, wood=0.05, paper_cardboard=0.15, plastic=0.15,
         metal=0.10, glass=0.10, textiles=0.05),
