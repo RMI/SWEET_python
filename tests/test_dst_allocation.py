@@ -201,7 +201,8 @@ COMBUSTION_CASES = [
      {"compost": 0.60, "recycling": 0.40, "combustion": 0.05}, False),
     ("C_divzero_combustion0_ok", wf(paper_cardboard=1.0),
      {"compost": 0.60, "recycling": 0.40, "combustion": 0.0}, True),
-    ("C_combustion_noncombustible_only", wf(metal=1.0), {"combustion": 0.10}, False),
+    # metal/glass/other are now combustion-eligible: a 100%-metal city CAN combust.
+    ("C_combustion_metal_now_combustible", wf(metal=1.0), {"combustion": 0.10}, True),
     ("C_full_4slider_tight_boundary",
      wf(food=0.25, green=0.10, wood=0.05, paper_cardboard=0.15, plastic=0.15,
         metal=0.10, glass=0.10, textiles=0.05),

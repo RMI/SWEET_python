@@ -221,6 +221,9 @@ class City:
                 "textiles",
                 "plastic",
                 "rubber",
+                "metal",
+                "glass",
+                "other",
             },
             "recycling": {
                 "wood",
@@ -1055,6 +1058,9 @@ class City:
                     "textiles",
                     "plastic",
                     "rubber",
+                    "metal",
+                    "glass",
+                    "other",
                 ]
             )
             value1 = float(row["waste_treatment_incineration_percent"])
@@ -3121,6 +3127,9 @@ class City:
                 "textiles",
                 "plastic",
                 "rubber",
+                "metal",
+                "glass",
+                "other",
             ]
         )
         self.recycling_components = set(
@@ -3529,6 +3538,9 @@ class City:
                     "textiles",
                     "plastic",
                     "rubber",
+                    "metal",
+                    "glass",
+                    "other",
                 ]
             )
             self.recycling_components = set(
@@ -3798,6 +3810,9 @@ class City:
                     "textiles",
                     "plastic",
                     "rubber",
+                    "metal",
+                    "glass",
+                    "other",
                 ]
             )
             self.recycling_components = set(
