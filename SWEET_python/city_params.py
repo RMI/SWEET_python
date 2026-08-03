@@ -30,6 +30,24 @@ from datetime import datetime
 import time
 
 
+def _normalize_gas_capture_efficiency(raw, default: float = 0.6) -> float:
+    """Coerce a source gas-capture-efficiency value to a fraction in [0, 1].
+
+    The source column ``gas_capture_efficiency_percent`` is a percentage, e.g.
+    ``50`` -> ``0.50``; a value already given as a fraction (``<= 1``) is used
+    as-is. Missing / NaN / non-numeric -> ``default`` (the model default).
+    """
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return default
+    if pd.isna(value):
+        return default
+    if value > 1:
+        value = value / 100.0
+    return min(max(value, 0.0), 1.0)
+
+
 def _build_oxidation_series(default_value, canonical_row, time_series_rows, years_range):
     """Per-year oxidation factor for one modeled landfill, preferring per-site input
     oxidation over the type/gas-capture default.
@@ -710,8 +728,30 @@ class City:
         if non_compostable_not_targeted_total.isna().all():
             non_compostable_not_targeted_total = pd.Series(0, index=years)
 
-        gas_capture_efficiency = city_data["Methane Capture Efficiency (%)"].values[0] / 100
-        gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=years)
+        def _normalize_capture_efficiency(raw):
+            # "Methane Capture Efficiency (%)" is usually null, but a few rows
+            # carry a real value that may be a fraction (0.25) or a percentage
+            # (25). Return a fraction in [0, 1], or None when there's no usable
+            # value (the landfill then falls back to the model default).
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                return None
+            if pd.isna(value) or value < 0:
+                return None
+            if value > 1:  # percentage form, e.g. 60 -> 0.60
+                value = value / 100.0
+            return min(value, 1.0)
+
+        _measured_capture_eff = _normalize_capture_efficiency(
+            city_data["Methane Capture Efficiency (%)"].values[0]
+        )
+        # None -> leave unset so the with-capture landfill fills the model default.
+        gas_capture_efficiency = (
+            pd.Series(_measured_capture_eff, index=years)
+            if _measured_capture_eff is not None
+            else None
+        )
 
         mef_compost = city_data["MEF: Compost"].values[0]
 
@@ -1450,7 +1490,14 @@ class City:
             if non_compostable_not_targeted_total.isna().all():
                 non_compostable_not_targeted_total = pd.Series(0, index=years)
 
-            gas_capture_efficiency = pd.Series(0.6, index=years)
+            # Use the city's source-reported gas-capture efficiency when present
+            # (gas_capture_efficiency_percent, a %). Missing -> model default 0.6.
+            gas_capture_efficiency = pd.Series(
+                _normalize_gas_capture_efficiency(
+                    row.get("gas_capture_efficiency_percent")
+                ),
+                index=years,
+            )
 
             waste_mass = pd.Series(waste_mass, index=years)
 
@@ -4212,6 +4259,9 @@ class City:
                 landfill_index=0,
                 fraction_of_waste=city_parameters.split_fractions.landfill_w_capture,
                 gas_capture=True,
+                # Use the city's measured capture efficiency when the source data
+                # provides one; None falls back to the model default in Landfill.
+                gas_capture_efficiency=city_parameters.gas_capture_efficiency,
                 fraction_of_waste_vector=pd.Series(city_parameters.split_fractions.landfill_w_capture, index=years),
             )
             landfill_wo_capture = Landfill(
