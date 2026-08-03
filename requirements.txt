@@ -12,13 +12,13 @@ anyio==4.14.1
     # via starlette
 asyncpg==0.31.0
     # via -r requirements.in
-certifi==2026.6.17
+certifi==2026.7.22
     # via -r requirements.in
-fastapi==0.139.0
+fastapi==0.140.13
     # via -r requirements.in
 geographiclib==2.1
     # via geopy
-geopy==2.4.1
+geopy==2.5.0
     # via -r requirements.in
 greenlet==3.5.3
     # via sqlalchemy
@@ -28,7 +28,7 @@ numpy==2.5.1
     # via
     #   -r requirements.in
     #   pandas
-pandas==3.0.3
+pandas==3.0.5
     # via -r requirements.in
 psycopg2==2.9.12
     # via -r requirements.in
