@@ -48,6 +48,75 @@ def _normalize_gas_capture_efficiency(raw, default: float = 0.6) -> float:
     return min(max(value, 0.0), 1.0)
 
 
+def _build_oxidation_series(default_value, canonical_row, time_series_rows, years_range):
+    """Per-year oxidation factor for one modeled landfill, preferring per-site input
+    oxidation over the type/gas-capture default.
+
+    A site can have several input rows from independent sources. Oxidation carries no
+    year of its own in the source data -- the value that varies row-to-row is the
+    *emissions* year (``reported_emissions_year``), not an oxidation year -- so we use
+    the site-wide mean of the available input oxidation values as a constant baseline
+    across all model years, then overwrite individual years with that year's value
+    (mean of any conflicting same-year rows) where an emissions year is present.
+
+    When the site has no usable input oxidation, fall back to ``default_value`` (the
+    type/gas-capture default) broadcast across all years -- i.e. the prior behaviour.
+    Input values are used as-is (no clamping); e.g. a measured 0.35 passes through.
+
+    ``time_series_rows`` is a DataFrame for multi-row sites and a Series for single-row
+    sites; ``canonical_row`` is the single deduped row. Either may carry ``oxidation``.
+    """
+    years_index = pd.Index(years_range)
+    series = pd.Series(float(default_value), index=years_index)
+
+    # Assemble the site's input rows as a frame so single-row (Series) and multi-row
+    # (DataFrame) sites are handled uniformly. Prefer the multi-row frame -- it holds
+    # every source record -- then the single-row time_series_rows (documented Series
+    # case), and finally the single canonical row.
+    if isinstance(time_series_rows, pd.DataFrame):
+        frame = time_series_rows
+    elif isinstance(time_series_rows, pd.Series):
+        frame = time_series_rows.to_frame().T
+    elif isinstance(canonical_row, pd.DataFrame):
+        frame = canonical_row
+    elif isinstance(canonical_row, pd.Series):
+        frame = canonical_row.to_frame().T
+    else:
+        frame = None
+
+    # This default fallback is intentional and load-bearing for callers whose input
+    # frame carries no per-year `oxidation` column -- e.g. the older city DST /
+    # make_cities_table path, which predates per-year oxidation and supplies a single
+    # baseline value elsewhere. The Climate TRACE sites AND cities pipelines both SELECT
+    # `oxidation` into their multi-row frames (landfill_table_ops), so measured oxidation
+    # IS used there; this only defaults when the column is genuinely absent. (Edge case,
+    # not produced by any current caller: oxidation present only on canonical_row while a
+    # DataFrame time_series_rows lacks it would be skipped here.)
+    if frame is None or 'oxidation' not in frame.columns:
+        return series
+
+    ox = pd.to_numeric(frame['oxidation'], errors='coerce')
+    if not ox.notna().any():
+        return series  # no input oxidation -> keep the type/gas-capture default
+
+    # 1) Site-wide mean as the full-series baseline.
+    series[:] = float(ox[ox.notna()].mean())
+
+    # 2) Overwrite individual years where an emissions year ties a value to a year.
+    if 'reported_emissions_year' in frame.columns:
+        yr = pd.to_numeric(frame['reported_emissions_year'], errors='coerce')
+        mask = ox.notna() & yr.notna()
+        if mask.any():
+            per_year = pd.Series(ox[mask].to_numpy(), index=yr[mask].astype(int).to_numpy())
+            per_year = per_year.groupby(level=0).mean()
+            lo, hi = int(years_index.min()), int(years_index.max())
+            per_year = per_year[(per_year.index >= lo) & (per_year.index <= hi)]
+            if not per_year.empty:
+                series.loc[per_year.index] = per_year.to_numpy()
+
+    return series
+
+
 # The way this model is set up is based on the unit of a City, corresponding to the City class.
 # Cities can have multiple sets of CityParameters, one for each scenario.
 # Sets of CityParameters can have one or more landfills, dumpsites, waste to energy, etc.
@@ -2539,6 +2608,15 @@ class City:
             )
         fraction_of_waste_vector.loc[open_date:close_date-1] = 1.0
         id = int(canonical_row['asset_identifier'])
+        oxidation_series = _build_oxidation_series(
+            oxidation_value, canonical_row, time_series_rows, self.years_range
+        )
+        # Baseline flaring destruction efficiency, set explicitly to the canonical default
+        # (was unset -> fell to model_v2's internal default). No per-site source exists;
+        # mitigation raises it to 0.98/0.99 via _gccs_flaring (max/clip). Local import
+        # avoids the dst_common <-> city_params import cycle.
+        from SWEET_python.dst_common import DEFAULT_FLARE_EFFICIENCY
+        flaring_series = pd.Series(DEFAULT_FLARE_EFFICIENCY, index=self.years_range)
         new_landfill = Landfill(
             open_date=open_date,
             close_date=close_date,
@@ -2553,13 +2631,13 @@ class City:
             scenario=0,
             new_baseline=True,
             gas_capture_efficiency=gas_capture_efficiency,
-            # flaring=pd.Series(flaring, index=year_range),
+            flaring=flaring_series,
             # leachate_circulate=leachate_circulate[i],
             fraction_of_waste_vector=fraction_of_waste_vector,
             advanced=True,
             latlon=(self.latitude, self.longitude),
             ks=baseline.ks,
-            oxidation_factor=pd.Series(oxidation_value, index=self.years_range),
+            oxidation_factor=oxidation_series,
             rmi_id=id,
         )
         baseline.landfills.append(new_landfill)
@@ -2808,6 +2886,14 @@ class City:
                 close_date = int(close_date)
 
         id = int(canonical_row['asset_identifier'])
+        oxidation_series = _build_oxidation_series(
+            oxidation_value, canonical_row, time_series_rows, self.years_range
+        )
+        # Baseline flaring destruction efficiency, set explicitly to the canonical default
+        # (see site_only_estimate_trace). Applies to both the single- and multi-city
+        # landfill constructors below. Local import avoids the dst_common import cycle.
+        from SWEET_python.dst_common import DEFAULT_FLARE_EFFICIENCY
+        flaring_series = pd.Series(DEFAULT_FLARE_EFFICIENCY, index=self.years_range)
         baseline._singapore_k(advanced_baseline=True)
         if (citysite_rows is None) or (isinstance(citysite_rows, pd.Series)):
             fraction_of_waste_vector = pd.Series(
@@ -2828,13 +2914,13 @@ class City:
                 scenario=0,
                 new_baseline=True,
                 gas_capture_efficiency=gas_capture_efficiency,
-                # flaring=pd.Series(flaring, index=year_range),
+                flaring=flaring_series,
                 # leachate_circulate=leachate_circulate[i],
                 fraction_of_waste_vector=fraction_of_waste_vector,
                 advanced=True,
                 latlon=(self.latitude, self.longitude),
                 ks=baseline.ks,
-                oxidation_factor=pd.Series(oxidation_value, index=self.years_range),
+                oxidation_factor=oxidation_series,
                 rmi_id=id,
                 city_id=citysite_rows['city_id']
             )
@@ -2923,13 +3009,13 @@ class City:
                     scenario=0,
                     new_baseline=True,
                     gas_capture_efficiency=gas_capture_efficiency,
-                    # flaring=pd.Series(flaring, index=year_range),
+                    flaring=flaring_series,
                     # leachate_circulate=leachate_circulate[i],
                     fraction_of_waste_vector=fraction_of_waste_df[city_id],
                     advanced=True,
                     latlon=(self.latitude, self.longitude),
                     ks=baseline.ks,
-                    oxidation_factor=pd.Series(oxidation_value, index=self.years_range),
+                    oxidation_factor=oxidation_series,
                     rmi_id=id,
                     city_id=city_id,
                 )
