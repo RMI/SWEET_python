@@ -264,10 +264,23 @@ class SWEET:
             half_year_offset = 0.5 * ks_monthly[None, :]  # k at deposit month
             integral_adjusted = integral - half_year_offset
             
-            # Mask out emissions where integral_adjusted <= 0
-            # This is analogous to the annual model's mask for years_back <= 0
-            # (no emissions until ~0.5 years after deposit)
-            mask_positive_integral = integral_adjusted > 0
+            # Mask out deposits younger than the ~half-year emission lag (analogous
+            # to the annual model's years_back <= 0 mask: no emission until ~0.5 yr
+            # after deposit). The cutoff is integral_adjusted == 0 (deposit exactly
+            # half a year old). In a LEAP year the monthly grid lands EXACTLY on that
+            # cutoff for the deposit six months before a 31-day emission month
+            # (Jun->Dec, Apr->Oct: 183/366 == 0.5), whereas in a common year it lands
+            # just past it (183/365 == 0.50137). integral_adjusted is a difference of
+            # two O(k) cumulative sums, so at the cutoff it is 0 +/- ~1e-15
+            # (catastrophic cancellation) and a bare `> 0` (or `>= 0`) includes/drops
+            # that whole deposit-month unpredictably -> a spurious ~1-2% Oct/Dec notch
+            # in leap years only. Use a tolerance well below any real k-time step
+            # (genuine "just past cutoff" values are ~1e-4..1e-3) but above FP noise,
+            # so the exact-half-year deposit is retained consistently in leap and
+            # common years. Within-year redistribution; leap-year annual rises by the
+            # physically-real extra-day mass (~+0.25%), common years unchanged.
+            _HALF_YEAR_TOL = 1e-9
+            mask_positive_integral = integral_adjusted >= -_HALF_YEAR_TOL
             decay = np.exp(-integral_adjusted)
             decay[~mask_valid] = 0
             decay[~mask_positive_integral] = 0
