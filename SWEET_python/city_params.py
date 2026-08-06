@@ -103,6 +103,31 @@ def _build_oxidation_series(default_value, canonical_row, time_series_rows, year
 # Cities can have multiple sets of CityParameters, one for each scenario.
 # Sets of CityParameters can have one or more landfills, dumpsites, waste to energy, etc.
 # Even for modeling a single landfill, City and CityParameters classes need to be used.
+def _population_series_from_pop_data(pop_data, iso3, start_year=1990, end_year=2050):
+    """Extract the WPP2024 per-year population Series for ``iso3`` from ``pop_data``.
+
+    ``pop_data`` carries ``pop_1990``..``pop_2050`` columns when the yearly WPP
+    table is available (see helper_functions.load_population_data). Returns a
+    year-indexed Series, or ``None`` when the columns/country are absent so the
+    caller falls back to the frozen-CAGR ``growth_rate_*`` scalars.
+    """
+    if pop_data is None or iso3 is None:
+        return None
+    try:
+        if iso3 not in pop_data.index:
+            return None
+    except Exception:
+        return None
+    years = list(range(start_year, end_year + 1))
+    cols = [f"pop_{y}" for y in years]
+    if not all(c in pop_data.columns for c in cols):
+        return None
+    vals = pd.to_numeric(pd.Series(pop_data.loc[iso3, cols].values), errors="coerce")
+    if vals.isna().all():
+        return None
+    return pd.Series(vals.values, index=years, dtype=float)
+
+
 class CityParameters(BaseModel):
     waste_fractions: Optional[Union[pd.DataFrame, pd.Series]] = None  # WasteFractions
     div_fractions: Optional[pd.DataFrame] = None  # DiversionFractions
@@ -111,6 +136,9 @@ class CityParameters(BaseModel):
     precip: Optional[float] = None
     growth_rate_historic: Optional[float] = None
     growth_rate_future: Optional[float] = None
+    # WPP2024 per-year population series (index = year), used to grow waste and
+    # diversion by P(year)/P(pivot). None -> fall back to the growth_rate_* CAGR.
+    population_series: Optional[pd.Series] = None
     waste_per_capita: Optional[Union[pd.Series, float]] = None
     precip_zone: Optional[str] = None
     ks: Optional[DecompositionRates] = None
@@ -1670,6 +1698,8 @@ class City:
         population = basics_dict["population"]
         growth_rate_historic = basics_dict["growth_rate_historic"]
         growth_rate_future = basics_dict["growth_rate_future"]
+        # None on the non-trace (wastemap/DST) path -> frozen-CAGR fallback.
+        population_series = basics_dict.get("population_series")
         waste_mass = basics_dict["waste_mass"]
         waste_per_capita = basics_dict["waste_per_capita"]
         waste_fractions = basics_dict["waste_fractions"]
@@ -2114,6 +2144,8 @@ class City:
         population = basics_dict["population"]
         growth_rate_historic = basics_dict["growth_rate_historic"]
         growth_rate_future = basics_dict["growth_rate_future"]
+        # None on the non-trace (wastemap/DST) path -> frozen-CAGR fallback.
+        population_series = basics_dict.get("population_series")
         waste_mass = basics_dict["waste_mass"]
         waste_per_capita = basics_dict["waste_per_capita"]
         waste_fractions = basics_dict["waste_fractions"]
@@ -2190,6 +2222,7 @@ class City:
             divs=divs,
             defaults_used=defaults_used,
         )
+        baseline.population_series = population_series
         self.baseline_parameters = baseline
         baseline._singapore_k(advanced_baseline=True)
 
@@ -2198,6 +2231,7 @@ class City:
             baseline.year_of_data_pop,
             baseline.growth_rate_historic,
             baseline.growth_rate_future,
+            baseline.population_series,
         )
 
         # Set up landfills
@@ -2336,6 +2370,7 @@ class City:
         population = basics_dict.get("population", 100)
         growth_rate_historic = basics_dict["growth_rate_historic"]
         growth_rate_future = basics_dict["growth_rate_future"]
+        population_series = basics_dict.get("population_series")
         waste_mass = basics_dict["waste_mass"]
         waste_per_capita = basics_dict["waste_per_capita"]
         waste_fractions = basics_dict["waste_fractions"]
@@ -2413,6 +2448,7 @@ class City:
             divs=divs,
             defaults_used=defaults_used,
         )
+        baseline.population_series = population_series
         self.baseline_parameters = baseline
         baseline._singapore_k(advanced_baseline=True)
 
@@ -2421,6 +2457,7 @@ class City:
             baseline.year_of_data_pop,
             baseline.growth_rate_historic,
             baseline.growth_rate_future,
+            baseline.population_series,
         )
 
         # Set up landfills
@@ -2636,6 +2673,7 @@ class City:
         population = basics_dict.get("population", 100)
         growth_rate_historic = basics_dict["growth_rate_historic"]
         growth_rate_future = basics_dict["growth_rate_future"]
+        population_series = basics_dict.get("population_series")
         waste_mass = basics_dict["waste_mass"]
         waste_per_capita = basics_dict["waste_per_capita"]
         waste_fractions = basics_dict["waste_fractions"]
@@ -2713,6 +2751,7 @@ class City:
             divs=divs,
             defaults_used=defaults_used,
         )
+        baseline.population_series = population_series
         self.baseline_parameters = baseline
         baseline._singapore_k(advanced_baseline=True)
 
@@ -2721,6 +2760,7 @@ class City:
             baseline.year_of_data_pop,
             baseline.growth_rate_historic,
             baseline.growth_rate_future,
+            baseline.population_series,
         )
 
         # Set up landfills
@@ -3239,7 +3279,15 @@ class City:
             self.country = iso3s[iso3s['iso3'] == self.iso3]['name'].values[0]
             self.region = defaults_2019.region_lookup[self.country]
             population = 100
-            
+
+            # WPP2024 per-year population series for this country (None -> the
+            # frozen-CAGR growth_rate_* scalars are used instead).
+            population_series = _population_series_from_pop_data(pop_data, self.iso3)
+            # True once waste_generated already carries population growth (the
+            # multi-row path bakes it into the projected series below), so the
+            # later WasteGeneratedDF.create must not apply growth a second time.
+            growth_already_applied = False
+
             current_year = datetime.now().year
             general_reference_year = current_year - 1
 
@@ -3305,22 +3353,29 @@ class City:
 
                 # Create time series from 1990 to 2050
                 years = np.arange(1990, 2051)
-                waste_series = np.zeros(len(years))
 
-                # Set 2020 as the baseline year
-                baseline_year = 2020
-                baseline_idx = baseline_year - 1990
+                # Anchor the projection at the data year (the latest observed waste
+                # year), the SAME pivot the single-row path uses -- so the two paths
+                # agree instead of differing by a 2020-vs-data-year offset. Fall back
+                # to 2020 only when the data year is unknown.
+                if pd.isna(year_of_data_msw):
+                    baseline_year = 2020
+                else:
+                    baseline_year = int(year_of_data_msw)
 
-                # Project backward and forwards
-                for i, year in enumerate(years):
-                    if year >= baseline_year:
-                        # Future projection
-                        years_since_baseline = year - baseline_year
-                        waste_series[i] = avg_annual_waste * (growth_rate_future ** years_since_baseline)
-                    else:
-                        # Past projection - divide by historic growth rate (going backwards)
-                        years_since_baseline = baseline_year - year
-                        waste_series[i] = avg_annual_waste / (growth_rate_historic ** years_since_baseline)
+                # Project the average waste around the baseline year by population
+                # growth. With a WPP series this is P(year)/P(baseline_year) -- the
+                # UN's decelerating trajectory; without one it is the frozen CAGR
+                # (growth_rate_future forward, growth_rate_historic backward), which
+                # growth_factors_for_years reproduces exactly around a single pivot.
+                growth_factors = growth_factors_for_years(
+                    years,
+                    baseline_year,
+                    growth_rate_historic,
+                    growth_rate_future,
+                    population_series,
+                )
+                waste_series = avg_annual_waste * growth_factors
 
                 # Overwrite with actual data where available
                 for _, data_row in time_series_rows.iterrows():
@@ -3331,10 +3386,13 @@ class City:
                             if not np.isnan(val):
                                 waste_series[year_idx] = val
 
-                # Store the time series
+                # Store the time series. This series already carries population
+                # growth, so the later WasteGeneratedDF.create must not re-apply it
+                # (previously it did -- a double application that inflated growth).
                 self.waste_time_series = pd.Series(waste_series, index=years)
                 waste_mass = self.waste_time_series
                 waste_per_capita = waste_mass * 1000 / population / 365
+                growth_already_applied = True
                 
             # Location data (canonical_row is typically a Series for TRACE usecase)
             try:
@@ -3601,15 +3659,31 @@ class City:
             self.div_components["combustion"] = self.combustion_components
             self.div_components["recycling"] = self.recycling_components
 
-            # Calculate waste generated, which is like waste masses but adjusts for population growth
-            waste_generated_df = WasteGeneratedDF.create(
-                waste_masses.loc[1990:2050, :],
-                1990,
-                2050,
-                year_of_data_pop,
-                growth_rate_historic,
-                growth_rate_future,
-            )
+            # Calculate waste generated, which is like waste masses but adjusts for
+            # population growth. The single-row path holds a flat base-year mass, so
+            # growth is applied here (WPP year-by-year, or the CAGR fallback). The
+            # multi-row path already baked growth into waste_masses above, so pass
+            # identity factors here to avoid the double application.
+            if growth_already_applied:
+                waste_generated_df = WasteGeneratedDF.create(
+                    waste_masses.loc[1990:2050, :],
+                    1990,
+                    2050,
+                    year_of_data_pop,
+                    1.0,
+                    1.0,
+                    population_series=None,
+                )
+            else:
+                waste_generated_df = WasteGeneratedDF.create(
+                    waste_masses.loc[1990:2050, :],
+                    1990,
+                    2050,
+                    year_of_data_pop,
+                    growth_rate_historic,
+                    growth_rate_future,
+                    population_series=population_series,
+                )
 
             return {
                 "data_source_pop": 'UN',
@@ -3629,6 +3703,7 @@ class City:
                 "temperature": temperature,
                 "waste_masses": waste_masses,
                 "waste_generated_df": waste_generated_df,
+                "population_series": population_series,
             }
         else:
             data_source_waste = canonical_row['Data Source: Waste'].values[0]

@@ -5,6 +5,48 @@ import numpy as np
 from enum import Enum
 
 
+def growth_factors_for_years(
+    years,
+    year_of_data_pop,
+    growth_rate_historic,
+    growth_rate_future,
+    population_series: Optional[pd.Series] = None,
+):
+    """Per-year multiplicative growth factors relative to ``year_of_data_pop``.
+
+    Two modes, selected by ``population_series``:
+
+    * **WPP year-by-year** (``population_series`` given): a per-year population
+      Series ``P(year)`` (UN WPP2024 medium variant). The factor is
+      ``P(year) / P(year_of_data_pop)`` -- the UN's own decelerating trajectory,
+      with no extrapolation inside the modeling horizon. Any year missing from the
+      series is filled by forward/backward hold so the factor stays finite.
+
+    * **Frozen-CAGR fallback** (``population_series`` is ``None``): the legacy
+      behavior, ``growth_rate_historic ** t`` before the pivot and
+      ``growth_rate_future ** t`` after it. Kept identical so the cities/DST
+      callers -- and any country absent from the yearly table -- are unchanged.
+
+    The pivot is passed in (not baked into a normalized series) so the same
+    population Series serves any pivot year, e.g. an ``implement_year`` scenario.
+    """
+    years = np.asarray(years)
+    if population_series is not None and len(population_series) > 0:
+        P = population_series.reindex(years)
+        # Hold the nearest known value across any gap so the factor never goes NaN.
+        P = P.ffill().bfill()
+        pivot_val = population_series.reindex([year_of_data_pop]).ffill().bfill()
+        pivot = float(pivot_val.iloc[0])
+        if pivot and np.isfinite(pivot):
+            return (P.to_numpy(dtype=float) / pivot)
+        # Degenerate pivot -> fall through to the scalar path.
+    t = years - year_of_data_pop
+    growth_rate = np.where(
+        years < year_of_data_pop, growth_rate_historic, growth_rate_future
+    )
+    return np.power(growth_rate, t)
+
+
 class WasteFractions(BaseModel):
     food: float = 0.0
     green: float = 0.0
@@ -155,15 +197,19 @@ class WasteGeneratedDF(BaseModel):
         year_of_data_pop: int,
         growth_rate_historic: float,
         growth_rate_future: float,
+        population_series: Optional[pd.Series] = None,
     ):
         years = np.arange(start_year, end_year + 1)
-        t = years - year_of_data_pop
 
-        # Create growth rate array, using growth_rate_historic for years before year_of_data_pop and growth_rate_future after
-        growth_rate = np.where(
-            years < year_of_data_pop, growth_rate_historic, growth_rate_future
+        # WPP year-by-year factor when a population series is supplied; otherwise
+        # the frozen-CAGR fallback (see growth_factors_for_years).
+        growth_factors = growth_factors_for_years(
+            years,
+            year_of_data_pop,
+            growth_rate_historic,
+            growth_rate_future,
+            population_series,
         )
-        growth_factors = growth_rate**t
 
         # Apply growth factors to the waste_masses_df
         adjusted_data = waste_masses_df.multiply(growth_factors, axis=0)
@@ -439,18 +485,23 @@ class DivsDF(BaseModel):
         year_of_data_pop: int,
         growth_rate_historic: float,
         growth_rate_future: float,
+        population_series: Optional[pd.Series] = None,
     ):
         compost = cls._apply_growth_rate(
-            divs.compost, year_of_data_pop, growth_rate_historic, growth_rate_future
+            divs.compost, year_of_data_pop, growth_rate_historic, growth_rate_future,
+            population_series,
         )
         anaerobic = cls._apply_growth_rate(
-            divs.anaerobic, year_of_data_pop, growth_rate_historic, growth_rate_future
+            divs.anaerobic, year_of_data_pop, growth_rate_historic, growth_rate_future,
+            population_series,
         )
         combustion = cls._apply_growth_rate(
-            divs.combustion, year_of_data_pop, growth_rate_historic, growth_rate_future
+            divs.combustion, year_of_data_pop, growth_rate_historic, growth_rate_future,
+            population_series,
         )
         recycling = cls._apply_growth_rate(
-            divs.recycling, year_of_data_pop, growth_rate_historic, growth_rate_future
+            divs.recycling, year_of_data_pop, growth_rate_historic, growth_rate_future,
+            population_series,
         )
 
         return cls(
@@ -466,15 +517,17 @@ class DivsDF(BaseModel):
         year_of_data_pop: int,
         growth_rate_historic: float,
         growth_rate_future: float,
+        population_series: Optional[pd.Series] = None,
     ) -> pd.DataFrame:
-        years = df.index
-        t = years - year_of_data_pop
-
-        # Vectorized growth rate calculation
-        growth_rates = np.where(
-            years < year_of_data_pop, growth_rate_historic, growth_rate_future
+        # WPP year-by-year factor when a population series is supplied; otherwise
+        # the frozen-CAGR fallback (see growth_factors_for_years).
+        growth_factors = growth_factors_for_years(
+            df.index,
+            year_of_data_pop,
+            growth_rate_historic,
+            growth_rate_future,
+            population_series,
         )
-        growth_factors = np.power(growth_rates, t)
 
         # Apply growth factors across all waste types (columns) at once
         adjusted_data = df.multiply(growth_factors, axis=0)
