@@ -15,6 +15,7 @@ The project does not publish semantic version tags, so releases are tracked by
 
 Newest first:
 
+- [2026-08](2026-08.md) — `/sdst` flaring efficiency reached the model again: fixed a variable-name bug in `City.sdst_v1_5` that silently forced flare destruction to 0.98 and ignored the user's input (model-output change)
 - [2026-07](2026-07.md) — All ten waste types eligible for combustion (metal/glass/other added); methane-only model treats combustion as landfill diversion (model-output change)
 - [2026-06](2026-06.md) — New single-site and city-level ADST modeling modules, min-cost max-flow rewrite of the city DST diversion allocator, physical-k fix for cold/dry sites, no more spurious negative food-waste mass
 - [2026-05](2026-05.md) — SDST models from a landfill's actual open year (1950–2050), Central Asia/Afghanistan disposal-default fix, auto-Jira issue tooling, professional-comment cleanup
