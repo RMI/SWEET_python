@@ -2503,9 +2503,30 @@ class City:
                 oxidation_value = ox_options["ox_nocap"][site_type]
         
         if isinstance(time_series_rows, pd.DataFrame):
+            gascap_df = None
             if time_series_rows['gas_collection_efficiency'].notna().any():
+                # Measured per-year capture is keyed on reported_emissions_year, so a row
+                # without one cannot be placed. Drop on BOTH columns: a row can carry a
+                # reported year with no capture value, or a capture value with no year.
+                #
+                # The all-dropped case is reachable and is not an edge case. The TRACE
+                # input query selects gas_collection_efficiency independently of
+                # CH4_reported, and reported_emissions_year is DERIVED from CH4_reported
+                # (landfill_table_ops.py: extract_emissions_year_from_dict). A site with
+                # capture data but no reported emissions therefore has no reported year at
+                # all -- and, because a null CH4_reported is exactly what routes a site to
+                # 'to be modeled', such a site reaches this branch rather than the reported
+                # pathway. Taking .mean() of the emptied frame yielded NaN and poisoned the
+                # whole capture series; fall back to the site-type default instead, matching
+                # the scalar path below.
                 gascap_df = time_series_rows[['reported_emissions_year', 'gas_collection_efficiency']]
-                gascap_df = gascap_df.dropna(subset=['reported_emissions_year']).copy()
+                gascap_df = gascap_df.dropna(
+                    subset=['reported_emissions_year', 'gas_collection_efficiency']
+                ).copy()
+                if gascap_df.empty:
+                    gascap_df = None
+
+            if gascap_df is not None:
                 gas_capture_efficiency_mean = gascap_df['gas_collection_efficiency'].mean()
                 gas_capture_efficiency = pd.Series(gas_capture_efficiency_mean, index=self.years_range)
                 gas_capture_efficiency.loc[gascap_df['reported_emissions_year'].values] = gascap_df['gas_collection_efficiency'].values
