@@ -17,13 +17,20 @@ import pandas as pd
 import SWEET_python.defaults_2019 as defaults_2019
 from SWEET_python.city_params import City, CustomError
 from SWEET_python.class_defs import DecompositionRates
+from SWEET_python.constants import MODEL_END_YEAR
 from SWEET_python.landfill import Landfill
 from SWEET_python.singapore_k import compute_singapore_k
 
 # The model is only ever evaluated over this window. Open years are validated
 # against MODEL_YEAR_MIN to avoid accidental giant simulations.
+#
+# MODEL_YEAR_MIN is an input-validation floor, NOT the modeling start: a site
+# may legitimately record an opening year before MODEL_START_YEAR (deposition
+# is simply treated as starting at MODEL_START_YEAR). MODEL_YEAR_MAX, by
+# contrast, is the modeling horizon itself, so it derives from the shared
+# constant rather than repeating the year.
 MODEL_YEAR_MIN = 1950
-MODEL_YEAR_MAX = 2050
+MODEL_YEAR_MAX = MODEL_END_YEAR
 
 # Order matters: waste_fractions vectors are sent in this column order.
 WASTE_COMPONENTS: List[str] = [
