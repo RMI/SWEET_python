@@ -64,6 +64,15 @@ class AdvancedDSTRequest(BaseModel):
     landfill_type: Variant[LandfillType] = Field(
         ..., description="Site type: 0 landfill, 1 controlled dump, 2 open dump."
     )
+    depth: Optional[Variant[float]] = Field(
+        None,
+        description=(
+            "Site depth in metres. A controlled/open dump (type 1 or 2) deeper "
+            "than 5 m has its MCF raised to 0.8 (deep dumps decompose more "
+            "anaerobically), matching City.sdst_v1_5. Omit to derive MCF from "
+            "landfill type alone."
+        ),
+    )
     landfill_open_close: Variant[tuple[int, int]] = Field(
         ..., description="(open_year, close_year) of the site."
     )
@@ -75,6 +84,15 @@ class AdvancedDSTRequest(BaseModel):
     )
     biocover: Optional[Variant[YearlyFloat]] = Field(
         None, description="Biocover oxidation floor per year (a fraction; defaults to 0)."
+    )
+    k_override: Optional[Variant[YearlyFloat]] = Field(
+        None,
+        description=(
+            "Decomposition rate k per year. When supplied, this single rate is "
+            "applied to every biodegradable component and bypasses the derived "
+            "(temperature/precipitation/composition) k, matching City.sdst_v1_5's "
+            "ks_overrides. Omit to derive k."
+        ),
     )
     temperature: float = Field(10.0, description="Average annual temperature, deg C.")
     country: Optional[str] = Field(
@@ -145,22 +163,33 @@ def run_advanced_dst(request: AdvancedDSTRequest) -> dict[str, pd.DataFrame]:
     scenario_mass = common.apply_window(scenario_mass, scenario_open, scenario_close)
 
     # --- Decomposition rates ---
-    ref_year = min(max(implement_year, int(years.min())), int(years.max()))
-    ks_baseline, ks_scenario = common.decomposition_rates(
-        request.temperature,
-        request.precipitation,
-        implement_year,
-        years,
-        common.representative_vector(baseline_fractions, ref_year),
-        common.representative_vector(scenario_fractions, ref_year),
-    )
+    if request.k_override is not None:
+        # Caller-supplied k: fan one rate out to all degradable components,
+        # spliced at implement_year, mirroring City.sdst_v1_5's ks_overrides.
+        k_baseline, k_scenario = common.variant_series(
+            request.k_override, years, implement_year, default=None
+        )
+        ks_baseline = common.uniform_decomposition_rates(k_baseline)
+        ks_scenario = common.uniform_decomposition_rates(k_scenario)
+    else:
+        ref_year = min(max(implement_year, int(years.min())), int(years.max()))
+        ks_baseline, ks_scenario = common.decomposition_rates(
+            request.temperature,
+            request.precipitation,
+            implement_year,
+            years,
+            common.representative_vector(baseline_fractions, ref_year),
+            common.representative_vector(scenario_fractions, ref_year),
+        )
 
     # --- MCF / gas capture / flaring / oxidation series ---
     baseline_type = int(request.landfill_type["baseline"])
     scenario_type = int(request.landfill_type["scenario"]) if request.landfill_type["scenario"] is not None else baseline_type
 
-    mcf_baseline = common.mcf_series(baseline_type, baseline_type, implement_year, years)
-    mcf_scenario = common.mcf_series(baseline_type, scenario_type, implement_year, years)
+    baseline_depth = common.variant_get(request.depth, "baseline")
+    scenario_depth = common.variant_get(request.depth, "scenario")
+    mcf_baseline = common.mcf_series(baseline_type, baseline_type, implement_year, years, baseline_depth, baseline_depth)
+    mcf_scenario = common.mcf_series(baseline_type, scenario_type, implement_year, years, baseline_depth, scenario_depth)
 
     gas_baseline, gas_scenario = common.variant_series(request.gas_capture_efficiency, years, implement_year, default=0.0)
     flare_baseline, flare_scenario = common.variant_series(request.flaring, years, implement_year, default=common.DEFAULT_FLARE_EFFICIENCY)
