@@ -31,6 +31,75 @@ import time
 from SWEET_python.constants import MODEL_START_YEAR, MODEL_END_YEAR
 
 
+def _build_oxidation_series(default_value, canonical_row, time_series_rows, years_range):
+    """Per-year oxidation factor for one modeled landfill, preferring per-site input
+    oxidation over the type/gas-capture default.
+
+    A site can have several input rows from independent sources. Oxidation carries no
+    year of its own in the source data -- the value that varies row-to-row is the
+    *emissions* year (``reported_emissions_year``), not an oxidation year -- so we use
+    the site-wide mean of the available input oxidation values as a constant baseline
+    across all model years, then overwrite individual years with that year's value
+    (mean of any conflicting same-year rows) where an emissions year is present.
+
+    When the site has no usable input oxidation, fall back to ``default_value`` (the
+    type/gas-capture default) broadcast across all years -- i.e. the prior behaviour.
+    Input values are used as-is (no clamping); e.g. a measured 0.35 passes through.
+
+    ``time_series_rows`` is a DataFrame for multi-row sites and a Series for single-row
+    sites; ``canonical_row`` is the single deduped row. Either may carry ``oxidation``.
+    """
+    years_index = pd.Index(years_range)
+    series = pd.Series(float(default_value), index=years_index)
+
+    # Assemble the site's input rows as a frame so single-row (Series) and multi-row
+    # (DataFrame) sites are handled uniformly. Prefer the multi-row frame -- it holds
+    # every source record -- then the single-row time_series_rows (documented Series
+    # case), and finally the single canonical row.
+    if isinstance(time_series_rows, pd.DataFrame):
+        frame = time_series_rows
+    elif isinstance(time_series_rows, pd.Series):
+        frame = time_series_rows.to_frame().T
+    elif isinstance(canonical_row, pd.DataFrame):
+        frame = canonical_row
+    elif isinstance(canonical_row, pd.Series):
+        frame = canonical_row.to_frame().T
+    else:
+        frame = None
+
+    # This default fallback is intentional and load-bearing for callers whose input
+    # frame carries no per-year `oxidation` column -- e.g. the older city DST /
+    # make_cities_table path, which predates per-year oxidation and supplies a single
+    # baseline value elsewhere. The Climate TRACE sites AND cities pipelines both SELECT
+    # `oxidation` into their multi-row frames (landfill_table_ops), so measured oxidation
+    # IS used there; this only defaults when the column is genuinely absent. (Edge case,
+    # not produced by any current caller: oxidation present only on canonical_row while a
+    # DataFrame time_series_rows lacks it would be skipped here.)
+    if frame is None or 'oxidation' not in frame.columns:
+        return series
+
+    ox = pd.to_numeric(frame['oxidation'], errors='coerce')
+    if not ox.notna().any():
+        return series  # no input oxidation -> keep the type/gas-capture default
+
+    # 1) Site-wide mean as the full-series baseline.
+    series[:] = float(ox[ox.notna()].mean())
+
+    # 2) Overwrite individual years where an emissions year ties a value to a year.
+    if 'reported_emissions_year' in frame.columns:
+        yr = pd.to_numeric(frame['reported_emissions_year'], errors='coerce')
+        mask = ox.notna() & yr.notna()
+        if mask.any():
+            per_year = pd.Series(ox[mask].to_numpy(), index=yr[mask].astype(int).to_numpy())
+            per_year = per_year.groupby(level=0).mean()
+            lo, hi = int(years_index.min()), int(years_index.max())
+            per_year = per_year[(per_year.index >= lo) & (per_year.index <= hi)]
+            if not per_year.empty:
+                series.loc[per_year.index] = per_year.to_numpy()
+
+    return series
+
+
 # The way this model is set up is based on the unit of a City, corresponding to the City class.
 # Cities can have multiple sets of CityParameters, one for each scenario.
 # Sets of CityParameters can have one or more landfills, dumpsites, waste to energy, etc.
@@ -131,6 +200,12 @@ class CityParameters(BaseModel):
             None
         """
         self.temp = self.temperature
+        if self.temperature is None or pd.isna(self.temperature):
+            asset = (self.city_instance_attrs or {}).get("city_name", self.rmi_id)
+            print(
+                f"WARNING: _singapore_k: missing temperature for asset {asset}; "
+                f"decomposition rate k will be NaN (this shouldn't happen)"
+            )
         self.ks, self.bf = compute_singapore_k(
             self.waste_fractions,
             self.temperature,
@@ -198,6 +273,9 @@ class City:
                 "textiles",
                 "plastic",
                 "rubber",
+                "metal",
+                "glass",
+                "other",
             },
             "recycling": {
                 "wood",
@@ -938,12 +1016,7 @@ class City:
             self.waste_fractions_defaults = False
             if waste_fractions.isna().all():
                 self.waste_fractions_defaults = True
-                if iso3 in defaults_2019.waste_fractions_country:
-                    waste_fractions = defaults_2019.waste_fractions_country.loc[iso3, :]
-                else:
-                    # if region == "Rest of Oceania":
-                    #     print(self.city_name)
-                    waste_fractions = defaults_2019.waste_fraction_defaults.loc[region, :]
+                waste_fractions = defaults_2019.waste_composition_for(iso3, region)
             else:
                 waste_fractions.fillna(0, inplace=True)
                 # waste_fractions['textiles'] = 0
@@ -951,12 +1024,7 @@ class City:
             if (waste_fractions.sum() < 0.98) or (waste_fractions.sum() > 1.02):
                 self.waste_fractions_defaults = True
                 # print('waste fractions do not sum to 1')
-                if iso3 in defaults_2019.waste_fractions_country:
-                    waste_fractions = defaults_2019.waste_fractions_country.loc[iso3, :]
-                else:
-                    # if region == "Rest of Oceania":
-                    #     print(self.city_name)
-                    waste_fractions = defaults_2019.waste_fraction_defaults.loc[region, :]
+                waste_fractions = defaults_2019.waste_composition_for(iso3, region)
 
             waste_fractions_dict = waste_fractions.to_dict()
 
@@ -1020,6 +1088,9 @@ class City:
                     "textiles",
                     "plastic",
                     "rubber",
+                    "metal",
+                    "glass",
+                    "other",
                 ]
             )
             value1 = float(row["waste_treatment_incineration_percent"])
@@ -2434,9 +2505,30 @@ class City:
                 oxidation_value = ox_options["ox_nocap"][site_type]
         
         if isinstance(time_series_rows, pd.DataFrame):
+            gascap_df = None
             if time_series_rows['gas_collection_efficiency'].notna().any():
+                # Measured per-year capture is keyed on reported_emissions_year, so a row
+                # without one cannot be placed. Drop on BOTH columns: a row can carry a
+                # reported year with no capture value, or a capture value with no year.
+                #
+                # The all-dropped case is reachable and is not an edge case. The TRACE
+                # input query selects gas_collection_efficiency independently of
+                # CH4_reported, and reported_emissions_year is DERIVED from CH4_reported
+                # (landfill_table_ops.py: extract_emissions_year_from_dict). A site with
+                # capture data but no reported emissions therefore has no reported year at
+                # all -- and, because a null CH4_reported is exactly what routes a site to
+                # 'to be modeled', such a site reaches this branch rather than the reported
+                # pathway. Taking .mean() of the emptied frame yielded NaN and poisoned the
+                # whole capture series; fall back to the site-type default instead, matching
+                # the scalar path below.
                 gascap_df = time_series_rows[['reported_emissions_year', 'gas_collection_efficiency']]
-                gascap_df = gascap_df.dropna(subset=['reported_emissions_year']).copy()
+                gascap_df = gascap_df.dropna(
+                    subset=['reported_emissions_year', 'gas_collection_efficiency']
+                ).copy()
+                if gascap_df.empty:
+                    gascap_df = None
+
+            if gascap_df is not None:
                 gas_capture_efficiency_mean = gascap_df['gas_collection_efficiency'].mean()
                 gas_capture_efficiency = pd.Series(gas_capture_efficiency_mean, index=self.years_range)
                 gas_capture_efficiency.loc[gascap_df['reported_emissions_year'].values] = gascap_df['gas_collection_efficiency'].values
@@ -2492,6 +2584,15 @@ class City:
             )
         fraction_of_waste_vector.loc[open_date:close_date-1] = 1.0
         id = int(canonical_row['asset_identifier'])
+        oxidation_series = _build_oxidation_series(
+            oxidation_value, canonical_row, time_series_rows, self.years_range
+        )
+        # Baseline flaring destruction efficiency, set explicitly to the canonical default
+        # (was unset -> fell to model_v2's internal default). No per-site source exists;
+        # mitigation raises it to 0.98/0.99 via _gccs_flaring (max/clip). Local import
+        # avoids the dst_common <-> city_params import cycle.
+        from SWEET_python.dst_common import DEFAULT_FLARE_EFFICIENCY
+        flaring_series = pd.Series(DEFAULT_FLARE_EFFICIENCY, index=self.years_range)
         new_landfill = Landfill(
             open_date=open_date,
             close_date=close_date,
@@ -2506,13 +2607,13 @@ class City:
             scenario=0,
             new_baseline=True,
             gas_capture_efficiency=gas_capture_efficiency,
-            # flaring=pd.Series(flaring, index=year_range),
+            flaring=flaring_series,
             # leachate_circulate=leachate_circulate[i],
             fraction_of_waste_vector=fraction_of_waste_vector,
             advanced=True,
             latlon=(self.latitude, self.longitude),
             ks=baseline.ks,
-            oxidation_factor=pd.Series(oxidation_value, index=self.years_range),
+            oxidation_factor=oxidation_series,
             rmi_id=id,
         )
         baseline.landfills.append(new_landfill)
@@ -2761,6 +2862,14 @@ class City:
                 close_date = int(close_date)
 
         id = int(canonical_row['asset_identifier'])
+        oxidation_series = _build_oxidation_series(
+            oxidation_value, canonical_row, time_series_rows, self.years_range
+        )
+        # Baseline flaring destruction efficiency, set explicitly to the canonical default
+        # (see site_only_estimate_trace). Applies to both the single- and multi-city
+        # landfill constructors below. Local import avoids the dst_common import cycle.
+        from SWEET_python.dst_common import DEFAULT_FLARE_EFFICIENCY
+        flaring_series = pd.Series(DEFAULT_FLARE_EFFICIENCY, index=self.years_range)
         baseline._singapore_k(advanced_baseline=True)
         if (citysite_rows is None) or (isinstance(citysite_rows, pd.Series)):
             fraction_of_waste_vector = pd.Series(
@@ -2782,13 +2891,13 @@ class City:
                 scenario=0,
                 new_baseline=True,
                 gas_capture_efficiency=gas_capture_efficiency,
-                # flaring=pd.Series(flaring, index=year_range),
+                flaring=flaring_series,
                 # leachate_circulate=leachate_circulate[i],
                 fraction_of_waste_vector=fraction_of_waste_vector,
                 advanced=True,
                 latlon=(self.latitude, self.longitude),
                 ks=baseline.ks,
-                oxidation_factor=pd.Series(oxidation_value, index=self.years_range),
+                oxidation_factor=oxidation_series,
                 rmi_id=id,
                 city_id=citysite_rows['city_id']
             )
@@ -2883,13 +2992,13 @@ class City:
                     scenario=0,
                     new_baseline=True,
                     gas_capture_efficiency=gas_capture_efficiency,
-                    # flaring=pd.Series(flaring, index=year_range),
+                    flaring=flaring_series,
                     # leachate_circulate=leachate_circulate[i],
                     fraction_of_waste_vector=fraction_of_waste_df[city_id],
                     advanced=True,
                     latlon=(self.latitude, self.longitude),
                     ks=baseline.ks,
-                    oxidation_factor=pd.Series(oxidation_value, index=self.years_range),
+                    oxidation_factor=oxidation_series,
                     rmi_id=id,
                     city_id=city_id,
                 )
@@ -3035,16 +3144,7 @@ class City:
         waste_fractions_defaults = False
         if waste_fractions.isna().all():
             waste_fractions_defaults = True
-            if self.iso3 in defaults_2019.waste_fractions_country:
-                waste_fractions = defaults_2019.waste_fractions_country.loc[
-                    self.iso3, :
-                ]
-            else:
-                # if self.region == "Rest of Oceania":
-                #     print('oceania, dunno', self.city_name)
-                waste_fractions = defaults_2019.waste_fraction_defaults.loc[
-                    self.region, :
-                ]
+            waste_fractions = defaults_2019.waste_composition_for(self.iso3, self.region)
         else:
             waste_fractions.fillna(0, inplace=True)
             # waste_fractions['textiles'] = 0
@@ -3052,16 +3152,7 @@ class City:
         if (waste_fractions.sum() < 0.98) or (waste_fractions.sum() > 1.02):
             waste_fractions_defaults = True
             # print('waste fractions do not sum to 1')
-            if self.iso3 in defaults_2019.waste_fractions_country:
-                waste_fractions = defaults_2019.waste_fractions_country.loc[
-                    self.iso3, :
-                ]
-            else:
-                # if self.region == "Rest of Oceania":
-                #     print('oceania, dunno', self.name)
-                waste_fractions = defaults_2019.waste_fraction_defaults.loc[
-                    self.region, :
-                ]
+            waste_fractions = defaults_2019.waste_composition_for(self.iso3, self.region)
 
         waste_fractions = waste_fractions.to_dict()
 
@@ -3105,6 +3196,9 @@ class City:
                 "textiles",
                 "plastic",
                 "rubber",
+                "metal",
+                "glass",
+                "other",
             ]
         )
         self.recycling_components = set(
@@ -3468,16 +3562,7 @@ class City:
 
             # Waste fractions
             waste_fractions_defaults = True
-            if self.iso3 in defaults_2019.waste_fractions_country:
-                waste_fractions = defaults_2019.waste_fractions_country.loc[
-                    self.iso3, :
-                ]
-            else:
-                # if self.region == "Rest of Oceania":
-                #     print('oceania, dunno', self.city_name)
-                waste_fractions = defaults_2019.waste_fraction_defaults.loc[
-                    self.region, :
-                ]
+            waste_fractions = defaults_2019.waste_composition_for(self.iso3, self.region)
 
             # Normalize waste fractions to sum to 1
             wf_norm = waste_fractions / waste_fractions.sum()
@@ -3522,6 +3607,9 @@ class City:
                     "textiles",
                     "plastic",
                     "rubber",
+                    "metal",
+                    "glass",
+                    "other",
                 ]
             )
             self.recycling_components = set(
@@ -3747,16 +3835,7 @@ class City:
 
             # Waste fractions
             waste_fractions_defaults = True
-            if self.iso3 in defaults_2019.waste_fractions_country:
-                waste_fractions = defaults_2019.waste_fractions_country.loc[
-                    self.iso3, :
-                ]
-            else:
-                # if self.region == "Rest of Oceania":
-                #     print('oceania, dunno', self.city_name)
-                waste_fractions = defaults_2019.waste_fraction_defaults.loc[
-                    self.region, :
-                ]
+            waste_fractions = defaults_2019.waste_composition_for(self.iso3, self.region)
 
             # Normalize waste fractions to sum to 1
             wf_norm = waste_fractions / waste_fractions.sum()
@@ -3800,6 +3879,9 @@ class City:
                     "textiles",
                     "plastic",
                     "rubber",
+                    "metal",
+                    "glass",
+                    "other",
                 ]
             )
             self.recycling_components = set(
@@ -4452,12 +4534,7 @@ class City:
         waste_mass = waste_per_capita * population / 1000 * 365  # in tons/year
 
         # Retrieve and normalize waste fractions
-        if iso3 in defaults_2019.waste_fractions_country:
-            waste_fractions_series = defaults_2019.waste_fractions_country.loc[iso3, :]
-        else:
-            waste_fractions_series = defaults_2019.waste_fraction_defaults.loc[
-                region, :
-            ]
+        waste_fractions_series = defaults_2019.waste_composition_for(iso3, region)
 
         waste_fractions_normalized = (
             waste_fractions_series / waste_fractions_series.sum()
@@ -5783,7 +5860,20 @@ class City:
             if net[waste] < -1e-5:
                 negative_catcher = True
 
-        if not negative_catcher:
+        # Under-delivery: a requested treatment whose proportional component
+        # fractions don't actually sum to its target (e.g. an empty/insufficient
+        # eligible pool -> 0-ton "silent accept"). Such cases must NOT take the
+        # happy path; route them through the solver, which reallocates or raises.
+        under_delivery = any(
+            np.abs(
+                getattr(div_fractions, div)
+                - sum(components_multiplied_through[div].values())
+            )
+            > 1e-5
+            for div in div_fractions.model_dump().keys()
+        )
+
+        if (not negative_catcher) and (not under_delivery):
             # divs = self._divs_from_component_fractions(div_fractions, div_component_fractions, scenario=scenario)
             # parameters.divs = divs
             adjusted_diversion_constituents = False
@@ -5802,400 +5892,135 @@ class City:
                 div_component_fractions,
             )
 
-        if (
-            sum(
-                getattr(div_fractions, div) for div in div_fractions.model_dump().keys()
-            )
-            > 1
-        ):
-            raise CustomError(
-                "INVALID_PARAMETERS",
-                f"Diversions sum to {sum(getattr(div_fractions, div) for div in div_fractions.model_dump().keys())}, but they must sum to 1 or less.",
-            )
+        # --- Robust diversion allocation (replaces the legacy redistribution) ---
+        # The old guard-ladder + redistribution loop that lived here falsely
+        # rejected many *feasible* slider combinations, silently accepted some
+        # impossible ones (diverting 0 tons), and could crash on a bare assert.
+        # It is replaced by an exact min-cost max-flow allocation of the three
+        # contended treatments (compost/anaerobic/recycling). Combustion stays a
+        # uniform fraction of the leftover combustible mass (handled just below).
+        # See SWEET_python/dst_allocation.py (+ dst_allocation_prototype.py).
+        from SWEET_python import dst_allocation
 
-        compostables = sum(
-            getattr(waste_fractions, waste)
-            for waste in ["food", "green", "wood", "paper_cardboard"]
+        waste_dict = waste_fractions.model_dump()
+        three_targets = {
+            "compost": div_fractions.compost,
+            "anaerobic": div_fractions.anaerobic,
+            "recycling": div_fractions.recycling,
+        }
+        alloc_result = dst_allocation.solve_allocation(
+            waste_dict,
+            three_targets,
+            eligibility=self.div_components,
+            spare_combustibles=(div_fractions.combustion > 0),
         )
-        if div_fractions.compost + div_fractions.anaerobic > compostables:
-            raise CustomError(
-                "INVALID_PARAMETERS",
-                f"Only food, green, wood, and paper/cardboard can be composted or anaerobically digested. Those waste types sum to {compostables}, but input values of compost and anaerobic digestion sum to {div_fractions.compost + div_fractions.anaerobic}.",
-            )
 
-        for div in div_fractions.model_dump().keys():
-            fraction = getattr(div_fractions, div)
-            s = sum(
-                getattr(waste_fractions, waste) for waste in self.div_components[div]
-            )
-            if s < fraction:
-                components = self.div_components[div]
-                values = [getattr(waste_fractions, x) for x in components]
-                raise CustomError(
-                    "INVALID_PARAMETERS",
-                    f"{div} too high. {div} applies to {components}, which are {values} of total waste--the sum of these is {sum(values)}, so only that much waste can be {div}, but input value was {fraction}.",
+        if not alloc_result["feasible"]:
+            # Build an actionable message naming a specific slider + its cap.
+            def _cap(t, others):
+                return dst_allocation.max_feasible_target(
+                    t, waste_dict, others, eligibility=self.div_components
                 )
 
-        non_combustables = sum(
-            getattr(waste_fractions, waste) for waste in ["glass", "metal", "other"]
-        )
-        if (
-            div_fractions.compost + div_fractions.anaerobic + div_fractions.combustion
-            > (1 - non_combustables)
-        ):
-            s = (
-                div_fractions.compost
-                + div_fractions.anaerobic
-                + div_fractions.combustion
-            )
-            raise CustomError(
-                "INVALID_PARAMETERS",
-                f"Glass, metal, and other account for {non_combustables:.3f} of waste, and they can only be recycled. {div_fractions.compost} compost, {div_fractions.anaerobic} anaerobic, and {div_fractions.combustion} incineration were specified, summing to {s}, but only {1 - non_combustables} of waste can be diverted to these diversion types.",
-            )
-
-        non_combustion = {}
-        combustion_all = {}
-        keys_of_interest = ["compost", "anaerobic", "recycling"]
-        for waste in waste_fractions.model_dump().keys():
-            s = sum(
-                components_multiplied_through[div].get(waste, 0)
-                for div in keys_of_interest
-            )
-            non_combustion[waste] = s
-            combustion_all[waste] = getattr(waste_fractions, waste) - s
-
-        adjust_non_combustion = False
-        for waste, frac in non_combustion.items():
-            if frac > getattr(waste_fractions, waste):
-                adjust_non_combustion = True
-
-        if adjust_non_combustion:
-            div_component_fractions_adjusted = DivComponentFractions(
-                **div_component_fractions.model_dump()
-            )
-
-            dont_add_to = {
-                waste
-                for waste, frac in waste_fractions.model_dump().items()
-                if frac == 0
-            }
-            problems = [
-                set(
-                    waste
-                    for waste, frac in non_combustion.items()
-                    if frac > getattr(waste_fractions, waste)
-                )
-            ]
-            dont_add_to.update(problems[0])
-
-            while problems:
-                probs = problems.pop(0)
-                for waste in probs:
-                    remove = {}
-                    distribute = {}
-                    overflow = {}
-                    can_be_adjusted = []
-                    div_total = sum(
-                        getattr(div_fractions, div)
-                        * getattr(getattr(div_component_fractions_adjusted, div), waste)
-                        for div in keys_of_interest
-                        if waste
-                        in getattr(div_component_fractions_adjusted, div)
-                        .model_dump()
-                        .keys()
+            # Stage 1: a slider that on its own exceeds its eligible-waste pool
+            # (clearest message -- a fixed, city-specific ceiling).
+            for t in ("compost", "anaerobic", "recycling"):
+                if three_targets[t] <= 0:
+                    continue
+                standalone = _cap(t, {k: 0.0 for k in three_targets if k != t})
+                if three_targets[t] > standalone + 1e-6:
+                    raise CustomError(
+                        "INVALID_PARAMETERS",
+                        f"{t.capitalize()} can be at most {standalone * 100:.1f}% "
+                        f"of this city's waste (only that much is eligible for "
+                        f"{t}), but {three_targets[t] * 100:.1f}% was requested.",
                     )
-                    div_target = getattr(waste_fractions, waste)
-                    diff = (div_total - div_target) / div_total
-
-                    for div in keys_of_interest:
-                        if getattr(div_fractions, div) == 0:
-                            continue
-                        distribute[div] = {}
-                        component = getattr(
-                            getattr(div_component_fractions_adjusted, div), waste, 0
-                        )
-                        to_be_removed = diff * component
-
-                        to_distribute_to = [
-                            x for x in self.div_components[div] if x not in dont_add_to
-                        ]
-                        to_distribute_to_sum = sum(
-                            getattr(
-                                getattr(div_component_fractions_adjusted, div), x, 0
-                            )
-                            for x in to_distribute_to
-                        )
-                        if to_distribute_to_sum == 0:
-                            overflow[div] = 1
-                            continue
-
-                        for w in to_distribute_to:
-                            add_amount = to_be_removed * (
-                                getattr(
-                                    getattr(div_component_fractions_adjusted, div), w, 0
-                                )
-                                / to_distribute_to_sum
-                            )
-                            if w not in distribute[div]:
-                                distribute[div][w] = [add_amount]
-                            else:
-                                distribute[div][w].append(add_amount)
-
-                        remove[div] = to_be_removed
-                        can_be_adjusted.append(div)
-
-                    for div in overflow:
-                        component = getattr(
-                            getattr(div_component_fractions_adjusted, div), waste, 0
-                        )
-                        to_be_removed = diff * component
-                        to_distribute_to = [
-                            x
-                            for x in distribute.keys()
-                            if waste in self.div_components[x] and x not in overflow
-                        ]
-                        to_distribute_to_sum = sum(
-                            getattr(div_fractions, x) for x in to_distribute_to
-                        )
-                        if to_distribute_to_sum == 0:
-                            raise CustomError(
-                                "INVALID_PARAMETERS",
-                                f"Combination of compost, anaerobic digestion, and recycling is too high",
-                            )
-
-                        for d in to_distribute_to:
-                            to_be_removed_component = (
-                                to_be_removed
-                                * (getattr(div_fractions, d) / to_distribute_to_sum)
-                                / getattr(div_fractions, d)
-                            )
-                            to_distribute_to_component = [
-                                x
-                                for x in getattr(div_component_fractions_adjusted, d)
-                                .model_dump()
-                                .keys()
-                                if x not in dont_add_to
-                            ]
-                            to_distribute_to_sum_component = sum(
-                                getattr(
-                                    getattr(div_component_fractions_adjusted, d), x, 0
-                                )
-                                for x in to_distribute_to_component
-                            )
-                            if to_distribute_to_sum_component == 0:
-                                raise CustomError(
-                                    "INVALID_PARAMETERS",
-                                    f"Combination of compost, anaerobic digestion, and recycling is too high",
-                                )
-
-                            for w in to_distribute_to_component:
-                                add_amount = (
-                                    to_be_removed_component
-                                    * getattr(
-                                        getattr(div_component_fractions_adjusted, d),
-                                        w,
-                                        0,
-                                    )
-                                    / to_distribute_to_sum_component
-                                )
-                                if w in distribute[d]:
-                                    distribute[d][w].append(add_amount)
-
-                            remove[d] += to_be_removed_component
-
-                    for div in distribute:
-                        for w in distribute[div]:
-                            setattr(
-                                getattr(div_component_fractions_adjusted, div),
-                                w,
-                                getattr(
-                                    getattr(div_component_fractions_adjusted, div), w
-                                )
-                                + sum(distribute[div][w]),
-                            )
-
-                    for div in remove:
-                        setattr(
-                            getattr(div_component_fractions_adjusted, div),
-                            waste,
-                            getattr(
-                                getattr(div_component_fractions_adjusted, div), waste
-                            )
-                            - remove[div],
-                        )
-
-                new_probs = {
-                    waste
-                    for waste in waste_fractions.model_dump().keys()
-                    if sum(
-                        getattr(div_fractions, div)
-                        * getattr(
-                            getattr(div_component_fractions_adjusted, div), waste, 0
-                        )
-                        for div in keys_of_interest
+            # Stage 2: each fits alone but the combination over-draws a shared
+            # waste type -- name a slider whose reduction restores feasibility.
+            for t in ("compost", "anaerobic", "recycling"):
+                if three_targets[t] <= 0:
+                    continue
+                cond = _cap(t, {k: v for k, v in three_targets.items() if k != t})
+                if three_targets[t] > cond + 1e-6:
+                    raise CustomError(
+                        "INVALID_PARAMETERS",
+                        f"{t.capitalize()} can be at most {cond * 100:.1f}% given "
+                        f"the other diversion selections for this city, but "
+                        f"{three_targets[t] * 100:.1f}% was requested. Reduce "
+                        f"{t} or the other diversion sliders.",
                     )
-                    > getattr(waste_fractions, waste) + 0.001
-                }
-                if new_probs:
-                    problems.append(new_probs)
-                dont_add_to.update(new_probs)
+            raise CustomError(
+                "INVALID_PARAMETERS",
+                "The requested diversion combination cannot be met by this "
+                "city's waste composition. Reduce one or more diversion sliders.",
+            )
 
-            components_multiplied_through = {
-                div: {
-                    waste: getattr(div_fractions, div)
-                    * getattr(getattr(div_component_fractions_adjusted, div), waste)
-                    for waste in getattr(div_component_fractions_adjusted, div)
-                    .model_dump()
-                    .keys()
-                }
-                for div in div_component_fractions_adjusted.model_dump().keys()
-            }
+        # Overwrite the three contended treatments with the flow allocation
+        # (fraction-of-total-waste units, exactly what
+        # components_multiplied_through holds).
+        allocation = alloc_result["allocation"]
+        for div in ("compost", "anaerobic", "recycling"):
+            components_multiplied_through[div] = {w: 0.0 for w in self.waste_types}
+            for w, val in allocation.get(div, {}).items():
+                components_multiplied_through[div][w] = val
 
-        non_combustion = {}
+        # Combustion takes a uniform fraction of the leftover combustible mass.
         combustion_all = {}
-        for waste in waste_fractions.model_dump().keys():
-            s = sum(
-                components_multiplied_through[div].get(waste, 0)
-                for div in keys_of_interest
+        for waste in self.waste_types:
+            consumed = sum(
+                components_multiplied_through[div].get(waste, 0.0)
+                for div in ("compost", "anaerobic", "recycling")
             )
-            non_combustion[waste] = s
-            combustion_all[waste] = getattr(waste_fractions, waste) - s
-
-        adjust_non_combustion = False
-        for waste, frac in non_combustion.items():
-            if frac > (getattr(waste_fractions, waste) + 1e-5):
-                adjust_non_combustion = True
-                raise CustomError(
-                    "INVALID_PARAMETERS",
-                    f"Combination of compost, anaerobic digestion, and recycling is too high",
-                )
-
-        all_divs = sum(
-            getattr(div_fractions, div) for div in div_fractions.model_dump().keys()
-        )
-
-        assert (
-            np.abs(
-                div_fractions.recycling
-                - sum(components_multiplied_through["recycling"].values())
-            )
-            < 1e-3
-        )
+            combustion_all[waste] = getattr(waste_fractions, waste) - consumed
 
         remainder = sum(
-            fraction
-            for waste_type, fraction in combustion_all.items()
-            if waste_type in self.div_components["combustion"]
+            combustion_all[w] for w in self.div_components["combustion"]
         )
-        combustion_fraction_of_remainder = div_fractions.combustion / remainder
-        if combustion_fraction_of_remainder > (1 + 1e-5):
-            non_combustables = [
-                x
-                for x in waste_fractions.model_dump().keys()
-                if x not in self.div_components["combustion"]
-            ]
-            for waste in non_combustables:
-                if getattr(waste_fractions, waste) == 0:
-                    continue
-                new_val = getattr(waste_fractions, waste) * all_divs
-                components_multiplied_through["recycling"][waste] = new_val
-
-            available_div = sum(
-                v
-                for k, v in components_multiplied_through["recycling"].items()
-                if k not in non_combustables
+        if div_fractions.combustion > remainder + 1e-9:
+            raise CustomError(
+                "INVALID_PARAMETERS",
+                f"Incineration can be at most {remainder * 100:.1f}% of waste "
+                f"after the requested compost, anaerobic digestion, and "
+                f"recycling, but {div_fractions.combustion * 100:.1f}% was "
+                f"requested. Reduce incineration or the other diversion sliders.",
             )
-            available_div_target = div_fractions.recycling - sum(
-                v
-                for k, v in components_multiplied_through["recycling"].items()
-                if k in non_combustables
-            )
-            if available_div_target < 0:
-                too_much_frac = (
-                    sum(
-                        v
-                        for k, v in components_multiplied_through["recycling"].items()
-                        if k in non_combustables
-                    )
-                    - div_fractions.recycling
-                ) / sum(
-                    v
-                    for k, v in components_multiplied_through["recycling"].items()
-                    if k in non_combustables
-                )
-                for key, value in components_multiplied_through["recycling"].items():
-                    if key in non_combustables:
-                        components_multiplied_through["recycling"][key] = value * (
-                            1 - too_much_frac
-                        )
-                    else:
-                        components_multiplied_through["recycling"][key] = 0
-                assert (
-                    np.abs(
-                        div_fractions.recycling
-                        - sum(
-                            v
-                            for v in components_multiplied_through["recycling"].values()
-                        )
-                    )
-                    < 1e-5
-                )
+        combustion_fraction_of_remainder = (
+            div_fractions.combustion / remainder if remainder > 1e-12 else 0.0
+        )
 
-            else:
-                reduce_frac = (available_div - available_div_target) / available_div
-                for key, value in components_multiplied_through["recycling"].items():
-                    if key not in non_combustables:
-                        components_multiplied_through["recycling"][key] = value * (
-                            1 - reduce_frac
-                        )
-                assert (
-                    np.abs(
-                        div_fractions.recycling
-                        - sum(
-                            v
-                            for v in components_multiplied_through["recycling"].values()
-                        )
-                    )
-                    < 1e-5
-                )
-
-            non_combustion = {}
-            combustion_all = {}
-            for waste in waste_fractions.model_dump().keys():
-                s = sum(
-                    components_multiplied_through[div].get(waste, 0)
-                    for div in keys_of_interest
-                )
-                non_combustion[waste] = s
-                combustion_all[waste] = getattr(waste_fractions, waste) - s
-
-            remainder = sum(
-                fraction
-                for waste_type, fraction in combustion_all.items()
-                if waste_type in self.div_components["combustion"]
-            )
-            combustion_fraction_of_remainder = div_fractions.combustion / remainder
-            assert combustion_fraction_of_remainder < (1 + 1e-5)
-            if combustion_fraction_of_remainder > 1:
-                combustion_fraction_of_remainder = 1
-
+        components_multiplied_through["combustion"] = {
+            w: 0.0 for w in self.waste_types
+        }
         for waste in self.div_components["combustion"]:
             components_multiplied_through["combustion"][waste] = (
                 combustion_fraction_of_remainder * combustion_all[waste]
             )
 
+        # Defensive invariants -> actionable CustomError instead of bare assert
+        # (asserts are stripped under `python -O` and would surface as 500s).
         for d in div_fractions.model_dump().keys():
-            assert (
+            if (
                 np.abs(
                     getattr(div_fractions, d)
                     - sum(components_multiplied_through[d].values())
                 )
-                < 1e-3
-            )
+                > 1e-3
+            ):
+                raise CustomError(
+                    "INVALID_PARAMETERS",
+                    f"Could not satisfy the requested {d} fraction with this "
+                    f"city's waste composition. Adjust the diversion sliders.",
+                )
             for w in components_multiplied_through[d]:
-                if abs(components_multiplied_through[d][w]) < 1e-5:
+                if abs(components_multiplied_through[d][w]) < 1e-9:
                     components_multiplied_through[d][w] = 0
-                assert components_multiplied_through[d][w] >= 0
+                if components_multiplied_through[d][w] < 0:
+                    raise CustomError(
+                        "INVALID_PARAMETERS",
+                        f"Could not satisfy the requested diversion mix for "
+                        f"'{w}'. Reduce composting, recycling, or anaerobic "
+                        f"digestion.",
+                    )
 
         adjusted_div_component_fractions = {
             div: {
@@ -7112,21 +6937,24 @@ class City:
         ).iat[0]
         scenario_parameters.waste_mass -= food_waste_prevented
         scenario_parameters.waste_masses.food -= food_waste_prevented
-        old_nonfood_total = waste_fractions_sum - food_fraction
-        new_nonfood_total = waste_fractions_sum - food_fraction * (
-            1 - food_waste_prevention
-        )
-        normalization_factor = old_nonfood_total / new_nonfood_total
+        # Food prevention removes food mass and shrinks the total; every other
+        # type's mass is unchanged. Rescale ALL fractions by the same
+        # total-reduction factor (the factor waste_mass was just reduced by,
+        # above) so the invariant waste_fractions[w] * waste_mass == waste_masses[w]
+        # stays true. The previous non-food-only rescale (old_nonfood/new_nonfood)
+        # over-inflated non-food shares, so the allocator believed more
+        # metal/glass/other existed than the unchanged masses actually hold ->
+        # spurious "Negative mass for <type>".
+        total_scale = 1 - food_waste_prevention * food_fraction  # reduced_total / original_total
         if food_waste_prevention > 0:
             for frac in scenario_parameters.waste_fractions.columns:
                 if frac == "food":
                     scenario_parameters.waste_fractions.loc[:, "food"] = (
-                        food_fraction * (1 - food_waste_prevention)
+                        food_fraction * (1 - food_waste_prevention) / total_scale
                     )
                     continue
                 old_val = scenario_parameters.waste_fractions[frac].iat[0]
-                new_val = old_val / normalization_factor
-                scenario_parameters.waste_fractions.loc[:, frac] = new_val
+                scenario_parameters.waste_fractions.loc[:, frac] = old_val / total_scale
 
         if np.abs(scenario_parameters.waste_fractions.sum(axis=1).iat[0] - 1) > 1e-2:
             raise CustomError(
@@ -8547,14 +8375,28 @@ class City:
             if oxidation_override["baseline"]:
                 ox_value_series_baseline.loc[:] = float(oxidation_override["baseline"])
 
-        # Check if flaring is defined as a variable
-        try:
-            flaring_series_baseline = pd.Series(flaring["baseline"], index=years)
-            flaring_series_scenario = flaring_series_baseline.copy()
-            flaring_series_scenario.loc[implement_year:] = flaring["scenario"]
-        except:
-            flaring_series_baseline = pd.Series(0.98, index=years)
-            flaring_series_scenario = flaring_series_baseline.copy()
+        # Flaring destruction efficiency of captured methane. The endpoint forwards a
+        # Variant, {"baseline": [...], "scenario": [...]}, with one value per landfill;
+        # sdst models a single landfill (index 0). This block previously referenced an
+        # undefined name `flaring`; the resulting NameError was swallowed by a bare
+        # `except`, so the user-supplied efficiency was silently ignored and flaring was
+        # always forced to the default. Read `new_landfill_flaring`, falling back to the
+        # canonical default only when no value is supplied.
+        from SWEET_python.dst_common import DEFAULT_FLARE_EFFICIENCY
+
+        flaring = {}
+        for scenario_key in ("baseline", "scenario"):
+            value = (
+                None
+                if new_landfill_flaring is None
+                else new_landfill_flaring[scenario_key][0]
+            )
+            flaring[scenario_key] = (
+                DEFAULT_FLARE_EFFICIENCY if value is None else value
+            )
+        flaring_series_baseline = pd.Series(flaring["baseline"], index=years)
+        flaring_series_scenario = flaring_series_baseline.copy()
+        flaring_series_scenario.loc[implement_year:] = flaring["scenario"]
 
         if biocover["baseline"] > 0:
             baseline_biocover = float(biocover["baseline"])
@@ -9132,10 +8974,7 @@ class City:
             # )
 
         # Waste fractions
-        if iso3 in defaults_2019.waste_fractions_country:
-            waste_fractions = defaults_2019.waste_fractions_country.loc[iso3, :]
-        else:
-            waste_fractions = defaults_2019.waste_fraction_defaults.loc[region, :]
+        waste_fractions = defaults_2019.waste_composition_for(iso3, region)
 
         # Normalize the waste fractions so that they sum to 1.
         waste_fractions = waste_fractions / waste_fractions.sum()

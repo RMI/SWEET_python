@@ -12,6 +12,17 @@ import pandas as pd
 from SWEET_python.class_defs import DecompositionRates
 
 
+# Minimum decomposition rate (1/yr). IPCC (2019 refinement) Vol. 5 Table 3.3
+# gives a bulk-MSW default of 0.05/yr for dry boreal/temperate conditions, with
+# a range whose low end is 0.04/yr. We floor k here because the Wang et al.
+# (2024) temperature factor drives k toward 0 for cold/dry sites (tf -> 0 at
+# ambient -10 C), which produces physically implausible near-zero methane
+# generation and an emissions factor that is hypersensitive to tiny temperature
+# differences. 0.04 is the lowest defensible bulk default, so no real site
+# should decay slower than this.
+K_MIN_PER_YEAR = 0.04
+
+
 def _build_lookup_array():
     """Build the 3D composition lookup array (bs, bf, nb) for kc values."""
     lookup_array = np.zeros((8, 8, 8))
@@ -303,7 +314,19 @@ def _compute_temperature_factor(temperature):
     tmin = 0
     tmax = 55
     topt = 35
+    # The Ratkowsky response is only fitted for landfill temperatures in
+    # [tmin, tmax]. Outside that range it extrapolates nonsensically: below
+    # tmin the squared (t - tmin) term makes tf spuriously positive AND
+    # *increasing* as the site gets colder (colder modeled as faster decay).
+    # Clamp the input to the valid domain so we evaluate at the nearest
+    # boundary instead of extrapolating; with t = temperature + 10 this is
+    # equivalent to clamping ambient temperature to [-10 C, 45 C]. tf is 0 at
+    # both boundaries, and the k floor (K_MIN_PER_YEAR) downstream then keeps
+    # cold sites physical. np.clip (unlike max/min) preserves NaN, so a missing
+    # temperature stays NaN -> NaN k rather than being silently floored; the
+    # caller (_singapore_k) logs which asset is missing a temperature.
     t = temperature + 10  # landfill is warmer than ambient
+    t = np.clip(t, tmin, tmax)
 
     num = (t - tmax) * (t - tmin) ** 2
     denom = (topt - tmin) * (
@@ -352,6 +375,11 @@ def _create_series(kc, tf, fm, implement_year=None, advanced_baseline=False,
     else:
         baseline_series = kc * tf * fm
         years.loc[:] = baseline_series
+
+    # Floor the decomposition rate at the IPCC dry-boreal low-end default.
+    # Cold/dry sites can otherwise drive k toward 0 (tf -> 0 near ambient
+    # -10 C); clip leaves any genuine NaN entries untouched. See K_MIN_PER_YEAR.
+    years = years.clip(lower=K_MIN_PER_YEAR)
 
     return years
 

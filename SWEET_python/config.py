@@ -41,7 +41,18 @@ params = {
     "anaerobic_mass": None,  # Set this either way not both
     # Combustion params
     "combustion_components": set(
-        ["food", "green", "wood", "paper_cardboard", "textiles", "plastic", "rubber"]
+        [
+            "food",
+            "green",
+            "wood",
+            "paper_cardboard",
+            "textiles",
+            "plastic",
+            "rubber",
+            "metal",
+            "glass",
+            "other",
+        ]
     ),
     "combustion_fraction": 0.1,
     "combustion_mass": None,  # Set this either way not both
