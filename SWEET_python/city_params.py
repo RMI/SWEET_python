@@ -8345,14 +8345,28 @@ class City:
             if oxidation_override["baseline"]:
                 ox_value_series_baseline.loc[:] = float(oxidation_override["baseline"])
 
-        # Check if flaring is defined as a variable
-        try:
-            flaring_series_baseline = pd.Series(flaring["baseline"], index=years)
-            flaring_series_scenario = flaring_series_baseline.copy()
-            flaring_series_scenario.loc[implement_year:] = flaring["scenario"]
-        except:
-            flaring_series_baseline = pd.Series(0.98, index=years)
-            flaring_series_scenario = flaring_series_baseline.copy()
+        # Flaring destruction efficiency of captured methane. The endpoint forwards a
+        # Variant, {"baseline": [...], "scenario": [...]}, with one value per landfill;
+        # sdst models a single landfill (index 0). This block previously referenced an
+        # undefined name `flaring`; the resulting NameError was swallowed by a bare
+        # `except`, so the user-supplied efficiency was silently ignored and flaring was
+        # always forced to the default. Read `new_landfill_flaring`, falling back to the
+        # canonical default only when no value is supplied.
+        from SWEET_python.dst_common import DEFAULT_FLARE_EFFICIENCY
+
+        flaring = {}
+        for scenario_key in ("baseline", "scenario"):
+            value = (
+                None
+                if new_landfill_flaring is None
+                else new_landfill_flaring[scenario_key][0]
+            )
+            flaring[scenario_key] = (
+                DEFAULT_FLARE_EFFICIENCY if value is None else value
+            )
+        flaring_series_baseline = pd.Series(flaring["baseline"], index=years)
+        flaring_series_scenario = flaring_series_baseline.copy()
+        flaring_series_scenario.loc[implement_year:] = flaring["scenario"]
 
         if biocover["baseline"] > 0:
             baseline_biocover = float(biocover["baseline"])
