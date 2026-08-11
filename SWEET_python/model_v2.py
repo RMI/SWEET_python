@@ -30,6 +30,7 @@ import numpy as np
 import time
 import calendar
 import SWEET_python.defaults_2019 as defaults_2019
+from SWEET_python.constants import MODEL_START_YEAR, MODEL_END_YEAR
 pd.set_option("display.max_rows", None)
 
 # Particulate emission factors (kg PM / m^3 CH4 destroyed by flaring)
@@ -90,7 +91,7 @@ class SWEET:
         # Precompute factors outside of the loop for all modeled years.
         # Callers are responsible for providing aligned parameter vectors from
         # the actual landfill open year through 2050.
-        year_range = np.arange(int(open_date), 2051)
+        year_range = np.arange(int(open_date), MODEL_END_YEAR + 1)
         if flare_efficiency is None:
             flare_efficiency = pd.Series([1 for x in year_range], index=year_range)
         elif isinstance(flare_efficiency, dict):
@@ -191,7 +192,7 @@ class SWEET:
     
 
     def estimate_emissions_monthly(self):
-        open_date = self.landfill_instance_attrs["open_date"] or 1990
+        open_date = self.landfill_instance_attrs["open_date"] or MODEL_START_YEAR
         close_date = self.landfill_instance_attrs["close_date"]
         ks = self.landfill_instance_attrs["ks"]
         waste_mass_df = self.landfill_instance_attrs["waste_mass_df"]
@@ -203,11 +204,11 @@ class SWEET:
         flare_efficiency = self.landfill_instance_attrs["flaring"]
 
         for k, df in ks.items():
-            ks[k] = df.loc[1990:2050]
+            ks[k] = df.loc[MODEL_START_YEAR:MODEL_END_YEAR]
 
         # Monthly date range
         start_date = pd.Timestamp(f'{int(open_date)}-01-01')
-        end_date = pd.Timestamp('2050-12-31')
+        end_date = pd.Timestamp(f'{MODEL_END_YEAR}-12-31')
         monthly_dates = pd.date_range(start=start_date, end=end_date, freq='MS')
         n_months = len(monthly_dates)
         years = monthly_dates.year
