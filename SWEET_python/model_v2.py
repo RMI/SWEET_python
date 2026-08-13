@@ -88,6 +88,15 @@ class SWEET:
         waste_mass_df = waste_mass_df.loc[:, list(components)]
         flare_efficiency = self.landfill_instance_attrs["flaring"]
 
+        # Per-component methane potential L_0 [m3 CH4/t]. Normally the module default
+        # (a municipal-composition table: food/green/wood/paper/textiles). A caller may inject
+        # a component->L_0 map via landfill_instance_attrs["L_0"] to model a *different* waste
+        # decomposition -- e.g. GHGRP-reported waste streams (bulk MSW / C&D / inerts), where
+        # L_0 = DOC x 465.0 (DOCf=F=0.5; verified to reproduce defaults_2019.L_0 exactly). When
+        # absent, behaviour is byte-identical to before. `ks` and `components` are already injectable,
+        # so overriding L_0 is all that is needed to run an arbitrary stream decomposition.
+        L_0_map = self.landfill_instance_attrs.get("L_0") or defaults_2019.L_0
+
         # Precompute factors outside of the loop for all modeled years.
         # Callers are responsible for providing aligned parameter vectors from
         # the actual landfill open year through 2050.
@@ -123,7 +132,7 @@ class SWEET:
             mcf_values = mcf.loc[year_range].values[:, None]
             ch4_produce = (
                 ks_values
-                * defaults_2019.L_0[waste]
+                * L_0_map[waste]
                 * waste_masses
                 * exp_term
                 * mcf_values
@@ -202,6 +211,8 @@ class SWEET:
         components = list(self.city_instance_attrs["components"])
         waste_mass_df = waste_mass_df.loc[:, components]
         flare_efficiency = self.landfill_instance_attrs["flaring"]
+        # Injectable per-component L_0 (see estimate_emissions2). Byte-identical when absent.
+        L_0_map = self.landfill_instance_attrs.get("L_0") or defaults_2019.L_0
 
         for k, df in ks.items():
             ks[k] = df.loc[MODEL_START_YEAR:MODEL_END_YEAR]
@@ -242,7 +253,7 @@ class SWEET:
 
         for i, waste in enumerate(components):
             # Get constants
-            L0 = defaults_2019.L_0[waste]
+            L0 = L_0_map[waste]
 
             # Monthly series
             annual_mass = waste_mass_df.get(waste, pd.Series(0, index=waste_mass_df.index)) \
