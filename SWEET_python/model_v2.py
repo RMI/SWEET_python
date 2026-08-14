@@ -156,9 +156,25 @@ class SWEET:
                 * flare_efficiency.loc[year_range].values
             )
 
-            # Final methane emissions calculation with oxidation
+            # Final methane emissions calculation with oxidation.
+            #
+            # ch4_produce/ch4_capture are (deposit_year, emission_year) matrices
+            # (row i = deposit year, column j = emission year; summed over axis=0
+            # to give per-emission-year totals). Cover oxidation happens as gas
+            # migrates out through the cover, so it is a property of the EMISSION
+            # year, not the deposit year -- exactly like gas capture and flaring
+            # above, which broadcast their (n,) vectors across columns (emission
+            # year). Oxidation must broadcast the same way: index by column j via
+            # [None, :]. The previous [:, None] indexed by row i (deposit year),
+            # so a time-varying oxidation change at an implementation year (e.g.
+            # biocover, an oxidation override, or a landfill-type change) was
+            # applied to waste *deposited* from that year on rather than to
+            # methane *emitted* from that year on. For a closed landfill (no new
+            # deposits) that meant the change had no effect at all -- the
+            # "biocover does not reduce emissions" bug (WasteMAP #719). This also
+            # matches the monthly model, which already oxidises by emission month.
             ch4_year_total = np.sum(
-                (ch4_produce - ch4_capture) * (1 - oxidation_factor_values[:, None])
+                (ch4_produce - ch4_capture) * (1 - oxidation_factor_values[None, :])
                 + ch4_capture * 0.02,
                 axis=0,
             )
