@@ -32,3 +32,25 @@ The minimum information required to run the model is:
 4) Mean annual precipitation in mm. Precipitation is used to determine waste decay rates.
 
 The SWEET model is designed to operate at the city level, and allows multiple landfills per city. If you would like to model only a single landfill, that can be done by creating only a single Landfill instance, directing all waste to it with the fraction_of_waste attribute, and setting all the diversion values to 0—no waste is composted, anaerobically digested, combusted/incinerated, or recycled, it all goes to the landfill. Country, population or waste generation, population growth rate, and precipitation are still required. 
+
+## Release coordination
+
+SWEET_python is one of three repositories that build [wastemap.earth](https://wastemap.earth),
+alongside [RMI/WasteMAP](https://github.com/RMI/WasteMAP) — which `pip`-installs this
+package into its API and map-data pipeline — and the
+[Climate TRACE waste-methane pipeline](https://github.com/RMI/RMI_Climate_TRACE_Waste_Methane).
+
+Production releases of wastemap.earth are coordinated by a shared `vYYYY.MM.DD` git
+tag applied to the same release across all three repos. At each release, the commit of
+SWEET_python that the WasteMAP API/pipeline images were built from is tagged with the
+release version and recorded in WasteMAP's release manifest. This supersedes the old
+date-named snapshot branches (`04_13_26`, `06_15_26`, …).
+
+> Note: SWEET_python is baked into two WasteMAP images with different timing — the batch
+> map-data pipeline **and** the API, whose live decision-support endpoints (`/sdst`,
+> `/adst`, `/cdst`) call this model at request time. A model change merged here reaches
+> the live site only when WasteMAP builds a release against that commit (and, for the
+> map, re-runs its pipeline). See the process doc below.
+
+See **[WasteMAP `RELEASES.md`](https://github.com/RMI/WasteMAP/blob/main/RELEASES.md)**
+for the full release process.
