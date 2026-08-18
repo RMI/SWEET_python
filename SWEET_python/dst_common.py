@@ -17,13 +17,20 @@ import pandas as pd
 import SWEET_python.defaults_2019 as defaults_2019
 from SWEET_python.city_params import City, CustomError
 from SWEET_python.class_defs import DecompositionRates
+from SWEET_python.constants import MODEL_END_YEAR
 from SWEET_python.landfill import Landfill
 from SWEET_python.singapore_k import compute_singapore_k
 
 # The model is only ever evaluated over this window. Open years are validated
 # against MODEL_YEAR_MIN to avoid accidental giant simulations.
+#
+# MODEL_YEAR_MIN is an input-validation floor, NOT the modeling start: a site
+# may legitimately record an opening year before MODEL_START_YEAR (deposition
+# is simply treated as starting at MODEL_START_YEAR). MODEL_YEAR_MAX, by
+# contrast, is the modeling horizon itself, so it derives from the shared
+# constant rather than repeating the year.
 MODEL_YEAR_MIN = 1950
-MODEL_YEAR_MAX = 2050
+MODEL_YEAR_MAX = MODEL_END_YEAR
 
 # Order matters: waste_fractions vectors are sent in this column order.
 WASTE_COMPONENTS: List[str] = [
@@ -52,6 +59,14 @@ DEGRADABLE_COMPONENTS: List[str] = [
 # 0 landfill, 1 controlled dump, 2 open dump.
 MCF_BY_TYPE: List[float] = [1.0, 0.6, 0.4]
 SITE_TYPE_NAMES: List[str] = ["landfill", "controlled_dumpsite", "dumpsite"]
+
+# A controlled/open dump deeper than DEEP_SITE_DEPTH_M behaves more like an
+# anaerobic engineered landfill, so its MCF is raised to DEEP_DUMP_MCF. This
+# mirrors City.sdst_v1_5's depth rule; it does not apply to engineered landfills
+# (type 0), whose MCF is already 1.0.
+DEEP_SITE_DEPTH_M = 5.0
+DEEP_DUMP_MCF = 0.8
+DEEP_MCF_DUMP_TYPES = (1, 2)  # controlled dump, open dump
 
 # Oxidation factor lookup, mirroring City.sdst_v1_5 / Landfill.estimate_emissions.
 OX_NOCAP: Dict[str, float] = {"landfill": 0.1, "controlled_dumpsite": 0.05, "dumpsite": 0.0}
@@ -247,11 +262,44 @@ def oxidation_series(
     return pd.Series(values, index=years, dtype=float)
 
 
-def mcf_series(baseline_type: int, scenario_type: int, implement_year: int, years: pd.Index) -> pd.Series:
-    """MCF series for one landfill: baseline type before implement_year, scenario after."""
-    series = pd.Series(MCF_BY_TYPE[baseline_type], index=years, dtype=float)
-    series.loc[implement_year:] = MCF_BY_TYPE[scenario_type]
+def _mcf_for_type(site_type_idx: int, depth: Optional[float]) -> float:
+    """MCF for one site type, raised for deep controlled/open dumps.
+
+    A dump (type 1 or 2) deeper than ``DEEP_SITE_DEPTH_M`` gets ``DEEP_DUMP_MCF``;
+    otherwise the standard per-type MCF applies. ``depth`` of ``None`` (the
+    default when no depth is supplied) leaves MCF at the per-type value.
+    """
+    if depth is not None and depth > DEEP_SITE_DEPTH_M and site_type_idx in DEEP_MCF_DUMP_TYPES:
+        return DEEP_DUMP_MCF
+    return MCF_BY_TYPE[site_type_idx]
+
+
+def mcf_series(
+    baseline_type: int,
+    scenario_type: int,
+    implement_year: int,
+    years: pd.Index,
+    baseline_depth: Optional[float] = None,
+    scenario_depth: Optional[float] = None,
+) -> pd.Series:
+    """MCF series for one landfill: baseline type before implement_year, scenario after.
+
+    A controlled/open dump deeper than ``DEEP_SITE_DEPTH_M`` has its MCF raised to
+    ``DEEP_DUMP_MCF`` (deep dumps decompose more anaerobically), matching
+    City.sdst_v1_5. Depths of ``None`` leave MCF at the per-type value.
+    """
+    series = pd.Series(_mcf_for_type(baseline_type, baseline_depth), index=years, dtype=float)
+    series.loc[implement_year:] = _mcf_for_type(scenario_type, scenario_depth)
     return series
+
+
+def uniform_decomposition_rates(k: pd.Series) -> DecompositionRates:
+    """A DecompositionRates applying one k series to every degradable component.
+
+    Mirrors City.sdst_v1_5's ``ks_overrides``, which fans a single caller-supplied
+    decomposition rate out to all biodegradable components.
+    """
+    return DecompositionRates(food=k, green=k, wood=k, paper_cardboard=k, textiles=k)
 
 
 def build_landfill(

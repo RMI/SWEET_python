@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from SWEET_python.class_defs import DecompositionRates
+from SWEET_python.constants import MODEL_START_YEAR, MODEL_END_YEAR
 
 
 # Minimum decomposition rate (1/yr). IPCC (2019 refinement) Vol. 5 Table 3.3
@@ -361,8 +362,8 @@ def _compute_moisture_factor(precip):
 
 def _create_series(kc, tf, fm, implement_year=None, advanced_baseline=False,
                    advanced_dst=False):
-    """Create a time series of k values from 1990 to 2050."""
-    years = pd.Series(index=range(1990, 2051))
+    """Create a time series of k values over the modeling window."""
+    years = pd.Series(index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1))
     if advanced_dst:
         baseline_series = kc["baseline"] * tf * fm
         years.loc[: implement_year - 1] = baseline_series

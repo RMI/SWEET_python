@@ -57,9 +57,10 @@ _prefer_local_sweet_python()
 print("SWEET_python path preference applied", file=sys.stdout, flush=True)
 
 from SWEET_python.model_v2 import SWEET
+from SWEET_python.constants import MODEL_START_YEAR, MODEL_END_YEAR
 
 
-def _years(start: int = 1990, end: int = 2050) -> np.ndarray:
+def _years(start: int = MODEL_START_YEAR, end: int = MODEL_END_YEAR) -> np.ndarray:
     return np.arange(start, end + 1)
 
 
@@ -69,7 +70,7 @@ def _series(years: np.ndarray, value: float) -> pd.Series:
 
 def build_fixture():
     years = _years()
-    compare_through = 2050
+    compare_through = MODEL_END_YEAR
     components = ["food", "green", "wood", "paper_cardboard", "textiles"]
 
     # Constant annual waste mass by component (tons/year) — moderate values
@@ -101,7 +102,7 @@ def build_fixture():
     }
 
     landfill_instance_attrs = {
-        "open_date": 1990,
+        "open_date": MODEL_START_YEAR,
         "close_date": compare_through,
         "ks": ks,
         "waste_mass_df": waste_mass_df,
@@ -134,13 +135,14 @@ def run_check(tol_pct: float = 1.0) -> bool:
     _, annual_q_df, _, _ = model.estimate_emissions2()
     _, monthly_q_df, _, _ = model.estimate_emissions_monthly()
 
-    # Restrict comparison to years 1991-2050 (exclude first year where annual is 0)
-    annual_q_df = annual_q_df.loc[(annual_q_df.index >= 1991) & (annual_q_df.index <= 2050)]
+    # Exclude the first modeled year, where the annual series is 0 by construction
+    _first_full_year = MODEL_START_YEAR + 1
+    annual_q_df = annual_q_df.loc[(annual_q_df.index >= _first_full_year) & (annual_q_df.index <= MODEL_END_YEAR)]
 
     # Aggregate monthly results to annual
     monthly_annual = monthly_q_df.resample("YE").sum()
     monthly_annual.index = monthly_annual.index.year
-    monthly_annual = monthly_annual.loc[(monthly_annual.index >= 1991) & (monthly_annual.index <= 2050)]
+    monthly_annual = monthly_annual.loc[(monthly_annual.index >= _first_full_year) & (monthly_annual.index <= MODEL_END_YEAR)]
     monthly_annual = monthly_annual.loc[annual_q_df.index]
 
     # Align columns and compute absolute differences
