@@ -30,6 +30,7 @@ import numpy as np
 import time
 import calendar
 import SWEET_python.defaults_2019 as defaults_2019
+from SWEET_python.constants import MODEL_START_YEAR, MODEL_END_YEAR
 pd.set_option("display.max_rows", None)
 
 # Particulate emission factors (kg PM / m^3 CH4 destroyed by flaring)
@@ -90,7 +91,7 @@ class SWEET:
         # Precompute factors outside of the loop for all modeled years.
         # Callers are responsible for providing aligned parameter vectors from
         # the actual landfill open year through 2050.
-        year_range = np.arange(int(open_date), 2051)
+        year_range = np.arange(int(open_date), MODEL_END_YEAR + 1)
         if flare_efficiency is None:
             flare_efficiency = pd.Series([1 for x in year_range], index=year_range)
         elif isinstance(flare_efficiency, dict):
@@ -155,9 +156,25 @@ class SWEET:
                 * flare_efficiency.loc[year_range].values
             )
 
-            # Final methane emissions calculation with oxidation
+            # Final methane emissions calculation with oxidation.
+            #
+            # ch4_produce/ch4_capture are (deposit_year, emission_year) matrices
+            # (row i = deposit year, column j = emission year; summed over axis=0
+            # to give per-emission-year totals). Cover oxidation happens as gas
+            # migrates out through the cover, so it is a property of the EMISSION
+            # year, not the deposit year -- exactly like gas capture and flaring
+            # above, which broadcast their (n,) vectors across columns (emission
+            # year). Oxidation must broadcast the same way: index by column j via
+            # [None, :]. The previous [:, None] indexed by row i (deposit year),
+            # so a time-varying oxidation change at an implementation year (e.g.
+            # biocover, an oxidation override, or a landfill-type change) was
+            # applied to waste *deposited* from that year on rather than to
+            # methane *emitted* from that year on. For a closed landfill (no new
+            # deposits) that meant the change had no effect at all -- the
+            # "biocover does not reduce emissions" bug (WasteMAP #719). This also
+            # matches the monthly model, which already oxidises by emission month.
             ch4_year_total = np.sum(
-                (ch4_produce - ch4_capture) * (1 - oxidation_factor_values[:, None])
+                (ch4_produce - ch4_capture) * (1 - oxidation_factor_values[None, :])
                 + ch4_capture * 0.02,
                 axis=0,
             )
@@ -191,7 +208,7 @@ class SWEET:
     
 
     def estimate_emissions_monthly(self):
-        open_date = self.landfill_instance_attrs["open_date"] or 1990
+        open_date = self.landfill_instance_attrs["open_date"] or MODEL_START_YEAR
         close_date = self.landfill_instance_attrs["close_date"]
         ks = self.landfill_instance_attrs["ks"]
         waste_mass_df = self.landfill_instance_attrs["waste_mass_df"]
@@ -203,11 +220,11 @@ class SWEET:
         flare_efficiency = self.landfill_instance_attrs["flaring"]
 
         for k, df in ks.items():
-            ks[k] = df.loc[1990:2050]
+            ks[k] = df.loc[MODEL_START_YEAR:MODEL_END_YEAR]
 
         # Monthly date range
         start_date = pd.Timestamp(f'{int(open_date)}-01-01')
-        end_date = pd.Timestamp('2050-12-31')
+        end_date = pd.Timestamp(f'{MODEL_END_YEAR}-12-31')
         monthly_dates = pd.date_range(start=start_date, end=end_date, freq='MS')
         n_months = len(monthly_dates)
         years = monthly_dates.year
@@ -264,10 +281,23 @@ class SWEET:
             half_year_offset = 0.5 * ks_monthly[None, :]  # k at deposit month
             integral_adjusted = integral - half_year_offset
             
-            # Mask out emissions where integral_adjusted <= 0
-            # This is analogous to the annual model's mask for years_back <= 0
-            # (no emissions until ~0.5 years after deposit)
-            mask_positive_integral = integral_adjusted > 0
+            # Mask out deposits younger than the ~half-year emission lag (analogous
+            # to the annual model's years_back <= 0 mask: no emission until ~0.5 yr
+            # after deposit). The cutoff is integral_adjusted == 0 (deposit exactly
+            # half a year old). In a LEAP year the monthly grid lands EXACTLY on that
+            # cutoff for the deposit six months before a 31-day emission month
+            # (Jun->Dec, Apr->Oct: 183/366 == 0.5), whereas in a common year it lands
+            # just past it (183/365 == 0.50137). integral_adjusted is a difference of
+            # two O(k) cumulative sums, so at the cutoff it is 0 +/- ~1e-15
+            # (catastrophic cancellation) and a bare `> 0` (or `>= 0`) includes/drops
+            # that whole deposit-month unpredictably -> a spurious ~1-2% Oct/Dec notch
+            # in leap years only. Use a tolerance well below any real k-time step
+            # (genuine "just past cutoff" values are ~1e-4..1e-3) but above FP noise,
+            # so the exact-half-year deposit is retained consistently in leap and
+            # common years. Within-year redistribution; leap-year annual rises by the
+            # physically-real extra-day mass (~+0.25%), common years unchanged.
+            _HALF_YEAR_TOL = 1e-9
+            mask_positive_integral = integral_adjusted >= -_HALF_YEAR_TOL
             decay = np.exp(-integral_adjusted)
             decay[~mask_valid] = 0
             decay[~mask_positive_integral] = 0

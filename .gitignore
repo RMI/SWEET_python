@@ -8,3 +8,12 @@ SWEET_python.egg-info/
 build/
 SWEET_python/unused
 SWEET_python.egg-info
+
+# Claude Code personal/local settings — machine-specific, never shared
+.claude/settings.local.json
+.claude/settings.local.json.bak
+.claude/*.bak
+# Local-only repo guidance for Claude Code (not shared)
+/CLAUDE.md
+# Local PR-body drafts (edit in VS Code, sync to GitHub via `gh pr edit`)
+/pr-drafts/

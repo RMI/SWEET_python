@@ -1,0 +1,21 @@
+# Abstract (unpinned) dependencies for the SWEET_python library.
+#
+# These feed setup.py's install_requires, so downstream consumers (e.g. the
+# WasteMAP backend, which installs SWEET_python from git) are NOT over-constrained.
+#
+# The pinned lockfile in requirements.txt is generated from this file with
+# pip-tools and is what gets installed for reproducible dev/CI and what Dependabot
+# scans for vulnerabilities. After editing this file, regenerate the lockfile:
+#
+#     pip-compile requirements.in
+#
+geopy
+certifi
+pydantic
+pandas
+numpy
+pycountry
+asyncpg
+fastapi
+psycopg2
+sqlalchemy

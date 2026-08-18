@@ -6,6 +6,7 @@ import numpy as np
 import SWEET_python.defaults_2019 as defaults_2019
 from SWEET_python.class_defs import *
 from SWEET_python.model_v2 import SWEET
+from SWEET_python.constants import MODEL_START_YEAR, MODEL_END_YEAR
 
 # from SWEET_python.calmim_ox import Site, WeatherModel, WeatherProfile, Cover, CoverMaterial, materials, attach_thread
 
@@ -392,7 +393,7 @@ class Landfill:
             if isinstance(self.oxidation_factor, pd.Series):
                 self.oxidation_factor.loc[self.implementation_year :] = oxidation_factor
             else:
-                years = pd.Index(range(1990, 2051))
+                years = pd.Index(range(MODEL_START_YEAR, MODEL_END_YEAR + 1))
                 ox_series = pd.Series(self.oxidation_factor, index=years)
                 ox_series.loc[self.implementation_year :] = oxidation_factor
                 self.oxidation_factor = ox_series
