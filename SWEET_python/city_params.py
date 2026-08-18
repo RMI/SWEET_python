@@ -8276,6 +8276,18 @@ class City:
                     waste_masses_df_scenario, "scenario"
                 )
         else:
+            # Before the implementation year nothing has changed, so the scenario
+            # landfill must receive exactly the baseline waste -- mass *and*
+            # composition. The two trace-reconciled branches above already splice
+            # this (waste_masses_df_scenario.loc[:implement_year-1] =
+            # waste_masses_df_baseline...); this blank/custom-site branch omitted
+            # it, so a scenario that changed the waste composition wrongly
+            # back-dated the new composition onto deposits from before
+            # implement_year. Mirror the sibling branches (and
+            # advanced_dst.run_advanced_dst) by forcing baseline pre-implement.
+            generated_waste_masses_scenario.loc[:implement_year - 1, :] = (
+                generated_waste_masses_baseline.loc[:implement_year - 1, :]
+            )
             waste_masses_df_baseline = _apply_open_close_window(
                 generated_waste_masses_baseline, "baseline"
             )
