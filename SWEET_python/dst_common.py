@@ -57,7 +57,11 @@ DEGRADABLE_COMPONENTS: List[str] = [
 
 # Methane correction factor by landfill type (index == LandfillType value):
 # 0 landfill, 1 controlled dump, 2 open dump.
-MCF_BY_TYPE: List[float] = [1.0, 0.6, 0.4]
+# The open-dump value is the IPCC "uncategorised SWDS" default (0.6) rather than
+# "unmanaged shallow" (0.4). Waste depth is absent for nearly every site we model,
+# so an open dump cannot be asserted to be shallow; where depth IS supplied and
+# exceeds DEEP_SITE_DEPTH_M, DEEP_DUMP_MCF still applies (see _mcf_for_type).
+MCF_BY_TYPE: List[float] = [1.0, 0.6, 0.6]
 SITE_TYPE_NAMES: List[str] = ["landfill", "controlled_dumpsite", "dumpsite"]
 
 # A controlled/open dump deeper than DEEP_SITE_DEPTH_M behaves more like an

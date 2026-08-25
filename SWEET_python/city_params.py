@@ -1802,10 +1802,14 @@ class City:
             "Controlled Dumpsite": 1,
             "Dumpsite": 2,
         }
+        # MCF by site type. "Dumpsite" carries the IPCC uncategorised-SWDS default
+        # (0.6), not unmanaged-shallow (0.4): waste depth is absent for nearly every
+        # site, so we cannot assert a dump is shallow. Where depth IS known and
+        # exceeds 5 m, the rule further down still raises MCF to 0.8.
         mcf_options = {
             "Sanitary Landfill": 1,
             "Controlled Dumpsite": 0.7,
-            "Dumpsite": 0.4,
+            "Dumpsite": 0.6,
         }
         ox_options = {
             "ox_nocap": {
@@ -2241,10 +2245,14 @@ class City:
             "Controlled Dumpsite": 1,
             "Dumpsite": 2,
         }
+        # MCF by site type. "Dumpsite" carries the IPCC uncategorised-SWDS default
+        # (0.6), not unmanaged-shallow (0.4): waste depth is absent for nearly every
+        # site, so we cannot assert a dump is shallow. Where depth IS known and
+        # exceeds 5 m, the rule further down still raises MCF to 0.8.
         mcf_options = {
             "Sanitary Landfill": 1,
             "Controlled Dumpsite": 0.7,
-            "Dumpsite": 0.4,
+            "Dumpsite": 0.6,
         }
         ox_options = {
             "ox_nocap": {
@@ -2468,10 +2476,14 @@ class City:
             "Controlled Dumpsite": 1,
             "Dumpsite": 2,
         }
+        # MCF by site type. "Dumpsite" carries the IPCC uncategorised-SWDS default
+        # (0.6), not unmanaged-shallow (0.4): waste depth is absent for nearly every
+        # site, so we cannot assert a dump is shallow. Where depth IS known and
+        # exceeds 5 m, the rule further down still raises MCF to 0.8.
         mcf_options = {
             "Sanitary Landfill": 1,
             "Controlled Dumpsite": 0.7,
-            "Dumpsite": 0.4,
+            "Dumpsite": 0.6,
         }
         ox_options = {
             "ox_nocap": {
@@ -2792,10 +2804,14 @@ class City:
             "Controlled Dumpsite": 1,
             "Dumpsite": 2,
         }
+        # MCF by site type. "Dumpsite" carries the IPCC uncategorised-SWDS default
+        # (0.6), not unmanaged-shallow (0.4): waste depth is absent for nearly every
+        # site, so we cannot assert a dump is shallow. Where depth IS known and
+        # exceeds 5 m, the rule further down still raises MCF to 0.8.
         mcf_options = {
             "Sanitary Landfill": 1,
             "Controlled Dumpsite": 0.7,
-            "Dumpsite": 0.4,
+            "Dumpsite": 0.6,
         }
         ox_options = {
             "ox_nocap": {
@@ -4336,7 +4352,9 @@ class City:
                 open_date=MODEL_START_YEAR,
                 close_date=MODEL_END_YEAR,
                 site_type="dumpsite",
-                mcf=pd.Series(0.4, index=years),
+                # IPCC uncategorised-SWDS MCF (0.6); the generic city split has no
+                # depth to distinguish unmanaged-deep from unmanaged-shallow.
+                mcf=pd.Series(0.6, index=years),
                 city_params_dict=city_params_dict,
                 city_instance_attrs=city_parameters.city_instance_attrs,
                 landfill_index=2,
@@ -7095,7 +7113,7 @@ class City:
                 scenario_parameters.landfills[2].mcf = pd.Series(
                     0.7, index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
                 )
-                scenario_parameters.landfills[2].mcf.loc[:implement_year] = 0.4
+                scenario_parameters.landfills[2].mcf.loc[:implement_year] = 0.6
                 skip_ox = True
 
             if move_gas:
@@ -7620,7 +7638,11 @@ class City:
         city_params_dict = self.update_cityparams_dict(scenario_parameters)
         # mcfs = [1, 0.7, 0.4] # Should this include ameliorated?
         # mcf_ameliorated = [0.7, 0.4, 0.1]
-        mcf_options = [1, 0.6, 0.4]
+        # MCF by landfill type index: 0 landfill, 1 controlled dump, 2 open dump.
+        # Index 2 carries the IPCC uncategorised-SWDS default (0.6), not
+        # unmanaged-shallow (0.4), because waste depth is absent for nearly every
+        # site. Depth > 5 m, where known, still raises MCF to 0.8 below.
+        mcf_options = [1, 0.6, 0.6]
         gas_capture_efficiencies = {}
         gas_capture_efficiencies["ameliorated"] = [0.5, 0.3, 0]
         gas_capture_efficiencies["not_ameliorated"] = [0.6, 0.45, 0]
@@ -8327,7 +8349,11 @@ class City:
         city_params_dict = self.update_cityparams_dict(scenario_parameters)
         # mcfs = [1, 0.7, 0.4] # Should this include ameliorated?
         # mcf_ameliorated = [0.7, 0.4, 0.1]
-        mcf_options = [1, 0.6, 0.4]
+        # MCF by landfill type index: 0 landfill, 1 controlled dump, 2 open dump.
+        # Index 2 carries the IPCC uncategorised-SWDS default (0.6), not
+        # unmanaged-shallow (0.4), because waste depth is absent for nearly every
+        # site. Depth > 5 m, where known, still raises MCF to 0.8 below.
+        mcf_options = [1, 0.6, 0.6]
         gas_capture_efficiencies = {}
         gas_capture_efficiencies["ameliorated"] = [0.5, 0.3, 0]
         gas_capture_efficiencies["not_ameliorated"] = [0.6, 0.45, 0]
@@ -8730,7 +8756,11 @@ class City:
         city_params_dict = self.update_cityparams_dict(scenario_parameters)
         # mcfs = [1, 0.7, 0.4] # Should this include ameliorated?
         # mcf_ameliorated = [0.7, 0.4, 0.1]
-        mcf_options = [1, 0.6, 0.4]
+        # MCF by landfill type index: 0 landfill, 1 controlled dump, 2 open dump.
+        # Index 2 carries the IPCC uncategorised-SWDS default (0.6), not
+        # unmanaged-shallow (0.4), because waste depth is absent for nearly every
+        # site. Depth > 5 m, where known, still raises MCF to 0.8 below.
+        mcf_options = [1, 0.6, 0.6]
         # mcfs['ameliorated'] = {}
         # mcf_options['not_ameliorated'] = {}
         # mcfs['ameliorated']['gas_capture'] = [0.18, 0, 0]
