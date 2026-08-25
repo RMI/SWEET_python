@@ -54,22 +54,11 @@ def test_engineered_landfill_ignores_depth(depth):
     assert mcf.mcf_for_site(LANDFILL, depth) == mcf.MCF_MANAGED_ANAEROBIC
 
 
-@pytest.mark.parametrize("depth", [0.0, 3.0, 5.0])
-def test_untrusted_shallow_depth_falls_back_to_uncategorised(depth):
-    # The DST request always carries a number for depth, so a shallow reading
-    # there would apply 0.4 to every default scenario rather than to the
-    # genuinely shallow sites.
-    assert (
-        mcf.mcf_for_site(OPEN_DUMP, depth, trust_shallow_depth=False)
-        == mcf.MCF_UNCATEGORISED
-    )
-
-
-def test_untrusted_depth_still_takes_the_deep_bump():
-    assert (
-        mcf.mcf_for_site(OPEN_DUMP, 12.0, trust_shallow_depth=False)
-        == mcf.MCF_UNMANAGED_DEEP
-    )
+@pytest.mark.parametrize("depth", [0.0, 0.5, 3.0, 5.0])
+def test_any_supplied_shallow_depth_is_taken_at_face_value(depth):
+    # No caller substitutes a placeholder number for a depth it does not know,
+    # so a number here is always a real answer.
+    assert mcf.mcf_for_site(OPEN_DUMP, depth) == mcf.MCF_UNMANAGED_SHALLOW
 
 
 def test_numpy_integer_site_type_resolves():

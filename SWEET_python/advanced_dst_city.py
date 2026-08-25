@@ -53,6 +53,17 @@ class CityLandfillSpec(BaseModel):
     landfill_type: Variant[LandfillType] = Field(
         ..., description="Site type: 0 landfill, 1 controlled dump, 2 open dump."
     )
+    depth: Optional[Variant[float]] = Field(
+        None,
+        description=(
+            "Site depth in metres. For a controlled/open dump (type 1 or 2) the "
+            "depth selects the IPCC unmanaged category: deeper than 5 m raises "
+            "MCF to 0.8, at or below 5 m lowers it to 0.4. Omit (the default) "
+            "when the depth is unknown, which keeps the IPCC uncategorised 0.6 "
+            "\u2014 an omitted depth is not read as shallow. Never applies to an "
+            "engineered landfill (type 0), which is 1.0 regardless."
+        ),
+    )
     landfill_open_close: Variant[tuple[int, int]] = Field(
         ..., description="(open_year, close_year) of this site."
     )
@@ -374,8 +385,14 @@ def run_advanced_dst_city(request: AdvancedDSTCityRequest) -> dict[str, pd.DataF
         baseline_shares.append(share_base)
         scenario_shares.append(share_scen)
 
-        mcf_base = common.mcf_series(base_type, base_type, implement_year, years)
-        mcf_scen = common.mcf_series(base_type, scen_type, implement_year, years)
+        base_depth = common.variant_get(spec.depth, "baseline")
+        scen_depth = common.variant_get(spec.depth, "scenario")
+        mcf_base = common.mcf_series(
+            base_type, base_type, implement_year, years, base_depth, base_depth
+        )
+        mcf_scen = common.mcf_series(
+            base_type, scen_type, implement_year, years, base_depth, scen_depth
+        )
         ox_base = common.oxidation_series(base_type, base_type, gas_base, bio_base, implement_year, years)
         ox_scen = common.oxidation_series(base_type, scen_type, gas_scen, bio_scen, implement_year, years)
         baseline_ox.append(ox_base)

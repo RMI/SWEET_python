@@ -7596,11 +7596,8 @@ class City:
 
         # Set up new landfills
         city_params_dict = self.update_cityparams_dict(scenario_parameters)
-        # MCF by landfill type index; see SWEET_python.mcf. This path passes
-        # trust_shallow_depth=False: the DST request always carries a number for
-        # depth (the form defaults to 3 m), so "no answer" cannot be told apart
-        # from "3 m" here, and reading a shallow depth as IPCC unmanaged-shallow
-        # would drop every default scenario to 0.4. The deep bump still applies.
+        # MCF by landfill type index; see SWEET_python.mcf. A depth of None
+        # means the DST caller had no answer, and keeps the uncategorised value.
         gas_capture_efficiencies = {}
         gas_capture_efficiencies["ameliorated"] = [0.5, 0.3, 0]
         gas_capture_efficiencies["not_ameliorated"] = [0.6, 0.45, 0]
@@ -7620,11 +7617,9 @@ class City:
             # Get MCF
             old_lf_type = new_landfill_types["baseline"][i]
             mcf["baseline"] = mcf_defaults.mcf_for_site(
-                old_lf_type, depths["baseline"][i], trust_shallow_depth=False
+                old_lf_type, depths["baseline"][i]
             )
-            mcf["scenario"] = mcf_defaults.mcf_for_site(
-                lf_type, depths["scenario"][i], trust_shallow_depth=False
-            )
+            mcf["scenario"] = mcf_defaults.mcf_for_site(lf_type, depths["scenario"][i])
 
             # Handle baseline first
             if i >= len(new_gas_efficiency["baseline"]):
@@ -8303,11 +8298,8 @@ class City:
 
         # Set up new landfills
         city_params_dict = self.update_cityparams_dict(scenario_parameters)
-        # MCF by landfill type index; see SWEET_python.mcf. This path passes
-        # trust_shallow_depth=False: the DST request always carries a number for
-        # depth (the form defaults to 3 m), so "no answer" cannot be told apart
-        # from "3 m" here, and reading a shallow depth as IPCC unmanaged-shallow
-        # would drop every default scenario to 0.4. The deep bump still applies.
+        # MCF by landfill type index; see SWEET_python.mcf. A depth of None
+        # means the DST caller had no answer, and keeps the uncategorised value.
         gas_capture_efficiencies = {}
         gas_capture_efficiencies["ameliorated"] = [0.5, 0.3, 0]
         gas_capture_efficiencies["not_ameliorated"] = [0.6, 0.45, 0]
@@ -8330,12 +8322,8 @@ class City:
 
         # Get MCF
         old_lf_type = new_landfill_types["baseline"][0]
-        mcf["baseline"] = mcf_defaults.mcf_for_site(
-            old_lf_type, depths["baseline"][0], trust_shallow_depth=False
-        )
-        mcf["scenario"] = mcf_defaults.mcf_for_site(
-            new_lf_type, depths["scenario"][0], trust_shallow_depth=False
-        )
+        mcf["baseline"] = mcf_defaults.mcf_for_site(old_lf_type, depths["baseline"][0])
+        mcf["scenario"] = mcf_defaults.mcf_for_site(new_lf_type, depths["scenario"][0])
 
         # Handle baseline first
         if new_gas_efficiency["baseline"][0] == 0.0:
@@ -8706,11 +8694,8 @@ class City:
 
         # Set up new landfills
         city_params_dict = self.update_cityparams_dict(scenario_parameters)
-        # MCF by landfill type index; see SWEET_python.mcf. This path passes
-        # trust_shallow_depth=False: the DST request always carries a number for
-        # depth (the form defaults to 3 m), so "no answer" cannot be told apart
-        # from "3 m" here, and reading a shallow depth as IPCC unmanaged-shallow
-        # would drop every default scenario to 0.4. The deep bump still applies.
+        # MCF by landfill type index; see SWEET_python.mcf. A depth of None
+        # means the DST caller had no answer, and keeps the uncategorised value.
         # mcfs['ameliorated'] = {}
         # mcf_options['not_ameliorated'] = {}
         # mcfs['ameliorated']['gas_capture'] = [0.18, 0, 0]
@@ -8729,9 +8714,7 @@ class City:
         for i, lf_type in enumerate(new_landfill_types):
             # Make the MCF, oxidation, and efficiency vectors
             years = pd.Index(range(MODEL_START_YEAR, MODEL_END_YEAR + 1))
-            mcf = mcf_defaults.mcf_for_site(
-                lf_type, depth, trust_shallow_depth=False
-            )
+            mcf = mcf_defaults.mcf_for_site(lf_type, depth)
             # Handle no gas capture first
             if new_gas_efficiency[i] == 0:
                 # mcf = mcf_options['not_ameliorated']['no_gas_capture'][lf_type]
@@ -8957,13 +8940,15 @@ class City:
 
         if site_type in ["Landfill", "Sanitary Landfill"]:
             site_type = 0
-            depth = 100
         elif site_type == "Controlled Dumpsite":
             site_type = 1
-            depth = 100
         else:
             site_type = 2
-            depth = 3
+        # This path resolves a site type from a location; it never learns a waste
+        # depth. None says so. It used to return 100 m for a landfill/controlled
+        # dump and 3 m for a dumpsite, which the MCF rule read as a firm claim
+        # that the site was deep or shallow (see SWEET_python.mcf).
+        depth = None
 
         # SQL query to get average precipitation and temperature using provided latitude and longitude
         QUERY_WEATHER = """

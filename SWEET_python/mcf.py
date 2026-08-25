@@ -48,6 +48,11 @@ instead of the uncategorised default. A depth of ``None`` or ``NaN`` means
 the whole point of the uncategorised row. Depth never applies to an engineered
 landfill (index 0), which is already fully anaerobic at 1.0.
 
+For that distinction to survive, a caller with no depth to offer must pass
+``None`` rather than a plausible-looking number. Several used to substitute
+3 m or 100 m, which read here as a firm claim that the site was shallow or
+deep; none do any more, and none should be reintroduced.
+
 Note that the deep threshold is applied as a strict ``>``, so a site recorded at
 exactly 5.0 m reads as shallow. IPCC words the category as ">= 5 m". The
 difference only matters for a site whose depth is recorded as exactly 5, and the
@@ -90,26 +95,15 @@ MCF_BY_SITE_TYPE_NAME: Dict[str, float] = {
 }
 
 
-def mcf_for_site(
-    site_type_idx: int,
-    depth: Optional[float] = None,
-    *,
-    trust_shallow_depth: bool = True,
-) -> float:
+def mcf_for_site(site_type_idx: int, depth: Optional[float] = None) -> float:
     """MCF for one site, given its type and (optionally) its waste depth.
 
     Args:
         site_type_idx: ``LandfillType`` value - 0 landfill, 1 controlled dump,
             2 open dump.
         depth: Waste depth in metres, or ``None``/``NaN`` when it is unknown.
-            Unknown keeps the per-type value; it is not read as shallow.
-        trust_shallow_depth: Whether a supplied depth at or below
-            ``DEEP_SITE_DEPTH_M`` may be read as IPCC "unmanaged shallow" (0.4).
-            Pass ``False`` for a caller that cannot represent "unknown depth"
-            and therefore sends a placeholder number when it has no answer -
-            for such a caller a shallow reading would silently apply 0.4 to
-            every site rather than only to the genuinely shallow ones. The deep
-            bump still applies either way.
+            A supplied number is always taken at face value; unknown keeps the
+            uncategorised per-type value and is never read as shallow.
 
     Returns:
         The methane correction factor, between 0 and 1.
@@ -118,8 +112,4 @@ def mcf_for_site(
         return MCF_BY_TYPE[site_type_idx]
     if depth is None or pd.isna(depth):
         return MCF_BY_TYPE[site_type_idx]
-    if depth > DEEP_SITE_DEPTH_M:
-        return MCF_UNMANAGED_DEEP
-    if trust_shallow_depth:
-        return MCF_UNMANAGED_SHALLOW
-    return MCF_BY_TYPE[site_type_idx]
+    return MCF_UNMANAGED_DEEP if depth > DEEP_SITE_DEPTH_M else MCF_UNMANAGED_SHALLOW
