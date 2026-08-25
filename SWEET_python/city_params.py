@@ -22,6 +22,7 @@ from fastapi import HTTPException
 from SWEET_python.landfill import Landfill
 from SWEET_python.singapore_k import compute_singapore_k
 import SWEET_python.defaults_2019 as defaults_2019
+import SWEET_python.mcf as mcf_defaults
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from sqlalchemy import create_engine, text
@@ -1802,15 +1803,8 @@ class City:
             "Controlled Dumpsite": 1,
             "Dumpsite": 2,
         }
-        # MCF by site type. "Dumpsite" carries the IPCC uncategorised-SWDS default
-        # (0.6), not unmanaged-shallow (0.4): waste depth is absent for nearly every
-        # site, so we cannot assert a dump is shallow. Where depth IS known and
-        # exceeds 5 m, the rule further down still raises MCF to 0.8.
-        mcf_options = {
-            "Sanitary Landfill": 1,
-            "Controlled Dumpsite": 0.7,
-            "Dumpsite": 0.6,
-        }
+        # MCF by site type; see SWEET_python.mcf for the values and the depth rule.
+        mcf_options = dict(mcf_defaults.MCF_BY_SITE_TYPE_NAME)
         ox_options = {
             "ox_nocap": {
                 "Sanitary Landfill": 0.1,
@@ -1828,7 +1822,9 @@ class City:
             "Controlled Dumpsite": 0.45,
             "Dumpsite": 0.0,
         }
-        depth = 3
+        # No depth is available on this path. None means "unknown", which keeps
+        # MCF at the uncategorised per-type value; it is not read as shallow.
+        depth = None
         landfills = linker["site_id"].unique().tolist()
         lifespans = {}
         site_types = {}
@@ -1871,10 +1867,7 @@ class City:
                 site_type = site_data.at[0, "site_type"]
                 site_types[landfill] = site_type
                 site_type_idx = get_site_type_idx[site_type]
-                if (depth > 5) and (site_type_idx in (1, 2)):
-                    mcfs[landfill] = 0.8
-                else:
-                    mcfs[landfill] = mcf_options[site_type]
+                mcfs[landfill] = mcf_defaults.mcf_for_site(site_type_idx, depth)
                 if "Yes" in site_data["fgc_lfg_collection_system_in_place"].unique():
                     gas_capture_presences[landfill] = True
                     oxidation_values[landfill] = ox_options["ox_cap"][site_type]
@@ -1959,10 +1952,7 @@ class City:
                 site_type = site_data.at[0, "site_type"]
                 site_types[landfill] = site_type
                 site_type_idx = get_site_type_idx[site_type]
-                if (depth > 5) and (site_type in (1, 2)):
-                    mcfs[landfill] = 0.8
-                else:
-                    mcfs[landfill] = mcf_options[site_type]
+                mcfs[landfill] = mcf_defaults.mcf_for_site(site_type_idx, depth)
                 if "Yes" in site_data["fgc_lfg_collection_system_in_place"].unique():
                     gas_capture_presences[landfill] = True
                     oxidation_values[landfill] = ox_options["ox_cap"][site_type]
@@ -2245,15 +2235,6 @@ class City:
             "Controlled Dumpsite": 1,
             "Dumpsite": 2,
         }
-        # MCF by site type. "Dumpsite" carries the IPCC uncategorised-SWDS default
-        # (0.6), not unmanaged-shallow (0.4): waste depth is absent for nearly every
-        # site, so we cannot assert a dump is shallow. Where depth IS known and
-        # exceeds 5 m, the rule further down still raises MCF to 0.8.
-        mcf_options = {
-            "Sanitary Landfill": 1,
-            "Controlled Dumpsite": 0.7,
-            "Dumpsite": 0.6,
-        }
         ox_options = {
             "ox_nocap": {
                 "Sanitary Landfill": 0.1,
@@ -2271,7 +2252,9 @@ class City:
             "Controlled Dumpsite": 0.45,
             "Dumpsite": 0.0,
         }
-        depth = 3
+        # No depth is available on this path. None means "unknown", which keeps
+        # MCF at the uncategorised per-type value; it is not read as shallow.
+        depth = None
         site_type = row["Site Type"].values[0]
         if site_type not in get_site_type_idx.keys():
             if self.region in [
@@ -2297,10 +2280,7 @@ class City:
             gas_capture_presence = False
             oxidation_value = ox_options["ox_nocap"][site_type]
         gas_capture_efficiency = gas_eff_options[site_type]
-        if (depth > 5.0) and (site_type_idx in (1, 2)):
-            mcf = 0.8
-        else:
-            mcf = mcf_options[site_type]
+        mcf = mcf_defaults.mcf_for_site(site_type_idx, depth)
         open_date = row['Site Open Year'].fillna(MODEL_START_YEAR).values[0]
         if open_date < MODEL_START_YEAR:
             open_date = MODEL_START_YEAR
@@ -2476,15 +2456,6 @@ class City:
             "Controlled Dumpsite": 1,
             "Dumpsite": 2,
         }
-        # MCF by site type. "Dumpsite" carries the IPCC uncategorised-SWDS default
-        # (0.6), not unmanaged-shallow (0.4): waste depth is absent for nearly every
-        # site, so we cannot assert a dump is shallow. Where depth IS known and
-        # exceeds 5 m, the rule further down still raises MCF to 0.8.
-        mcf_options = {
-            "Sanitary Landfill": 1,
-            "Controlled Dumpsite": 0.7,
-            "Dumpsite": 0.6,
-        }
         ox_options = {
             "ox_nocap": {
                 "Sanitary Landfill": 0.1,
@@ -2596,10 +2567,7 @@ class City:
                     gas_capture_efficiency = 0
             gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=self.years_range)
         
-        if (depth > 5.0) and (site_type_idx in (1, 2)):
-            mcf = 0.8
-        else:
-            mcf = mcf_options[site_type]
+        mcf = mcf_defaults.mcf_for_site(site_type_idx, depth)
         open_date = canonical_row['site_open_year']
         if isinstance(open_date, str):
             if open_date[-2:] == '.0':
@@ -2804,15 +2772,6 @@ class City:
             "Controlled Dumpsite": 1,
             "Dumpsite": 2,
         }
-        # MCF by site type. "Dumpsite" carries the IPCC uncategorised-SWDS default
-        # (0.6), not unmanaged-shallow (0.4): waste depth is absent for nearly every
-        # site, so we cannot assert a dump is shallow. Where depth IS known and
-        # exceeds 5 m, the rule further down still raises MCF to 0.8.
-        mcf_options = {
-            "Sanitary Landfill": 1,
-            "Controlled Dumpsite": 0.7,
-            "Dumpsite": 0.6,
-        }
         ox_options = {
             "ox_nocap": {
                 "Sanitary Landfill": 0.1,
@@ -2884,10 +2843,7 @@ class City:
                 gas_capture_efficiency = gas_eff_options[site_type]
             gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=self.years_range)
         
-        if (depth > 5.0) and (site_type_idx in (1, 2)):
-            mcf = 0.8
-        else:
-            mcf = mcf_options[site_type]
+        mcf = mcf_defaults.mcf_for_site(site_type_idx, depth)
         open_date = canonical_row['site_open_year']
         if isinstance(open_date, str):
             if open_date[-2:] == '.0':
@@ -4352,9 +4308,9 @@ class City:
                 open_date=MODEL_START_YEAR,
                 close_date=MODEL_END_YEAR,
                 site_type="dumpsite",
-                # IPCC uncategorised-SWDS MCF (0.6); the generic city split has no
-                # depth to distinguish unmanaged-deep from unmanaged-shallow.
-                mcf=pd.Series(0.6, index=years),
+                # The generic city split carries no depth, so the dumpsite bucket
+                # takes the uncategorised MCF (see SWEET_python.mcf).
+                mcf=pd.Series(mcf_defaults.MCF_UNCATEGORISED, index=years),
                 city_params_dict=city_params_dict,
                 city_instance_attrs=city_parameters.city_instance_attrs,
                 landfill_index=2,
@@ -7110,10 +7066,14 @@ class City:
                 scenario_parameters.landfills[2].oxidation_factor.loc[
                     :implement_year
                 ] = 0.0
+                # Converting the dumpsite to a controlled dumpsite leaves MCF
+                # unchanged: both dump types take the uncategorised 0.6 (see
+                # SWEET_python.mcf). The conversion's benefit here comes from the
+                # gas capture and oxidation set just above.
                 scenario_parameters.landfills[2].mcf = pd.Series(
-                    0.7, index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
+                    mcf_defaults.MCF_UNCATEGORISED,
+                    index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1),
                 )
-                scenario_parameters.landfills[2].mcf.loc[:implement_year] = 0.6
                 skip_ox = True
 
             if move_gas:
@@ -7636,13 +7596,11 @@ class City:
 
         # Set up new landfills
         city_params_dict = self.update_cityparams_dict(scenario_parameters)
-        # mcfs = [1, 0.7, 0.4] # Should this include ameliorated?
-        # mcf_ameliorated = [0.7, 0.4, 0.1]
-        # MCF by landfill type index: 0 landfill, 1 controlled dump, 2 open dump.
-        # Index 2 carries the IPCC uncategorised-SWDS default (0.6), not
-        # unmanaged-shallow (0.4), because waste depth is absent for nearly every
-        # site. Depth > 5 m, where known, still raises MCF to 0.8 below.
-        mcf_options = [1, 0.6, 0.6]
+        # MCF by landfill type index; see SWEET_python.mcf. This path passes
+        # trust_shallow_depth=False: the DST request always carries a number for
+        # depth (the form defaults to 3 m), so "no answer" cannot be told apart
+        # from "3 m" here, and reading a shallow depth as IPCC unmanaged-shallow
+        # would drop every default scenario to 0.4. The deep bump still applies.
         gas_capture_efficiencies = {}
         gas_capture_efficiencies["ameliorated"] = [0.5, 0.3, 0]
         gas_capture_efficiencies["not_ameliorated"] = [0.6, 0.45, 0]
@@ -7661,14 +7619,12 @@ class City:
 
             # Get MCF
             old_lf_type = new_landfill_types["baseline"][i]
-            mcf["baseline"] = mcf_options[old_lf_type]
-            mcf["scenario"] = mcf_options[lf_type]
-
-            if (depths["baseline"][i] > 5) and (old_lf_type in (1, 2)):
-                mcf["baseline"] = 0.8
-
-            if (depths["scenario"][i] > 5) and (lf_type in (1, 2)):
-                mcf["scenario"] = 0.8
+            mcf["baseline"] = mcf_defaults.mcf_for_site(
+                old_lf_type, depths["baseline"][i], trust_shallow_depth=False
+            )
+            mcf["scenario"] = mcf_defaults.mcf_for_site(
+                lf_type, depths["scenario"][i], trust_shallow_depth=False
+            )
 
             # Handle baseline first
             if i >= len(new_gas_efficiency["baseline"]):
@@ -8347,13 +8303,11 @@ class City:
 
         # Set up new landfills
         city_params_dict = self.update_cityparams_dict(scenario_parameters)
-        # mcfs = [1, 0.7, 0.4] # Should this include ameliorated?
-        # mcf_ameliorated = [0.7, 0.4, 0.1]
-        # MCF by landfill type index: 0 landfill, 1 controlled dump, 2 open dump.
-        # Index 2 carries the IPCC uncategorised-SWDS default (0.6), not
-        # unmanaged-shallow (0.4), because waste depth is absent for nearly every
-        # site. Depth > 5 m, where known, still raises MCF to 0.8 below.
-        mcf_options = [1, 0.6, 0.6]
+        # MCF by landfill type index; see SWEET_python.mcf. This path passes
+        # trust_shallow_depth=False: the DST request always carries a number for
+        # depth (the form defaults to 3 m), so "no answer" cannot be told apart
+        # from "3 m" here, and reading a shallow depth as IPCC unmanaged-shallow
+        # would drop every default scenario to 0.4. The deep bump still applies.
         gas_capture_efficiencies = {}
         gas_capture_efficiencies["ameliorated"] = [0.5, 0.3, 0]
         gas_capture_efficiencies["not_ameliorated"] = [0.6, 0.45, 0]
@@ -8376,14 +8330,12 @@ class City:
 
         # Get MCF
         old_lf_type = new_landfill_types["baseline"][0]
-        mcf["baseline"] = mcf_options[old_lf_type]
-        mcf["scenario"] = mcf_options[new_lf_type]
-
-        if (depths["baseline"][0] > 5) and (old_lf_type in (1, 2)):
-            mcf["baseline"] = 0.8
-
-        if (depths["scenario"][0] > 5) and (new_lf_type in (1, 2)):
-            mcf["scenario"] = 0.8
+        mcf["baseline"] = mcf_defaults.mcf_for_site(
+            old_lf_type, depths["baseline"][0], trust_shallow_depth=False
+        )
+        mcf["scenario"] = mcf_defaults.mcf_for_site(
+            new_lf_type, depths["scenario"][0], trust_shallow_depth=False
+        )
 
         # Handle baseline first
         if new_gas_efficiency["baseline"][0] == 0.0:
@@ -8754,13 +8706,11 @@ class City:
 
         # Set up new landfills
         city_params_dict = self.update_cityparams_dict(scenario_parameters)
-        # mcfs = [1, 0.7, 0.4] # Should this include ameliorated?
-        # mcf_ameliorated = [0.7, 0.4, 0.1]
-        # MCF by landfill type index: 0 landfill, 1 controlled dump, 2 open dump.
-        # Index 2 carries the IPCC uncategorised-SWDS default (0.6), not
-        # unmanaged-shallow (0.4), because waste depth is absent for nearly every
-        # site. Depth > 5 m, where known, still raises MCF to 0.8 below.
-        mcf_options = [1, 0.6, 0.6]
+        # MCF by landfill type index; see SWEET_python.mcf. This path passes
+        # trust_shallow_depth=False: the DST request always carries a number for
+        # depth (the form defaults to 3 m), so "no answer" cannot be told apart
+        # from "3 m" here, and reading a shallow depth as IPCC unmanaged-shallow
+        # would drop every default scenario to 0.4. The deep bump still applies.
         # mcfs['ameliorated'] = {}
         # mcf_options['not_ameliorated'] = {}
         # mcfs['ameliorated']['gas_capture'] = [0.18, 0, 0]
@@ -8779,9 +8729,9 @@ class City:
         for i, lf_type in enumerate(new_landfill_types):
             # Make the MCF, oxidation, and efficiency vectors
             years = pd.Index(range(MODEL_START_YEAR, MODEL_END_YEAR + 1))
-            mcf = mcf_options[lf_type]
-            if (depth > 5) and (lf_type in (1, 2)):
-                mcf = 0.8
+            mcf = mcf_defaults.mcf_for_site(
+                lf_type, depth, trust_shallow_depth=False
+            )
             # Handle no gas capture first
             if new_gas_efficiency[i] == 0:
                 # mcf = mcf_options['not_ameliorated']['no_gas_capture'][lf_type]
