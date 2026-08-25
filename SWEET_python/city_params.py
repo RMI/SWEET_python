@@ -1086,9 +1086,6 @@ class City:
             precip_zone = defaults_2019.get_precipitation_zone(precip)
             temperature = row["mean_yearly_temp_2000_2021"]
 
-            # depth
-            depth = 3  # m
-
             # k values, which are decomposition rates
             # ks = defaults_2019.k_defaults[precip_zone]
 
