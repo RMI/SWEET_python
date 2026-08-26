@@ -105,13 +105,21 @@ def _build_oxidation_series(default_value, canonical_row, time_series_rows, year
 # Cities can have multiple sets of CityParameters, one for each scenario.
 # Sets of CityParameters can have one or more landfills, dumpsites, waste to energy, etc.
 # Even for modeling a single landfill, City and CityParameters classes need to be used.
-def _population_series_from_pop_data(pop_data, iso3, start_year=1990, end_year=2050):
+def _population_series_from_pop_data(pop_data, iso3, start_year=MODEL_START_YEAR,
+                                     end_year=MODEL_END_YEAR):
     """Extract the WPP2024 per-year population Series for ``iso3`` from ``pop_data``.
 
-    ``pop_data`` carries ``pop_1990``..``pop_2050`` columns when the yearly WPP
-    table is available (see helper_functions.load_population_data). Returns a
-    year-indexed Series, or ``None`` when the columns/country are absent so the
-    caller falls back to the frozen-CAGR ``growth_rate_*`` scalars.
+    ``pop_data`` carries ``pop_{MODEL_START_YEAR}``..``pop_{MODEL_END_YEAR}`` columns
+    when the yearly WPP table is available (see helper_functions.load_population_data).
+    Returns a year-indexed Series, or ``None`` when the columns/country are absent so
+    the caller falls back to the frozen-CAGR ``growth_rate_*`` scalars.
+
+    The bounds default to the modeling window rather than to literals, because the
+    ``all(c in pop_data.columns)`` guard below is all-or-nothing: a pops_yearly.csv
+    that starts later than MODEL_START_YEAR returns None for EVERY country and
+    silently reverts the whole run to frozen-CAGR growth. Keeping the default tied to
+    the constant makes that a loud missing-column mismatch instead of a quiet
+    regression.
     """
     if pop_data is None or iso3 is None:
         return None
