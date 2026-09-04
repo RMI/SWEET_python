@@ -173,9 +173,19 @@ class SWEET:
             # deposits) that meant the change had no effect at all -- the
             # "biocover does not reduce emissions" bug (WasteMAP #719). This also
             # matches the monthly model, which already oxidises by emission month.
+            # `ch4_capture` is already net of destruction -- it is
+            # generation x capture_efficiency x flaring -- so the gas that the
+            # flare fails to destroy is sitting in `(ch4_produce - ch4_capture)`
+            # and is emitted there. A `+ ch4_capture * 0.02` term used to be
+            # added here on top of that, which charged the flare's inefficiency
+            # a second time: with the default flaring of 0.98 it added another
+            # 2% of the *destroyed* gas back as emissions. It also made this
+            # engine disagree with the monthly one (see the `trace_monthly`
+            # branch below), which has never had the extra term, so identical
+            # inputs produced ~3.7% higher emissions here than on the TRACE
+            # per-site path. The two now agree.
             ch4_year_total = np.sum(
-                (ch4_produce - ch4_capture) * (1 - oxidation_factor_values[None, :])
-                + ch4_capture * 0.02,
+                (ch4_produce - ch4_capture) * (1 - oxidation_factor_values[None, :]),
                 axis=0,
             )
 

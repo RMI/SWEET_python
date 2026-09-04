@@ -378,6 +378,12 @@ def run_advanced_dst_city(request: AdvancedDSTCityRequest) -> dict[str, pd.DataF
         s_open, s_close = (int(x) for x in s_dates)
 
         gas_base, gas_scen = common.variant_series(spec.gas_capture_efficiency, years, implement_year, default=0.0)
+        # A capture efficiency is a fraction of generated methane, so it cannot
+        # exceed 1. Nothing downstream bounds it -- the field is typed as a bare
+        # float map and the engine multiplies straight through -- so an out-of-range
+        # value silently produced negative emissions rather than an error.
+        gas_base = gas_base.clip(0.0, 1.0)
+        gas_scen = gas_scen.clip(0.0, 1.0)
         flare_base, flare_scen = common.variant_series(spec.flaring, years, implement_year, default=common.DEFAULT_FLARE_EFFICIENCY)
         bio_base, bio_scen = common.variant_series(spec.biocover, years, implement_year, default=0.0)
         share_base = baseline_split[index]

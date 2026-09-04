@@ -8,6 +8,15 @@ from SWEET_python.class_defs import *
 from SWEET_python.model_v2 import SWEET
 from SWEET_python.constants import MODEL_START_YEAR, MODEL_END_YEAR
 
+# Density of methane at 0 C and 1 atm, in kg/m3. This file previously carried
+# two different values for the same physical constant -- 0.7168 here and 0.657
+# in the `doing_fancy_ox` branch, 9.1% apart, which is CH4 at 0 C versus at
+# roughly 25 C. Both conversions are between the same two units on the same
+# quantity, so they cannot legitimately differ. 0.7168 wins because it is the
+# value the rest of SWEET already uses (city_params.py:6698, :6715) and the
+# basis L_0 is denominated in.
+CH4_DENSITY_KG_PER_M3 = 0.7168
+
 # from SWEET_python.calmim_ox import Site, WeatherModel, WeatherProfile, Cover, CoverMaterial, materials, attach_thread
 
 
@@ -284,9 +293,8 @@ class Landfill:
         Returns:
             float: Equivalent volume of ch4 in cubic meters.
         """
-        density_kg_per_m3 = 0.7168
         mass_kg = ch4 * 1000
-        volume_m3 = mass_kg / density_kg_per_m3
+        volume_m3 = mass_kg / CH4_DENSITY_KG_PER_M3
         return volume_m3
 
     def _convert_key(self, key):
@@ -377,8 +385,7 @@ class Landfill:
             available_ch4 = (
                 self.ch4.loc[2023, :].sum() - self.captured.loc[2023, :].sum()
             )
-            density_kg_per_m3 = 0.657
-            available_ch4 = available_ch4 * density_kg_per_m3
+            available_ch4 = available_ch4 * CH4_DENSITY_KG_PER_M3
             available_ch4 = available_ch4 / 1000
             oxidation_factor = sum(self.oxidation_potentials) / available_ch4 * 0.5
             print(f"Oxidation factor: {oxidation_factor}")

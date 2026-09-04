@@ -194,6 +194,12 @@ def run_advanced_dst(request: AdvancedDSTRequest) -> dict[str, pd.DataFrame]:
     mcf_scenario = common.mcf_series(baseline_type, scenario_type, implement_year, years, baseline_depth, scenario_depth)
 
     gas_baseline, gas_scenario = common.variant_series(request.gas_capture_efficiency, years, implement_year, default=0.0)
+    # A capture efficiency is a fraction of generated methane, so it cannot
+    # exceed 1. Nothing downstream bounds it -- the field is typed as a bare
+    # float map and the engine multiplies straight through -- so an out-of-range
+    # value silently produced negative emissions rather than an error.
+    gas_baseline = gas_baseline.clip(0.0, 1.0)
+    gas_scenario = gas_scenario.clip(0.0, 1.0)
     flare_baseline, flare_scenario = common.variant_series(request.flaring, years, implement_year, default=common.DEFAULT_FLARE_EFFICIENCY)
     biocover_baseline, biocover_scenario = common.variant_series(request.biocover, years, implement_year, default=0.0)
 
