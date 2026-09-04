@@ -15,6 +15,7 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 
 import SWEET_python.defaults_2019 as defaults_2019
+import SWEET_python.mcf as mcf_defaults
 from SWEET_python.city_params import City, CustomError
 from SWEET_python.class_defs import DecompositionRates
 from SWEET_python.constants import MODEL_END_YEAR
@@ -55,18 +56,15 @@ DEGRADABLE_COMPONENTS: List[str] = [
     "textiles",
 ]
 
-# Methane correction factor by landfill type (index == LandfillType value):
-# 0 landfill, 1 controlled dump, 2 open dump.
-MCF_BY_TYPE: List[float] = [1.0, 0.6, 0.4]
-SITE_TYPE_NAMES: List[str] = ["landfill", "controlled_dumpsite", "dumpsite"]
+# Methane correction factors live in SWEET_python.mcf, which is the single source
+# of truth for the table and for the depth rule. These names are re-exported so
+# existing importers of dst_common keep working.
+MCF_BY_TYPE: List[float] = mcf_defaults.MCF_BY_TYPE
+SITE_TYPE_NAMES: List[str] = mcf_defaults.SITE_TYPE_NAMES
 
-# A controlled/open dump deeper than DEEP_SITE_DEPTH_M behaves more like an
-# anaerobic engineered landfill, so its MCF is raised to DEEP_DUMP_MCF. This
-# mirrors City.sdst_v1_5's depth rule; it does not apply to engineered landfills
-# (type 0), whose MCF is already 1.0.
-DEEP_SITE_DEPTH_M = 5.0
-DEEP_DUMP_MCF = 0.8
-DEEP_MCF_DUMP_TYPES = (1, 2)  # controlled dump, open dump
+DEEP_SITE_DEPTH_M = mcf_defaults.DEEP_SITE_DEPTH_M
+DEEP_DUMP_MCF = mcf_defaults.MCF_UNMANAGED_DEEP
+DEEP_MCF_DUMP_TYPES = mcf_defaults.DEPTH_SENSITIVE_TYPES
 
 # Oxidation factor lookup, mirroring City.sdst_v1_5 / Landfill.estimate_emissions.
 OX_NOCAP: Dict[str, float] = {"landfill": 0.1, "controlled_dumpsite": 0.05, "dumpsite": 0.0}
@@ -263,15 +261,8 @@ def oxidation_series(
 
 
 def _mcf_for_type(site_type_idx: int, depth: Optional[float]) -> float:
-    """MCF for one site type, raised for deep controlled/open dumps.
-
-    A dump (type 1 or 2) deeper than ``DEEP_SITE_DEPTH_M`` gets ``DEEP_DUMP_MCF``;
-    otherwise the standard per-type MCF applies. ``depth`` of ``None`` (the
-    default when no depth is supplied) leaves MCF at the per-type value.
-    """
-    if depth is not None and depth > DEEP_SITE_DEPTH_M and site_type_idx in DEEP_MCF_DUMP_TYPES:
-        return DEEP_DUMP_MCF
-    return MCF_BY_TYPE[site_type_idx]
+    """MCF for one site type and depth. Thin alias for ``mcf.mcf_for_site``."""
+    return mcf_defaults.mcf_for_site(site_type_idx, depth)
 
 
 def mcf_series(
@@ -284,9 +275,9 @@ def mcf_series(
 ) -> pd.Series:
     """MCF series for one landfill: baseline type before implement_year, scenario after.
 
-    A controlled/open dump deeper than ``DEEP_SITE_DEPTH_M`` has its MCF raised to
-    ``DEEP_DUMP_MCF`` (deep dumps decompose more anaerobically), matching
-    City.sdst_v1_5. Depths of ``None`` leave MCF at the per-type value.
+    Depth selects the IPCC unmanaged category for a dump - deeper than
+    ``DEEP_SITE_DEPTH_M`` is 0.8, at or below is 0.4. A depth of ``None`` means
+    unknown and keeps the per-type uncategorised value. See ``SWEET_python.mcf``.
     """
     series = pd.Series(_mcf_for_type(baseline_type, baseline_depth), index=years, dtype=float)
     series.loc[implement_year:] = _mcf_for_type(scenario_type, scenario_depth)

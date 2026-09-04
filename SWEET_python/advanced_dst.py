@@ -67,10 +67,12 @@ class AdvancedDSTRequest(BaseModel):
     depth: Optional[Variant[float]] = Field(
         None,
         description=(
-            "Site depth in metres. A controlled/open dump (type 1 or 2) deeper "
-            "than 5 m has its MCF raised to 0.8 (deep dumps decompose more "
-            "anaerobically), matching City.sdst_v1_5. Omit to derive MCF from "
-            "landfill type alone."
+            "Site depth in metres. For a controlled/open dump (type 1 or 2) the "
+            "depth selects the IPCC unmanaged category: deeper than 5 m raises "
+            "MCF to 0.8, at or below 5 m lowers it to 0.4. Omit (the default) "
+            "when the depth is unknown, which keeps the IPCC uncategorised 0.6 "
+            "\u2014 an omitted depth is not read as shallow. Never applies to an "
+            "engineered landfill (type 0), which is 1.0 regardless."
         ),
     )
     landfill_open_close: Variant[tuple[int, int]] = Field(

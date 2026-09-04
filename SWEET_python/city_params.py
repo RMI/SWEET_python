@@ -22,6 +22,7 @@ from fastapi import HTTPException
 from SWEET_python.landfill import Landfill
 from SWEET_python.singapore_k import compute_singapore_k
 import SWEET_python.defaults_2019 as defaults_2019
+import SWEET_python.mcf as mcf_defaults
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from sqlalchemy import create_engine, text
@@ -104,13 +105,21 @@ def _build_oxidation_series(default_value, canonical_row, time_series_rows, year
 # Cities can have multiple sets of CityParameters, one for each scenario.
 # Sets of CityParameters can have one or more landfills, dumpsites, waste to energy, etc.
 # Even for modeling a single landfill, City and CityParameters classes need to be used.
-def _population_series_from_pop_data(pop_data, iso3, start_year=1990, end_year=2050):
+def _population_series_from_pop_data(pop_data, iso3, start_year=MODEL_START_YEAR,
+                                     end_year=MODEL_END_YEAR):
     """Extract the WPP2024 per-year population Series for ``iso3`` from ``pop_data``.
 
-    ``pop_data`` carries ``pop_1990``..``pop_2050`` columns when the yearly WPP
-    table is available (see helper_functions.load_population_data). Returns a
-    year-indexed Series, or ``None`` when the columns/country are absent so the
-    caller falls back to the frozen-CAGR ``growth_rate_*`` scalars.
+    ``pop_data`` carries ``pop_{MODEL_START_YEAR}``..``pop_{MODEL_END_YEAR}`` columns
+    when the yearly WPP table is available (see helper_functions.load_population_data).
+    Returns a year-indexed Series, or ``None`` when the columns/country are absent so
+    the caller falls back to the frozen-CAGR ``growth_rate_*`` scalars.
+
+    The bounds default to the modeling window rather than to literals, because the
+    ``all(c in pop_data.columns)`` guard below is all-or-nothing: a pops_yearly.csv
+    that starts later than MODEL_START_YEAR returns None for EVERY country and
+    silently reverts the whole run to frozen-CAGR growth. Keeping the default tied to
+    the constant makes that a loud missing-column mismatch instead of a quiet
+    regression.
     """
     if pop_data is None or iso3 is None:
         return None
@@ -1085,9 +1094,6 @@ class City:
             precip_zone = defaults_2019.get_precipitation_zone(precip)
             temperature = row["mean_yearly_temp_2000_2021"]
 
-            # depth
-            depth = 3  # m
-
             # k values, which are decomposition rates
             # ks = defaults_2019.k_defaults[precip_zone]
 
@@ -1802,11 +1808,8 @@ class City:
             "Controlled Dumpsite": 1,
             "Dumpsite": 2,
         }
-        mcf_options = {
-            "Sanitary Landfill": 1,
-            "Controlled Dumpsite": 0.7,
-            "Dumpsite": 0.4,
-        }
+        # MCF by site type; see SWEET_python.mcf for the values and the depth rule.
+        mcf_options = dict(mcf_defaults.MCF_BY_SITE_TYPE_NAME)
         ox_options = {
             "ox_nocap": {
                 "Sanitary Landfill": 0.1,
@@ -1824,7 +1827,9 @@ class City:
             "Controlled Dumpsite": 0.45,
             "Dumpsite": 0.0,
         }
-        depth = 3
+        # No depth is available on this path. None means "unknown", which keeps
+        # MCF at the uncategorised per-type value; it is not read as shallow.
+        depth = None
         landfills = linker["site_id"].unique().tolist()
         lifespans = {}
         site_types = {}
@@ -1867,10 +1872,7 @@ class City:
                 site_type = site_data.at[0, "site_type"]
                 site_types[landfill] = site_type
                 site_type_idx = get_site_type_idx[site_type]
-                if (depth > 5) and (site_type_idx in (1, 2)):
-                    mcfs[landfill] = 0.8
-                else:
-                    mcfs[landfill] = mcf_options[site_type]
+                mcfs[landfill] = mcf_defaults.mcf_for_site(site_type_idx, depth)
                 if "Yes" in site_data["fgc_lfg_collection_system_in_place"].unique():
                     gas_capture_presences[landfill] = True
                     oxidation_values[landfill] = ox_options["ox_cap"][site_type]
@@ -1955,10 +1957,7 @@ class City:
                 site_type = site_data.at[0, "site_type"]
                 site_types[landfill] = site_type
                 site_type_idx = get_site_type_idx[site_type]
-                if (depth > 5) and (site_type in (1, 2)):
-                    mcfs[landfill] = 0.8
-                else:
-                    mcfs[landfill] = mcf_options[site_type]
+                mcfs[landfill] = mcf_defaults.mcf_for_site(site_type_idx, depth)
                 if "Yes" in site_data["fgc_lfg_collection_system_in_place"].unique():
                     gas_capture_presences[landfill] = True
                     oxidation_values[landfill] = ox_options["ox_cap"][site_type]
@@ -2241,11 +2240,6 @@ class City:
             "Controlled Dumpsite": 1,
             "Dumpsite": 2,
         }
-        mcf_options = {
-            "Sanitary Landfill": 1,
-            "Controlled Dumpsite": 0.7,
-            "Dumpsite": 0.4,
-        }
         ox_options = {
             "ox_nocap": {
                 "Sanitary Landfill": 0.1,
@@ -2263,7 +2257,9 @@ class City:
             "Controlled Dumpsite": 0.45,
             "Dumpsite": 0.0,
         }
-        depth = 3
+        # No depth is available on this path. None means "unknown", which keeps
+        # MCF at the uncategorised per-type value; it is not read as shallow.
+        depth = None
         site_type = row["Site Type"].values[0]
         if site_type not in get_site_type_idx.keys():
             if self.region in [
@@ -2289,10 +2285,7 @@ class City:
             gas_capture_presence = False
             oxidation_value = ox_options["ox_nocap"][site_type]
         gas_capture_efficiency = gas_eff_options[site_type]
-        if (depth > 5.0) and (site_type_idx in (1, 2)):
-            mcf = 0.8
-        else:
-            mcf = mcf_options[site_type]
+        mcf = mcf_defaults.mcf_for_site(site_type_idx, depth)
         open_date = row['Site Open Year'].fillna(MODEL_START_YEAR).values[0]
         if open_date < MODEL_START_YEAR:
             open_date = MODEL_START_YEAR
@@ -2468,11 +2461,6 @@ class City:
             "Controlled Dumpsite": 1,
             "Dumpsite": 2,
         }
-        mcf_options = {
-            "Sanitary Landfill": 1,
-            "Controlled Dumpsite": 0.7,
-            "Dumpsite": 0.4,
-        }
         ox_options = {
             "ox_nocap": {
                 "Sanitary Landfill": 0.1,
@@ -2584,10 +2572,7 @@ class City:
                     gas_capture_efficiency = 0
             gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=self.years_range)
         
-        if (depth > 5.0) and (site_type_idx in (1, 2)):
-            mcf = 0.8
-        else:
-            mcf = mcf_options[site_type]
+        mcf = mcf_defaults.mcf_for_site(site_type_idx, depth)
         open_date = canonical_row['site_open_year']
         if isinstance(open_date, str):
             if open_date[-2:] == '.0':
@@ -2792,11 +2777,6 @@ class City:
             "Controlled Dumpsite": 1,
             "Dumpsite": 2,
         }
-        mcf_options = {
-            "Sanitary Landfill": 1,
-            "Controlled Dumpsite": 0.7,
-            "Dumpsite": 0.4,
-        }
         ox_options = {
             "ox_nocap": {
                 "Sanitary Landfill": 0.1,
@@ -2868,10 +2848,7 @@ class City:
                 gas_capture_efficiency = gas_eff_options[site_type]
             gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=self.years_range)
         
-        if (depth > 5.0) and (site_type_idx in (1, 2)):
-            mcf = 0.8
-        else:
-            mcf = mcf_options[site_type]
+        mcf = mcf_defaults.mcf_for_site(site_type_idx, depth)
         open_date = canonical_row['site_open_year']
         if isinstance(open_date, str):
             if open_date[-2:] == '.0':
@@ -4336,7 +4313,9 @@ class City:
                 open_date=MODEL_START_YEAR,
                 close_date=MODEL_END_YEAR,
                 site_type="dumpsite",
-                mcf=pd.Series(0.4, index=years),
+                # The generic city split carries no depth, so the dumpsite bucket
+                # takes the uncategorised MCF (see SWEET_python.mcf).
+                mcf=pd.Series(mcf_defaults.MCF_UNCATEGORISED, index=years),
                 city_params_dict=city_params_dict,
                 city_instance_attrs=city_parameters.city_instance_attrs,
                 landfill_index=2,
@@ -7092,10 +7071,14 @@ class City:
                 scenario_parameters.landfills[2].oxidation_factor.loc[
                     :implement_year
                 ] = 0.0
+                # Converting the dumpsite to a controlled dumpsite leaves MCF
+                # unchanged: both dump types take the uncategorised 0.6 (see
+                # SWEET_python.mcf). The conversion's benefit here comes from the
+                # gas capture and oxidation set just above.
                 scenario_parameters.landfills[2].mcf = pd.Series(
-                    0.7, index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
+                    mcf_defaults.MCF_UNCATEGORISED,
+                    index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1),
                 )
-                scenario_parameters.landfills[2].mcf.loc[:implement_year] = 0.4
                 skip_ox = True
 
             if move_gas:
@@ -7618,9 +7601,8 @@ class City:
 
         # Set up new landfills
         city_params_dict = self.update_cityparams_dict(scenario_parameters)
-        # mcfs = [1, 0.7, 0.4] # Should this include ameliorated?
-        # mcf_ameliorated = [0.7, 0.4, 0.1]
-        mcf_options = [1, 0.6, 0.4]
+        # MCF by landfill type index; see SWEET_python.mcf. A depth of None
+        # means the DST caller had no answer, and keeps the uncategorised value.
         gas_capture_efficiencies = {}
         gas_capture_efficiencies["ameliorated"] = [0.5, 0.3, 0]
         gas_capture_efficiencies["not_ameliorated"] = [0.6, 0.45, 0]
@@ -7639,14 +7621,10 @@ class City:
 
             # Get MCF
             old_lf_type = new_landfill_types["baseline"][i]
-            mcf["baseline"] = mcf_options[old_lf_type]
-            mcf["scenario"] = mcf_options[lf_type]
-
-            if (depths["baseline"][i] > 5) and (old_lf_type in (1, 2)):
-                mcf["baseline"] = 0.8
-
-            if (depths["scenario"][i] > 5) and (lf_type in (1, 2)):
-                mcf["scenario"] = 0.8
+            mcf["baseline"] = mcf_defaults.mcf_for_site(
+                old_lf_type, depths["baseline"][i]
+            )
+            mcf["scenario"] = mcf_defaults.mcf_for_site(lf_type, depths["scenario"][i])
 
             # Handle baseline first
             if i >= len(new_gas_efficiency["baseline"]):
@@ -8325,9 +8303,8 @@ class City:
 
         # Set up new landfills
         city_params_dict = self.update_cityparams_dict(scenario_parameters)
-        # mcfs = [1, 0.7, 0.4] # Should this include ameliorated?
-        # mcf_ameliorated = [0.7, 0.4, 0.1]
-        mcf_options = [1, 0.6, 0.4]
+        # MCF by landfill type index; see SWEET_python.mcf. A depth of None
+        # means the DST caller had no answer, and keeps the uncategorised value.
         gas_capture_efficiencies = {}
         gas_capture_efficiencies["ameliorated"] = [0.5, 0.3, 0]
         gas_capture_efficiencies["not_ameliorated"] = [0.6, 0.45, 0]
@@ -8350,14 +8327,8 @@ class City:
 
         # Get MCF
         old_lf_type = new_landfill_types["baseline"][0]
-        mcf["baseline"] = mcf_options[old_lf_type]
-        mcf["scenario"] = mcf_options[new_lf_type]
-
-        if (depths["baseline"][0] > 5) and (old_lf_type in (1, 2)):
-            mcf["baseline"] = 0.8
-
-        if (depths["scenario"][0] > 5) and (new_lf_type in (1, 2)):
-            mcf["scenario"] = 0.8
+        mcf["baseline"] = mcf_defaults.mcf_for_site(old_lf_type, depths["baseline"][0])
+        mcf["scenario"] = mcf_defaults.mcf_for_site(new_lf_type, depths["scenario"][0])
 
         # Handle baseline first
         if new_gas_efficiency["baseline"][0] == 0.0:
@@ -8728,9 +8699,8 @@ class City:
 
         # Set up new landfills
         city_params_dict = self.update_cityparams_dict(scenario_parameters)
-        # mcfs = [1, 0.7, 0.4] # Should this include ameliorated?
-        # mcf_ameliorated = [0.7, 0.4, 0.1]
-        mcf_options = [1, 0.6, 0.4]
+        # MCF by landfill type index; see SWEET_python.mcf. A depth of None
+        # means the DST caller had no answer, and keeps the uncategorised value.
         # mcfs['ameliorated'] = {}
         # mcf_options['not_ameliorated'] = {}
         # mcfs['ameliorated']['gas_capture'] = [0.18, 0, 0]
@@ -8749,9 +8719,7 @@ class City:
         for i, lf_type in enumerate(new_landfill_types):
             # Make the MCF, oxidation, and efficiency vectors
             years = pd.Index(range(MODEL_START_YEAR, MODEL_END_YEAR + 1))
-            mcf = mcf_options[lf_type]
-            if (depth > 5) and (lf_type in (1, 2)):
-                mcf = 0.8
+            mcf = mcf_defaults.mcf_for_site(lf_type, depth)
             # Handle no gas capture first
             if new_gas_efficiency[i] == 0:
                 # mcf = mcf_options['not_ameliorated']['no_gas_capture'][lf_type]
@@ -8977,13 +8945,15 @@ class City:
 
         if site_type in ["Landfill", "Sanitary Landfill"]:
             site_type = 0
-            depth = 100
         elif site_type == "Controlled Dumpsite":
             site_type = 1
-            depth = 100
         else:
             site_type = 2
-            depth = 3
+        # This path resolves a site type from a location; it never learns a waste
+        # depth. None says so. It used to return 100 m for a landfill/controlled
+        # dump and 3 m for a dumpsite, which the MCF rule read as a firm claim
+        # that the site was deep or shallow (see SWEET_python.mcf).
+        depth = None
 
         # SQL query to get average precipitation and temperature using provided latitude and longitude
         QUERY_WEATHER = """
