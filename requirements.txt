@@ -34,11 +34,11 @@ psycopg2==2.9.12
     # via -r requirements.in
 pycountry==26.2.16
     # via -r requirements.in
-pydantic==2.13.4
+pydantic==2.13.5
     # via
     #   -r requirements.in
     #   fastapi
-pydantic-core==2.46.4
+pydantic-core==2.46.5
     # via pydantic
 python-dateutil==2.9.0.post0
     # via pandas
