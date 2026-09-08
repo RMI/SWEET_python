@@ -17,6 +17,12 @@ live in a list, one dict per landfill:
 * ``diversion_fractions`` is, per pathway, a {year: fraction-of-generated} series.
   The within-pathway component split is derived from the city composition
   (so the frontend only sends overall pathway fractions, not per-component splits).
+* ``food_waste_prevention`` is a {year: fraction} series applied to ``waste_mass``
+  and ``waste_fractions`` before anything else reads them: it is generation-side,
+  so it lands upstream of diversion. Callers send the composition and the total
+  they measured and let this module remove the food, rather than pre-shrinking
+  the two themselves -- pairing a total scaled on one composition with fractions
+  taken from another is the failure mode that invites.
 * each landfill carries its own type / open-close / gas capture / flaring /
   biocover. The split of the city's *landfilled* (net-of-diversion) waste across
   landfills is a top-level time series, ``landfill_split_timeline``:
@@ -115,9 +121,67 @@ class AdvancedDSTCityRequest(BaseModel):
             "pathways are treated as zero."
         ),
     )
+    food_waste_prevention: Optional[Variant[YearlyFloat]] = Field(
+        None,
+        description=(
+            "Fraction (0-1) of the city's FOOD waste that is never generated, "
+            "per year: {year: fraction}. Food mass falls by that share, no other "
+            "material's tonnage moves, and the total generated stream shrinks by "
+            "exactly the food removed -- so it applies upstream of diversion, "
+            "which then takes its share of the smaller stream. Omitted (the "
+            "default) means none. Values outside 0-1 are clamped."
+        ),
+    )
     temperature: float = Field(10.0, description="Average annual temperature, deg C.")
     country: Optional[str] = Field(None, description="ISO3 country code (identity).")
     rmi_id: Optional[int] = Field(None, description="City/site identifier (identity).")
+
+
+# --------------------------------------------------------------------------- #
+# Food waste prevention
+# --------------------------------------------------------------------------- #
+def _prevent_food_waste(
+    fractions: pd.DataFrame,
+    total: pd.Series,
+    prevented: pd.Series,
+) -> tuple[pd.DataFrame, pd.Series]:
+    """Remove a share of generated food waste, leaving every other material alone.
+
+    ``prevented`` is the per-year fraction (0-1) of food waste that is never
+    generated. Food mass falls by that share, no other component's tonnage
+    moves, and the total shrinks by exactly the food removed -- the composition
+    renormalizes around the smaller stream, so non-food *shares* rise while
+    their tonnages do not. This is the same lever as the city DST's
+    ``food_waste_prevention`` (``City.implement_dst_changes_simple_v1_5``).
+
+    Deliberately done in mass space rather than by rescaling the fractions
+    directly. The returned fractions and total are consumed as
+    ``fraction x total``, and that only conserves non-food mass if both sides
+    were derived from *one* composition -- multiplying out first, then dividing
+    back, makes it impossible to pair a total scaled on one composition with
+    fractions taken from another.
+
+    Returns the inputs untouched when no prevention applies, so an omitted
+    ``food_waste_prevention`` is bit-identical to the pre-existing behaviour.
+    """
+    share = prevented.reindex(fractions.index).fillna(0.0).clip(0.0, 1.0)
+    if float(share.max()) <= 0.0:
+        return fractions, total
+
+    masses = fractions.mul(total, axis=0)
+    masses["food"] = masses["food"] * (1.0 - share)
+    new_total = masses.sum(axis=1)
+
+    # A year whose stream is prevented away entirely has no composition left to
+    # speak of; keep the original fractions there so the k-values and the compost
+    # emission factor stay well defined against a zero mass.
+    new_fractions = fractions.copy()
+    positive = new_total > 0
+    if bool(positive.any()):
+        new_fractions.loc[positive] = masses.loc[positive].div(
+            new_total[positive], axis=0
+        )
+    return new_fractions, new_total
 
 
 # --------------------------------------------------------------------------- #
@@ -301,6 +365,20 @@ def run_advanced_dst_city(request: AdvancedDSTCityRequest) -> dict[str, pd.DataF
         request.waste_fractions["scenario"] or request.waste_fractions["baseline"], years
     )
     baseline_total, scenario_total = common.variant_series(request.waste_mass, years, implement_year, default=None)
+
+    # --- Food waste prevention: shrink the generated stream before anything
+    # else reads it. Everything downstream (per-component masses, diversion,
+    # k-values, the compost emission factor) is then derived from the prevented
+    # composition and total, which is what keeps the two in step. ---
+    prevented_baseline, prevented_scenario = common.variant_series(
+        request.food_waste_prevention, years, implement_year, default=0.0
+    )
+    baseline_fractions, baseline_total = _prevent_food_waste(
+        baseline_fractions, baseline_total, prevented_baseline
+    )
+    scenario_fractions, scenario_total = _prevent_food_waste(
+        scenario_fractions, scenario_total, prevented_scenario
+    )
 
     wgen_baseline = baseline_fractions.mul(baseline_total, axis=0)
     wgen_scenario = scenario_fractions.mul(scenario_total, axis=0)
