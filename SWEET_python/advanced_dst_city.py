@@ -195,7 +195,11 @@ def _mass_flow(
     net: pd.DataFrame,
     site_masses: List[pd.DataFrame],
 ) -> dict:
-    """Where one variant's tonnage went, per year and per waste type.
+    """Where one variant's tonnage went, per year.
+
+    Per waste type throughout, with one exception: ``sites`` is a per-landfill
+    total, summed across the components, because the split timeline it comes
+    from is stated per landfill and not per material.
 
     Every frame here is one the emissions were computed from, so a caller
     rendering this is showing the model rather than a parallel estimate of it.
