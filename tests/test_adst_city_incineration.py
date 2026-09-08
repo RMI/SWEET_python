@@ -164,7 +164,7 @@ def test_converting_a_landfill_to_an_incinerator_starts_at_implement_year():
     assert scenario[2050] / baseline[2050] < 0.2
 
 
-def test_the_residue_pile_keeps_the_facilitys_own_gas_capture():
+def test_the_residue_pile_keeps_its_own_gas_capture():
     """The reject is deposited *here*, so this site's own kit still applies."""
     without_capture = _totals(
         run_advanced_dst_city(

@@ -22,7 +22,7 @@ live in a list, one dict per landfill:
   landfills is a top-level time series, ``landfill_split_timeline``:
   ``{year: [frac per landfill]}`` ordered to match the ``landfills`` list, with
   each year's fractions summing to ~1.
-* a facility may ``combusts``: it burns the waste routed to it instead of
+* a facility may set ``combusts``: it burns the waste routed to it instead of
   depositing it, and only the unburnable reject is deposited. See
   :class:`CityLandfillSpec`.
 
