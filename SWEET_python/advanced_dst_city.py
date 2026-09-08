@@ -483,16 +483,40 @@ def _renormalize_over_open(
 
 
 def _validate_shares(split: pd.DataFrame, accepting: pd.DataFrame, label: str) -> None:
-    """Each year's landfill shares must sum to ~1: all net waste is landfilled somewhere.
+    """Each year's landfill shares must be fractions, and must sum to ~1.
 
     Checked on what the caller submitted, before the shares are renormalized over
     the open landfills — afterwards every year sums to exactly 1 or exactly 0 by
     construction, so checking it there would only confirm our own arithmetic.
 
+    Summing to one is not on its own enough to make a row a split. Each share is
+    a fraction of the landfilled stream, so it has to lie in [0, 1]: the row
+    ``[-0.5, 1.5]`` sums to exactly 1 and passes any sum check, then scales a
+    *negative* mass onto the first landfill and buries it there. Nothing
+    downstream rejects that — ``LandfillWasteMassDF.create_advanced``
+    multiplies straight through, and the ``over_diversion`` guard measures the
+    city's residual before the split — so it is checked here or not at all.
+
     A year in which no landfill is open at all is exempt: there is nowhere for
     that waste to go, so no set of shares can account for it, and whatever was
     submitted is discarded either way.
     """
+    somewhere_open_rows = accepting.any(axis=1)
+    checked = split.loc[somewhere_open_rows]
+    out_of_range = (checked < -SHARE_SUM_TOLERANCE) | (
+        checked > 1.0 + SHARE_SUM_TOLERANCE
+    )
+    if bool(out_of_range.to_numpy().any()):
+        rows = out_of_range.any(axis=1)
+        first_year = int(rows[rows].index[0])
+        column = int(out_of_range.loc[first_year].idxmax())
+        raise CustomError(
+            "invalid_parameters",
+            f"{label} landfill waste_share fractions must each be between 0 and 1 "
+            f"(year {first_year}, landfill {column} is "
+            f"{float(checked.loc[first_year, column]):.3f}).",
+        )
+
     total = split.sum(axis=1)
     somewhere_open = accepting.any(axis=1)
     off = (total < 1.0 - SHARE_SUM_TOLERANCE) | (total > 1.0 + SHARE_SUM_TOLERANCE)
@@ -642,12 +666,20 @@ def run_advanced_dst_city(
     scenario_accepting = _accepting_mask(
         _accepting_windows(request, "scenario"), scenario_split.columns, years
     )
+    # Scenario tracks baseline before changes take effect, and the splice comes
+    # first so that validation and renormalization both act on the shares the
+    # model will actually use. Ordered the other way round, a caller was
+    # rejected for a pre-implement scenario row this line then discarded --
+    # while the pre-implement renormalization it had just done was overwritten
+    # regardless, so only the error was observable.
+    scenario_split.loc[: implement_year - 1, :] = baseline_split.loc[: implement_year - 1, :]
+    scenario_accepting.loc[: implement_year - 1, :] = baseline_accepting.loc[
+        : implement_year - 1, :
+    ]
     _validate_shares(baseline_split, baseline_accepting, "baseline")
     _validate_shares(scenario_split, scenario_accepting, "scenario")
     baseline_split = _renormalize_over_open(baseline_split, baseline_accepting)
     scenario_split = _renormalize_over_open(scenario_split, scenario_accepting)
-    # Scenario tracks baseline before changes take effect.
-    scenario_split.loc[: implement_year - 1, :] = baseline_split.loc[: implement_year - 1, :]
 
     # --- Build a landfill (baseline + scenario) per spec ---
     baseline_landfills: List = []
