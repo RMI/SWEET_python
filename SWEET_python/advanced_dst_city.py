@@ -49,7 +49,8 @@ from SWEET_python.dst_common import YearlyFloat, YearlyFractions
 
 __all__ = ["AdvancedDSTCityRequest", "CityLandfillSpec", "run_advanced_dst_city"]
 
-DIVERSION_PATHWAYS = ["compost", "anaerobic", "combustion", "recycling"]
+#: The diversion pathways `DivsDF` carries, in the order the mass flow reports.
+DIVERSION_PATHWAYS: tuple[str, ...] = ("compost", "anaerobic", "combustion", "recycling")
 SHARE_SUM_TOLERANCE = 0.02
 
 
@@ -182,10 +183,6 @@ def _prevent_food_waste(
             new_total[positive], axis=0
         )
     return new_fractions, new_total
-
-
-#: The diversion pathways `DivsDF` carries, in the order the mass flow reports.
-DIVERSION_PATHWAYS: tuple[str, ...] = ("compost", "anaerobic", "combustion", "recycling")
 
 
 # --------------------------------------------------------------------------- #
