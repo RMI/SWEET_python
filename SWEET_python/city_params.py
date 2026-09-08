@@ -29,7 +29,12 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError as SQLAlchemyOperationalError
 from datetime import datetime
 import time
-from SWEET_python.constants import MODEL_START_YEAR, MODEL_END_YEAR
+from SWEET_python.constants import (
+    MODEL_START_YEAR,
+    MODEL_END_YEAR,
+    WASTE_TYPES,
+    WasteTypeSet,
+)
 
 
 def _build_oxidation_series(default_value, canonical_row, time_series_rows, years_range):
@@ -298,45 +303,40 @@ class City:
         self.iso3 = None
         self.baseline_parameters = None
         self.scenario_parameters = {}
-        self.components = {"food", "green", "wood", "paper_cardboard", "textiles"}
+        self.components = WasteTypeSet(
+            {"food", "green", "wood", "paper_cardboard", "textiles"}
+        )
         self.div_components = {
-            "compost": {"food", "green", "wood", "paper_cardboard"},
-            "anaerobic": {"food", "green", "wood", "paper_cardboard"},
-            "combustion": {
-                "food",
-                "green",
-                "wood",
-                "paper_cardboard",
-                "textiles",
-                "plastic",
-                "rubber",
-                "metal",
-                "glass",
-                "other",
-            },
-            "recycling": {
-                "wood",
-                "paper_cardboard",
-                "textiles",
-                "plastic",
-                "rubber",
-                "metal",
-                "glass",
-                "other",
-            },
+            "compost": WasteTypeSet({"food", "green", "wood", "paper_cardboard"}),
+            "anaerobic": WasteTypeSet({"food", "green", "wood", "paper_cardboard"}),
+            "combustion": WasteTypeSet(
+                {
+                    "food",
+                    "green",
+                    "wood",
+                    "paper_cardboard",
+                    "textiles",
+                    "plastic",
+                    "rubber",
+                    "metal",
+                    "glass",
+                    "other",
+                }
+            ),
+            "recycling": WasteTypeSet(
+                {
+                    "wood",
+                    "paper_cardboard",
+                    "textiles",
+                    "plastic",
+                    "rubber",
+                    "metal",
+                    "glass",
+                    "other",
+                }
+            ),
         }
-        self.waste_types = [
-            "food",
-            "green",
-            "wood",
-            "paper_cardboard",
-            "textiles",
-            "plastic",
-            "metal",
-            "glass",
-            "rubber",
-            "other",
-        ]
+        self.waste_types = list(WASTE_TYPES)
         self.unprocessable = {
             "food": 0.0192,
             "green": 0.042522,
@@ -1098,22 +1098,28 @@ class City:
             # ks = defaults_2019.k_defaults[precip_zone]
 
             # Model components
-            components = set(["food", "green", "wood", "paper_cardboard", "textiles"])
+            components = WasteTypeSet(
+                ["food", "green", "wood", "paper_cardboard", "textiles"]
+            )
 
             # Compost params
-            compost_components = set(["food", "green", "wood", "paper_cardboard"])
+            compost_components = WasteTypeSet(
+                ["food", "green", "wood", "paper_cardboard"]
+            )
             compost_fraction = float(row["waste_treatment_compost_percent"]) / 100
             if np.isnan(compost_fraction):
                 compost_fraction = 0.0
 
             # Anaerobic digestion params
-            anaerobic_components = set(["food", "green", "wood", "paper_cardboard"])
+            anaerobic_components = WasteTypeSet(
+                ["food", "green", "wood", "paper_cardboard"]
+            )
             anaerobic_fraction = (
                 float(row["waste_treatment_anaerobic_digestion_percent"]) / 100
             )
 
             # Combustion params
-            combustion_components = set(
+            combustion_components = WasteTypeSet(
                 [
                     "food",
                     "green",
@@ -1135,7 +1141,7 @@ class City:
                 combustion_fraction = (np.nan_to_num(value1) + np.nan_to_num(value2)) / 100
 
             # Recycling params
-            recycling_components = set(
+            recycling_components = WasteTypeSet(
                 [
                     "wood",
                     "paper_cardboard",
@@ -3199,12 +3205,16 @@ class City:
             mef_compost = 0
 
         # Model components
-        self.components = set(["food", "green", "wood", "paper_cardboard", "textiles"])
-        self.compost_components = set(
+        self.components = WasteTypeSet(
+            ["food", "green", "wood", "paper_cardboard", "textiles"]
+        )
+        self.compost_components = WasteTypeSet(
             ["food", "green", "wood", "paper_cardboard"]
         )  # Double check we don't want to include paper
-        self.anaerobic_components = set(["food", "green", "wood", "paper_cardboard"])
-        self.combustion_components = set(
+        self.anaerobic_components = WasteTypeSet(
+            ["food", "green", "wood", "paper_cardboard"]
+        )
+        self.combustion_components = WasteTypeSet(
             [
                 "food",
                 "green",
@@ -3218,7 +3228,7 @@ class City:
                 "other",
             ]
         )
-        self.recycling_components = set(
+        self.recycling_components = WasteTypeSet(
             [
                 "wood",
                 "paper_cardboard",
@@ -3628,12 +3638,16 @@ class City:
                 mef_compost = 0
 
             # Model components
-            self.components = set(["food", "green", "wood", "paper_cardboard", "textiles"])
-            self.compost_components = set(
+            self.components = WasteTypeSet(
+                ["food", "green", "wood", "paper_cardboard", "textiles"]
+            )
+            self.compost_components = WasteTypeSet(
                 ["food", "green", "wood", "paper_cardboard"]
             )  # Double check we don't want to include paper
-            self.anaerobic_components = set(["food", "green", "wood", "paper_cardboard"])
-            self.combustion_components = set(
+            self.anaerobic_components = WasteTypeSet(
+                ["food", "green", "wood", "paper_cardboard"]
+            )
+            self.combustion_components = WasteTypeSet(
                 [
                     "food",
                     "green",
@@ -3647,7 +3661,7 @@ class City:
                     "other",
                 ]
             )
-            self.recycling_components = set(
+            self.recycling_components = WasteTypeSet(
                 [
                     "wood",
                     "paper_cardboard",
@@ -3917,12 +3931,16 @@ class City:
                 mef_compost = 0
 
             # Model components
-            self.components = set(["food", "green", "wood", "paper_cardboard", "textiles"])
-            self.compost_components = set(
+            self.components = WasteTypeSet(
+                ["food", "green", "wood", "paper_cardboard", "textiles"]
+            )
+            self.compost_components = WasteTypeSet(
                 ["food", "green", "wood", "paper_cardboard"]
             )  # Double check we don't want to include paper
-            self.anaerobic_components = set(["food", "green", "wood", "paper_cardboard"])
-            self.combustion_components = set(
+            self.anaerobic_components = WasteTypeSet(
+                ["food", "green", "wood", "paper_cardboard"]
+            )
+            self.combustion_components = WasteTypeSet(
                 [
                     "food",
                     "green",
@@ -3936,7 +3954,7 @@ class City:
                     "other",
                 ]
             )
-            self.recycling_components = set(
+            self.recycling_components = WasteTypeSet(
                 [
                     "wood",
                     "paper_cardboard",
