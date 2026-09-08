@@ -634,9 +634,16 @@ def _max_food_waste_prevention(
     series is the caller's concern — a cap for one intervention is the minimum of
     these over the years it is in force — and the model has no notion of one.
     """
-    def fits(share: float) -> pd.Series:
-        prevented = pd.Series(share, index=fractions.index)
-        shrunk_fractions, _ = _prevent_food_waste(fractions, total, prevented)
+    def fits(shares: pd.Series) -> pd.Series:
+        """Whether each year's diversion demand survives that year's prevention.
+
+        Takes a share *per year* rather than one scalar, because every step
+        below is row-wise — ``_prevent_food_waste`` renormalizes within a year,
+        the denominators are per-year sums, and ``starved`` is a per-year mask.
+        So one call answers every year at its own probe, and the bisection needs
+        one per halving instead of one per year per halving.
+        """
+        shrunk_fractions, _ = _prevent_food_waste(fractions, total, shares)
         use = _component_use(shrunk_fractions, div_fracs, city)
         within = use.max(axis=1) <= 1.0 + SHARE_LIMIT_TOLERANCE
 
@@ -654,35 +661,71 @@ def _max_food_waste_prevention(
             )
         return within & ~starved
 
-    unconstrained = fits(1.0)
+    unconstrained = fits(pd.Series(1.0, index=fractions.index))
     low = pd.Series(0.0, index=fractions.index)
     high = pd.Series(1.0, index=fractions.index)
-    # ~14 halvings clears the 1e-4 tolerance; each is vectorized across years.
+    # ~14 halvings clears the 1e-4 tolerance, and each is one pass over all
+    # years -- so the whole bisection is ~14 frame operations, not 14 per year.
     while float((high - low).max()) > tolerance:
         mid = (low + high) / 2.0
-        ok = pd.Series(
-            [
-                bool(fits(float(value)).loc[year])
-                for year, value in mid.items()
-            ],
-            index=fractions.index,
-        )
+        ok = fits(mid)
         low = low.where(~ok, mid)
         high = high.where(ok, mid)
     return low.where(~unconstrained, 1.0)
 
 
+def _limits_for_variant(
+    fractions: pd.DataFrame,
+    total: pd.Series,
+    prevented: pd.Series,
+    div_fracs: Dict[str, pd.Series],
+    city: City,
+) -> Dict[str, pd.DataFrame | pd.Series]:
+    """One variant's bounds, from that variant's own inputs."""
+    prevented_fractions, _ = _prevent_food_waste(fractions, total, prevented)
+    use = _component_use(prevented_fractions, div_fracs, city)
+
+    # A pathway asked for a share of a pool with nothing in it is infeasible,
+    # and `component_use` cannot say so: with `D_p` at zero the claim is 0/0,
+    # which `_component_use` reads as zero rather than as too much, so the row
+    # looks comfortably under 1. `run_advanced_dst_city` raises
+    # `diversion_without_material` for exactly this request, so the bounds have
+    # to name it or a caller reading only `component_use` would call the request
+    # fine right up to the error.
+    denominators = _component_denominators(prevented_fractions, city)
+    starved = pd.DataFrame(
+        {
+            pathway: (div_fracs[pathway] > 0) & (denominators[pathway] <= 0.0)
+            for pathway in DIVERSION_PATHWAYS
+        },
+        index=fractions.index,
+    )
+
+    return {
+        "component_use": use,
+        "limiting_component": use.idxmax(axis=1),
+        "max_diversion": pd.DataFrame(
+            {
+                pathway: _max_pathway_fraction(
+                    prevented_fractions, div_fracs, city, pathway
+                )
+                for pathway in DIVERSION_PATHWAYS
+            }
+        ),
+        "max_food_waste_prevention": _max_food_waste_prevention(
+            fractions, total, div_fracs, city
+        ),
+        "starved_pathways": starved,
+    }
+
+
 def run_advanced_dst_city_limits(
     request: "AdvancedDSTCityRequest",
-) -> Dict[str, pd.DataFrame | pd.Series]:
+) -> Dict[str, Dict[str, pd.DataFrame | pd.Series]]:
     """What this city's composition allows, per year — the caller's input bounds.
 
-    Computed from the same request the emissions run takes, so the bounds a UI
-    enforces and the arithmetic the model performs cannot drift: the component
-    sets come from ``city.div_components``, the same ones ``_diverted_masses``
-    splits on, rather than from a hand-copied list.
-
-    Returns, indexed by year:
+    Returns ``{"baseline": {...}, "scenario": {...}}``, each variant's bounds
+    computed from that variant's own inputs. Per variant, indexed by year:
 
     * ``component_use`` — years x components, the fraction of each component's
       own mass the pathways claim. Anything above 1 is over-diversion.
@@ -691,6 +734,24 @@ def run_advanced_dst_city_limits(
       may take with every other pathway held where it is.
     * ``max_food_waste_prevention`` — the largest prevented share of food the
       year's diversion demand leaves room for.
+    * ``starved_pathways`` — years x pathways, true where a pathway is asked for
+      material the city does not generate any of. ``component_use`` reads that
+      case as zero rather than as too much (the claim is 0/0), so it is reported
+      separately; ``run_advanced_dst_city`` raises ``diversion_without_material``
+      for the same request.
+
+    Both variants are returned because the model runs both, and it enforces
+    ``over_diversion`` on each: the scenario's composition, tonnage, prevention
+    and diversion all apply from ``implement_year`` onward, so bounds taken from
+    the baseline alone leave the scenario years unbounded. Every scenario series
+    here is spliced at ``implement_year`` the same way the model splices it, so
+    a variant's pre-implement bounds are its baseline's by construction.
+
+    That is the point of computing this here rather than in a caller: the
+    component sets come from ``city.div_components``, the same ones
+    ``_diverted_masses`` splits on, and the basis is gross diverted mass, the
+    same one the ``over_diversion`` guard measures. A caller respecting these
+    bounds cannot produce a request the model rejects on mass balance.
 
     All of it reflects the prevention already in the request; a caller asking
     "how much further could I go" gets an answer consistent with where it is.
@@ -706,37 +767,50 @@ def run_advanced_dst_city_limits(
     model_start = common.validate_years(open_close_pairs, implement_year)
     years = pd.Index(range(model_start, common.MODEL_YEAR_MAX + 1), name="year")
 
-    fractions = common.fractions_to_df(request.waste_fractions["baseline"], years)
-    total, _ = common.variant_series(request.waste_mass, years, implement_year, default=None)
-    prevented, _ = common.variant_series(
+    baseline_fractions = common.fractions_to_df(request.waste_fractions["baseline"], years)
+    scenario_fractions = common.fractions_to_df(
+        request.waste_fractions["scenario"] or request.waste_fractions["baseline"], years
+    )
+    # Scenario tracks baseline until changes take effect, exactly as the model
+    # splices it -- `variant_series` already does this for the series inputs.
+    scenario_fractions.loc[: implement_year - 1, :] = baseline_fractions.loc[
+        : implement_year - 1, :
+    ]
+
+    baseline_total, scenario_total = common.variant_series(
+        request.waste_mass, years, implement_year, default=None
+    )
+    baseline_prevented, scenario_prevented = common.variant_series(
         request.food_waste_prevention, years, implement_year, default=0.0
     )
-    prevented_fractions, prevented_total = _prevent_food_waste(fractions, total, prevented)
 
     div_variant = request.diversion_fractions
-    raw = (common.variant_get(div_variant, "baseline") or {}) if div_variant is not None else {}
-    div_fracs = {
-        pathway: common.yearly_to_series(raw.get(pathway), years, default=0.0)
+    baseline_raw = (
+        (common.variant_get(div_variant, "baseline") or {}) if div_variant is not None else {}
+    )
+    scenario_raw = div_variant["scenario"] if div_variant is not None else None
+    if scenario_raw is None:
+        scenario_raw = baseline_raw
+    baseline_div = {
+        pathway: common.yearly_to_series(baseline_raw.get(pathway), years, default=0.0)
         for pathway in DIVERSION_PATHWAYS
     }
+    scenario_div = {}
+    for pathway in DIVERSION_PATHWAYS:
+        series = baseline_div[pathway].copy()
+        own = common.yearly_to_series(scenario_raw.get(pathway), years, default=0.0)
+        series.loc[implement_year:] = own.loc[implement_year:]
+        scenario_div[pathway] = series
 
     city = City(request.city_name)
     common.city_instance_attrs(city, request.country)
 
-    use = _component_use(prevented_fractions, div_fracs, city)
     return {
-        "component_use": use,
-        "limiting_component": use.idxmax(axis=1),
-        "max_diversion": pd.DataFrame(
-            {
-                pathway: _max_pathway_fraction(
-                    prevented_fractions, div_fracs, city, pathway
-                )
-                for pathway in DIVERSION_PATHWAYS
-            }
+        "baseline": _limits_for_variant(
+            baseline_fractions, baseline_total, baseline_prevented, baseline_div, city
         ),
-        "max_food_waste_prevention": _max_food_waste_prevention(
-            fractions, total, div_fracs, city
+        "scenario": _limits_for_variant(
+            scenario_fractions, scenario_total, scenario_prevented, scenario_div, city
         ),
     }
 
