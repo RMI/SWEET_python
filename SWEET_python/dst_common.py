@@ -33,6 +33,15 @@ from SWEET_python.singapore_k import compute_singapore_k
 MODEL_YEAR_MIN = 1950
 MODEL_YEAR_MAX = MODEL_END_YEAR
 
+# A close year of MODEL_END_YEAR + 1 means "still open when the model ends".
+#
+# A closure year is not an intake year (see ``apply_window``), so a site
+# submitted as closing in MODEL_END_YEAR accepts nothing in the model's final
+# year — there is no way to say "never closes" with MODEL_END_YEAR itself. This
+# sentinel is the way, and it is the same one ``city_params`` already uses when
+# a site's recorded close year is missing (``fillna(MODEL_END_YEAR + 1)``).
+NEVER_CLOSES = MODEL_END_YEAR + 1
+
 # Order matters: waste_fractions vectors are sent in this column order.
 WASTE_COMPONENTS: List[str] = [
     "food",
@@ -157,7 +166,19 @@ def variant_series(
 
 
 def apply_window(mass_df: pd.DataFrame, open_year: int, close_year: int) -> pd.DataFrame:
-    """Zero out waste deposited before the site opens or after it closes."""
+    """Zero out waste deposited before the site opens or once it has closed.
+
+    **The closure year is not an intake year**: a site closing in 2050 last
+    accepts waste in 2049. This is the definition of that boundary for the
+    advanced DST paths, and it matches the one ``city_params`` draws when it
+    builds a landfill's vector (``fraction_of_waste_vector.loc[open_date:
+    close_date - 1] = 1.0``) and the one Climate TRACE draws in
+    ``time_series_ops.zero_incoming_waste_from_close_year``. Pass
+    ``NEVER_CLOSES`` for a site that is still open when the model ends.
+
+    Only intake stops at closure. Emissions continue, decaying out of the waste
+    already in place.
+    """
     windowed = mass_df.copy()
     windowed.loc[: int(open_year) - 1, :] = 0.0
     windowed.loc[int(close_year):, :] = 0.0
@@ -361,10 +382,13 @@ def validate_years(open_close_pairs: List[Tuple[int, int]], implement_year: int)
                 "invalid_year",
                 f"Landfill open year must be between {MODEL_YEAR_MIN} and {MODEL_YEAR_MAX} (got {open_year}).",
             )
-        if not (MODEL_YEAR_MIN <= close_year <= MODEL_YEAR_MAX):
+        # NEVER_CLOSES (MODEL_YEAR_MAX + 1) is admissible: a closure year is not
+        # an intake year, so it is the only way to say a site is still open in
+        # the model's final year.
+        if not (MODEL_YEAR_MIN <= close_year <= NEVER_CLOSES):
             raise CustomError(
                 "invalid_year",
-                f"Landfill close year must be between {MODEL_YEAR_MIN} and {MODEL_YEAR_MAX} (got {close_year}).",
+                f"Landfill close year must be between {MODEL_YEAR_MIN} and {NEVER_CLOSES} (got {close_year}).",
             )
         if close_year < open_year:
             raise CustomError("invalid_year", "Landfill close year must be on or after open year.")
