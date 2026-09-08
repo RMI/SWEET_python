@@ -22,7 +22,7 @@ live in a list, one dict per landfill:
   so it lands upstream of diversion. Callers send the composition and the total
   they measured and let this module remove the food, rather than pre-shrinking
   the two themselves -- pairing a total scaled on one composition with fractions
-  taken from another is the failure mode that invites.
+  taken from another is the failure mode that pre-shrinking invites.
 * each landfill carries its own type / open-close / gas capture / flaring /
   biocover. The split of the city's *landfilled* (net-of-diversion) waste across
   landfills is a top-level time series, ``landfill_split_timeline``:
