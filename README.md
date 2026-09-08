@@ -9,6 +9,34 @@ After following these steps, SWEET_python can be imported:
 3) cd into the SWEET_python directory, then write `pip install -e .` to install in editable mode, which allows editing the code. Updates to the code in the repo should be automatically reflected in the installed package. If they are not, reinstall it. 
 
 
+# Tests
+
+The test suite lives in `tests/` and runs with pytest:
+
+```
+pip install -r requirements.txt "pytest>=8,<10"
+pip install -e .
+pytest
+```
+
+Every test in the suite is hermetic — no database, no network, no environment
+variables — and the whole thing takes a few seconds.
+
+CI (`.github/workflows/tests.yml`) runs `pytest -m "not integration"` on Python
+3.12 for every push and pull request. If you add a test that does need a live
+database or network access, mark it `@pytest.mark.integration` so it stays out of
+that job, following the same fast/integration split as WasteMAP's
+`backend/tests/fast` and `backend/tests/integration`. There are no such tests
+today; the first one should get a CI job of its own rather than a database being
+bolted onto the fast job.
+
+This is complementary to WasteMAP's CI, not a replacement for it: WasteMAP
+installs a SWEET_python branch with the same name as the WasteMAP branch under
+test, so a model change here and its WasteMAP consumer are already exercised as a
+pair over there. What that pairing does *not* do is run this repo's own tests —
+that is the gap this workflow fills. Tests of this package's internals belong
+here, in the repo that owns them.
+
 # Usage
 You will have to write your own code to import your data files. Examples are in SWEET_python/sweet_tools_obj.py—the load_from_database method illustrates the many different parameters that can be specified. For many parameters, default values are available. These are stored in the defaults_2019.py file, and the sweet_tools_obj.py file contains many examples of accessing them. The code for the model itself is in model.py. Models are generally run as part of a Landfill instance—the Landfill class is defined at the bottom of sweet_tools_obj.py
 
