@@ -171,8 +171,9 @@ def apply_window(mass_df: pd.DataFrame, open_year: int, close_year: int) -> pd.D
     **The closure year is not an intake year**: a site closing in 2050 last
     accepts waste in 2049. This is the definition of that boundary for the
     advanced DST paths, and it matches the one ``city_params`` draws when it
-    builds a landfill's vector (``fraction_of_waste_vector.loc[open_date:
-    close_date - 1] = 1.0``) and the one Climate TRACE draws in
+    builds a landfill's vector
+    (``fraction_of_waste_vector.loc[open_date:close_date - 1] = 1.0``) and the
+    one Climate TRACE draws in
     ``time_series_ops.zero_incoming_waste_from_close_year``. Pass
     ``NEVER_CLOSES`` for a site that is still open when the model ends.
 
