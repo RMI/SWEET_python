@@ -22,10 +22,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           # 3.12 is what WasteMAP's CI and deploy images run, which is where this
           # package actually executes. The code itself needs 3.10+ (PEP 604 `X | Y`
