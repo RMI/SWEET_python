@@ -52,7 +52,8 @@ from SWEET_python.dst_common import YearlyFloat, YearlyFractions
 
 __all__ = ["AdvancedDSTCityRequest", "CityLandfillSpec", "run_advanced_dst_city"]
 
-DIVERSION_PATHWAYS = ["compost", "anaerobic", "combustion", "recycling"]
+#: The diversion pathways `DivsDF` carries, in the order the mass flow reports.
+DIVERSION_PATHWAYS: tuple[str, ...] = ("compost", "anaerobic", "combustion", "recycling")
 SHARE_SUM_TOLERANCE = 0.02
 
 
@@ -205,6 +206,64 @@ def _prevent_food_waste(
             new_total[positive], axis=0
         )
     return new_fractions, new_total
+
+
+# --------------------------------------------------------------------------- #
+# Mass flow
+# --------------------------------------------------------------------------- #
+def _mass_flow(
+    generated: pd.DataFrame,
+    wgen: pd.DataFrame,
+    divs: DivsDF,
+    net: pd.DataFrame,
+    site_masses: List[pd.DataFrame],
+) -> dict:
+    """Where one variant's tonnage went, per year.
+
+    Per waste type throughout, with one exception: ``sites`` is a per-landfill
+    total, summed across the components, because the split timeline it comes
+    from is stated per landfill and not per material.
+
+    Every frame here is one the emissions were computed from, so a caller
+    rendering this is showing the model rather than a parallel estimate of it.
+    That matters most for ``diverted``: compost and anaerobic digestion draw only
+    on organics and recycling only on recyclables, each with its own reject
+    rate, so the split is per waste type and approximating it as one scalar on
+    the total quietly composts metal and glass.
+
+    ``sites`` is per landfill in request order, already windowed by each one's
+    open/close years. Those totals do NOT always sum to ``landfilled``: a year
+    in which some share is allocated to a closed landfill loses that mass, since
+    the split timeline is honoured as submitted rather than renormalized over
+    whichever landfills happen to be open. The gap is reported rather than
+    hidden — ``landfilled`` is what the city disposed of, ``sites`` is what
+    arrived somewhere.
+    """
+    def shaped(frame: pd.DataFrame) -> pd.DataFrame:
+        """All ten components, in one order, zero-filled.
+
+        Each pathway frame carries only the components that pathway can draw on
+        (compost has four columns, not ten), and subtracting frames reorders
+        them alphabetically. Callers get one stable shape instead.
+        """
+        return frame.reindex(columns=list(common.WASTE_COMPONENTS), fill_value=0.0).fillna(0.0)
+
+    # A pathway the request never uses is an all-zero frame; omitting it roughly
+    # halves this payload in ordinary use, since most cities run two of the four.
+    # A missing pathway reads as zero.
+    diverted = {}
+    for pathway in DIVERSION_PATHWAYS:
+        frame = shaped(getattr(divs, pathway))
+        if frame.to_numpy().any():
+            diverted[pathway] = frame
+
+    return {
+        "generated": shaped(generated),
+        "prevented": shaped(generated.sub(wgen, fill_value=0.0)),
+        "diverted": diverted,
+        "landfilled": shaped(net),
+        "sites": [frame.sum(axis=1) for frame in site_masses],
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -373,12 +432,27 @@ def _validate_shares(shares: List[pd.Series], years: pd.Index, label: str) -> No
 # --------------------------------------------------------------------------- #
 # Public entry point
 # --------------------------------------------------------------------------- #
-def run_advanced_dst_city(request: AdvancedDSTCityRequest) -> dict[str, pd.DataFrame]:
+def run_advanced_dst_city(
+    request: AdvancedDSTCityRequest, *, with_mass_flow: bool = False
+) -> dict:
     """Run the city-level advanced DST.
 
     Returns ``{"baseline": total_emissions_df, "scenario": total_emissions_df}``
     (city totals summed across landfills + diversion), each indexed by year with a
     ``total`` column.
+
+    With ``with_mass_flow=True`` the result carries an extra ``"mass_flow"`` key
+    describing where the tonnage went, per variant: ``generated`` (per component,
+    before prevention), ``prevented``, ``diverted`` (per pathway per component,
+    net of reject rates), ``landfilled`` (the residual per component), and
+    ``sites`` (per landfill, in request order). A diversion pathway the request
+    never uses is omitted from ``diverted`` rather than sent as zeros — the
+    payload is several times the emissions one, so this is worth the asymmetry;
+    a missing pathway reads as zero. Those are the very frames the
+    emissions are computed from, not a second derivation — callers that need to
+    *show* the mass flow should read it from here rather than reimplementing the
+    diversion split, which is per waste type and does not survive being
+    approximated as a scalar on the total.
     """
     implement_year = int(request.implement_year)
 
@@ -399,6 +473,14 @@ def run_advanced_dst_city(request: AdvancedDSTCityRequest) -> dict[str, pd.DataF
         request.waste_fractions["scenario"] or request.waste_fractions["baseline"], years
     )
     baseline_total, scenario_total = common.variant_series(request.waste_mass, years, implement_year, default=None)
+
+    # Per-component generated mass as authored, before any food is prevented —
+    # the top band of the mass flow, and what `prevented` is measured against.
+    generated_baseline = baseline_fractions.mul(baseline_total, axis=0)
+    generated_scenario = scenario_fractions.mul(scenario_total, axis=0)
+    generated_scenario.loc[: implement_year - 1, :] = generated_baseline.loc[
+        : implement_year - 1, :
+    ]
 
     # --- Food waste prevention: shrink the generated stream before anything
     # else reads it. Everything downstream (per-component masses, diversion,
@@ -433,6 +515,10 @@ def run_advanced_dst_city(request: AdvancedDSTCityRequest) -> dict[str, pd.DataF
     )
 
     # Guard against diverting more than is generated (negative landfilled mass).
+    # The residual is kept rather than discarded: it is the landfilled mass per
+    # waste type, which is what the mass flow reports and what the per-landfill
+    # split is taken from.
+    net_masses: Dict[str, pd.DataFrame] = {}
     for label, wgen, divs in (("baseline", wgen_baseline, divs_baseline), ("scenario", wgen_scenario, divs_scenario)):
         net = wgen.sub(divs.sum(), fill_value=0.0)
         if (net < -1e-6).to_numpy().any():
@@ -440,6 +526,7 @@ def run_advanced_dst_city(request: AdvancedDSTCityRequest) -> dict[str, pd.DataF
                 "over_diversion",
                 f"{label}: diversion exceeds generated waste (negative landfilled mass).",
             )
+        net_masses[label] = net
 
     # --- City-wide decomposition rates + compost emission factors ---
     ref_year = min(max(implement_year, int(years.min())), int(years.max()))
@@ -586,7 +673,19 @@ def run_advanced_dst_city(request: AdvancedDSTCityRequest) -> dict[str, pd.DataF
     city.sum_landfill_emissions(scenario=0)
     city.sum_landfill_emissions(scenario=1)
 
-    return {
+    result: dict = {
         "baseline": baseline_parameters.total_emissions,
         "scenario": scenario_parameters.total_emissions,
     }
+    if with_mass_flow:
+        result["mass_flow"] = {
+            "baseline": _mass_flow(
+                generated_baseline, wgen_baseline, divs_baseline,
+                net_masses["baseline"], baseline_masses,
+            ),
+            "scenario": _mass_flow(
+                generated_scenario, wgen_scenario, divs_scenario,
+                net_masses["scenario"], scenario_masses,
+            ),
+        }
+    return result
