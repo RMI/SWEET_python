@@ -22,6 +22,9 @@ live in a list, one dict per landfill:
   landfills is a top-level time series, ``landfill_split_timeline``:
   ``{year: [frac per landfill]}`` ordered to match the ``landfills`` list, with
   each year's fractions summing to ~1.
+* a facility may ``combusts``: it burns the waste routed to it instead of
+  depositing it, and only the unburnable reject is deposited. See
+  :class:`CityLandfillSpec`.
 
 Diversion math, reject rates, the per-landfill split, and emissions aggregation
 mirror the tested ``City`` machinery (``_calculate_diverted_masses``,
@@ -75,6 +78,26 @@ class CityLandfillSpec(BaseModel):
     )
     biocover: Optional[Variant[YearlyFloat]] = Field(
         None, description="Biocover oxidation floor per year (a fraction; defaults to 0)."
+    )
+    combusts: Optional[Variant[bool]] = Field(
+        None,
+        description=(
+            "Whether this facility burns the waste routed to it -- incineration, "
+            "with or without energy recovery -- instead of depositing it. The "
+            "share of the city's disposed waste sent here still arrives here, "
+            "but only the unburnable reject fraction "
+            "(``City.combustion_reject_rate``, 10%) is deposited; the rest is "
+            "destroyed. Combustion produces no methane in this model, so the "
+            "burnt share simply leaves the deposited stream -- it is not "
+            "re-routed to another site. The remaining per-site fields then "
+            "describe the residue: ``landfill_type`` is the residue's disposal "
+            "category, and the gas/biocover fields are the residue pile's, not "
+            "the incinerator's. Omit (the default) for a depositing site.\n\n"
+            "This is the city-level counterpart of ``City.sdst_v1_5``'s "
+            "incineration handling, where a waste-to-energy site combusts 100% "
+            "of its intake for every year it is open and the 10% reject is what "
+            "decays."
+        ),
     )
 
 
@@ -259,6 +282,17 @@ def _split_timeline_to_df(
     return df.sort_index().reindex(years).ffill().bfill()
 
 
+def _deposited_share(combusts: bool, city: City) -> float:
+    """Fraction of the waste arriving at a facility that is actually deposited.
+
+    A depositing site keeps all of it. A combusting facility keeps only the
+    unburnable reject -- the same ``combustion_reject_rate`` the combustion
+    diversion pathway applies, so an incinerator modeled as a facility and one
+    modeled as upstream combustion leave the same residue behind.
+    """
+    return float(city.combustion_reject_rate) if combusts else 1.0
+
+
 def _validate_shares(shares: List[pd.Series], years: pd.Index, label: str) -> None:
     """Each year's landfill shares should sum to ~1 (all net waste is landfilled somewhere)."""
     total = sum(shares)
@@ -391,6 +425,9 @@ def run_advanced_dst_city(request: AdvancedDSTCityRequest) -> dict[str, pd.DataF
         baseline_shares.append(share_base)
         scenario_shares.append(share_scen)
 
+        base_combusts = bool(common.variant_get(spec.combusts, "baseline") or False)
+        scen_combusts = bool(common.variant_get(spec.combusts, "scenario") or False)
+
         base_depth = common.variant_get(spec.depth, "baseline")
         scen_depth = common.variant_get(spec.depth, "scenario")
         mcf_base = common.mcf_series(
@@ -407,6 +444,12 @@ def run_advanced_dst_city(request: AdvancedDSTCityRequest) -> dict[str, pd.DataF
         # Net-of-diversion city waste, scaled to this landfill's per-year share.
         mass_base = LandfillWasteMassDF.create_advanced(wgen_baseline, divs_baseline, share_base.copy()).df
         mass_scen = LandfillWasteMassDF.create_advanced(wgen_scenario, divs_scenario, share_scen.copy()).df
+        # A combusting facility burns its intake and deposits only the reject.
+        # Scaled per variant here, before the pre-implement splice below, so a
+        # site that starts combusting at implement_year keeps depositing
+        # everything until then -- and one that stops burning starts to.
+        mass_base = mass_base * _deposited_share(base_combusts, city)
+        mass_scen = mass_scen * _deposited_share(scen_combusts, city)
         mass_scen.loc[: implement_year - 1, :] = mass_base.loc[: implement_year - 1, :]
         mass_base = common.apply_window(mass_base, b_open, b_close)
         mass_scen = common.apply_window(mass_scen, s_open, s_close)
