@@ -531,6 +531,217 @@ def _validate_shares(split: pd.DataFrame, accepting: pd.DataFrame, label: str) -
 
 
 # --------------------------------------------------------------------------- #
+# Diversion limits
+# --------------------------------------------------------------------------- #
+#
+# A pathway can only divert material it actually receives: you cannot compost
+# more organics than a city generates. ``_diverted_masses`` splits a pathway's
+# mass across its eligible components *proportionally to the composition*, which
+# makes the constraint closed-form rather than a search.
+#
+# With ``f_c`` the normalized fraction of component ``c`` and
+# ``D_p = sum(f_c for c in components(p))``, pathway ``p`` consumes
+# ``divfrac_p / D_p`` of every component it touches. So per component:
+#
+#     use(c) = sum(divfrac_p / D_p  for p containing c)  <=  1
+#
+# The binding component is whichever has the largest ``use``. This is stated per
+# component rather than as an organic/recyclable pool pair because the pathways
+# do not partition into two: compost and anaerobic digestion share a component
+# set, recycling overlaps it on wood and paper, and combustion draws on all ten.
+# Summing per component needs no special case for any of that.
+#
+# Note this bounds GROSS diversion, before reject rates. It is deliberately
+# stricter than the ``over_diversion`` guard in ``run_advanced_dst_city``, which
+# compares NET diverted mass against what was generated and so tolerates a
+# pathway being fed material that does not exist, provided enough of it is
+# rejected back to the landfill stream.
+SHARE_LIMIT_TOLERANCE = 1e-9
+
+
+def _component_denominators(
+    fractions: pd.DataFrame, city: City
+) -> Dict[str, pd.Series]:
+    """``D_p`` per pathway per year: the share of the stream that pathway can draw on."""
+    return {
+        pathway: fractions[sorted(city.div_components[pathway])].sum(axis=1)
+        for pathway in DIVERSION_PATHWAYS
+    }
+
+
+def _component_use(
+    fractions: pd.DataFrame,
+    div_fracs: Dict[str, pd.Series],
+    city: City,
+    skip: Optional[str] = None,
+) -> pd.DataFrame:
+    """Fraction of each component's own mass that the pathways claim, per year.
+
+    ``skip`` leaves one pathway out, which is what makes "how much more can this
+    pathway take" answerable: the rest of the demand is what it has to fit into.
+    """
+    denominators = _component_denominators(fractions, city)
+    use = pd.DataFrame(0.0, index=fractions.index, columns=fractions.columns)
+    for pathway in DIVERSION_PATHWAYS:
+        if pathway == skip:
+            continue
+        denominator = denominators[pathway]
+        # A pathway with none of its components present draws on nothing; its
+        # share of a zero-size pool is undefined rather than infinite.
+        claim = div_fracs[pathway].divide(denominator).replace(
+            [np.inf, -np.inf], 0.0
+        ).fillna(0.0)
+        for component in sorted(city.div_components[pathway]):
+            use[component] = use[component] + claim
+    return use
+
+
+def _max_pathway_fraction(
+    fractions: pd.DataFrame,
+    div_fracs: Dict[str, pd.Series],
+    city: City,
+    pathway: str,
+) -> pd.Series:
+    """Largest fraction of generated waste ``pathway`` may take, per year.
+
+    Every other pathway is held at its own value for that year. The pathway is
+    bounded by each component it draws on: what is left of that component after
+    the others have taken their share, scaled back up by ``D_p``.
+    """
+    components = sorted(city.div_components[pathway])
+    others = _component_use(fractions, div_fracs, city, skip=pathway)
+    headroom = (1.0 - others[components]).min(axis=1).clip(lower=0.0)
+    denominator = _component_denominators(fractions, city)[pathway]
+    return (headroom * denominator).clip(lower=0.0, upper=1.0)
+
+
+def _max_food_waste_prevention(
+    fractions: pd.DataFrame,
+    total: pd.Series,
+    div_fracs: Dict[str, pd.Series],
+    city: City,
+    tolerance: float = 1e-4,
+) -> pd.Series:
+    """Largest food-waste-prevention fraction each year's diversion demand permits.
+
+    Prevention shrinks the organic pool — it removes food — so a compost fraction
+    that fitted before it takes effect can stop fitting after. Bisected rather
+    than solved: removing food raises the organic pathways' claim while lowering
+    recycling's, and which component binds can change with it, so the closed form
+    is per component but the envelope over components is not monotone in general.
+
+    Per year, and deliberately so. Folding dated interventions into a per-year
+    series is the caller's concern — a cap for one intervention is the minimum of
+    these over the years it is in force — and the model has no notion of one.
+    """
+    def fits(share: float) -> pd.Series:
+        prevented = pd.Series(share, index=fractions.index)
+        shrunk_fractions, _ = _prevent_food_waste(fractions, total, prevented)
+        use = _component_use(shrunk_fractions, div_fracs, city)
+        within = use.max(axis=1) <= 1.0 + SHARE_LIMIT_TOLERANCE
+
+        # A pathway asked for a share of a pool that prevention has emptied is
+        # not satisfiable, but the per-component arithmetic reads it as zero
+        # rather than as too much: with D_p at zero, `_diverted_masses` splits
+        # the pathway's mass by 0/0 and diverts nothing at all. So the ratio is
+        # continuous right up to an empty pool and then drops to nothing, and a
+        # probe landing exactly on the empty case would call it feasible.
+        denominators = _component_denominators(shrunk_fractions, city)
+        starved = pd.Series(False, index=fractions.index)
+        for pathway in DIVERSION_PATHWAYS:
+            starved = starved | (
+                (div_fracs[pathway] > 0) & (denominators[pathway] <= 0.0)
+            )
+        return within & ~starved
+
+    unconstrained = fits(1.0)
+    low = pd.Series(0.0, index=fractions.index)
+    high = pd.Series(1.0, index=fractions.index)
+    # ~14 halvings clears the 1e-4 tolerance; each is vectorized across years.
+    while float((high - low).max()) > tolerance:
+        mid = (low + high) / 2.0
+        ok = pd.Series(
+            [
+                bool(fits(float(value)).loc[year])
+                for year, value in mid.items()
+            ],
+            index=fractions.index,
+        )
+        low = low.where(~ok, mid)
+        high = high.where(ok, mid)
+    return low.where(~unconstrained, 1.0)
+
+
+def run_advanced_dst_city_limits(
+    request: "AdvancedDSTCityRequest",
+) -> Dict[str, pd.DataFrame | pd.Series]:
+    """What this city's composition allows, per year — the caller's input bounds.
+
+    Computed from the same request the emissions run takes, so the bounds a UI
+    enforces and the arithmetic the model performs cannot drift: the component
+    sets come from ``city.div_components``, the same ones ``_diverted_masses``
+    splits on, rather than from a hand-copied list.
+
+    Returns, indexed by year:
+
+    * ``component_use`` — years x components, the fraction of each component's
+      own mass the pathways claim. Anything above 1 is over-diversion.
+    * ``limiting_component`` — which component that maximum falls on.
+    * ``max_diversion`` — per pathway, the largest fraction of generated waste it
+      may take with every other pathway held where it is.
+    * ``max_food_waste_prevention`` — the largest prevented share of food the
+      year's diversion demand leaves room for.
+
+    All of it reflects the prevention already in the request; a caller asking
+    "how much further could I go" gets an answer consistent with where it is.
+    """
+    implement_year = int(request.implement_year)
+    open_close_pairs = []
+    for spec in request.landfills:
+        b_open, b_close = (int(x) for x in spec.landfill_open_close["baseline"])
+        s_dates = spec.landfill_open_close["scenario"] or spec.landfill_open_close["baseline"]
+        s_open, s_close = (int(x) for x in s_dates)
+        open_close_pairs.append((b_open, b_close))
+        open_close_pairs.append((s_open, s_close))
+    model_start = common.validate_years(open_close_pairs, implement_year)
+    years = pd.Index(range(model_start, common.MODEL_YEAR_MAX + 1), name="year")
+
+    fractions = common.fractions_to_df(request.waste_fractions["baseline"], years)
+    total, _ = common.variant_series(request.waste_mass, years, implement_year, default=None)
+    prevented, _ = common.variant_series(
+        request.food_waste_prevention, years, implement_year, default=0.0
+    )
+    prevented_fractions, prevented_total = _prevent_food_waste(fractions, total, prevented)
+
+    div_variant = request.diversion_fractions
+    raw = (common.variant_get(div_variant, "baseline") or {}) if div_variant is not None else {}
+    div_fracs = {
+        pathway: common.yearly_to_series(raw.get(pathway), years, default=0.0)
+        for pathway in DIVERSION_PATHWAYS
+    }
+
+    city = City(request.city_name)
+    common.city_instance_attrs(city, request.country)
+
+    use = _component_use(prevented_fractions, div_fracs, city)
+    return {
+        "component_use": use,
+        "limiting_component": use.idxmax(axis=1),
+        "max_diversion": pd.DataFrame(
+            {
+                pathway: _max_pathway_fraction(
+                    prevented_fractions, div_fracs, city, pathway
+                )
+                for pathway in DIVERSION_PATHWAYS
+            }
+        ),
+        "max_food_waste_prevention": _max_food_waste_prevention(
+            fractions, total, div_fracs, city
+        ),
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Public entry point
 # --------------------------------------------------------------------------- #
 def run_advanced_dst_city(
