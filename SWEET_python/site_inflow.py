@@ -33,15 +33,26 @@ measured at ~1e-16 relative, and "the city's share of this site's methane" is a
 physical quantity rather than an allocation convention somebody had to invent
 and defend.
 
-That second invariant has a precondition, and it is the thing most likely to be
-broken by a well-meaning later change: **every stream at a site must share one
-``k``**. ``k`` is a step function of composition -- an 8x8x8 lookup keyed on
-``int(share * 8)`` -- so two streams at one landfill with different mixes do not
-superpose, and the error is tens of percent rather than rounding. The surplus
-therefore carries the city's own post-diversion residual composition, which is
-also the physically defensible answer: a gate observation is downstream of
-whatever diversion happened upstream of it, so a landfill's intake is residual
-in character whoever sent it.
+That invariant needs every stream at a site to agree on every parameter but its
+mass, which is why the surplus twin is built from the city stream's own kwargs
+dict rather than a copy of it. Note what is *not* on that list: composition.
+``k`` is computed once per variant from the city's generated mix
+(``advanced_dst_city`` around the ``decomposition_rates`` call) and handed
+identically to every landfill, so a stream's own mix moves only its
+per-component deposited masses -- which the kernel is linear in. Two streams at
+one site with entirely different mixes still superpose exactly.
+
+So the surplus carrying the city's post-diversion residual composition is a
+**modelling default, not a numerical requirement**. It is the default because it
+is the defensible reading of a gate observation -- a landfill's intake is
+residual in character whoever sent it, since somebody's diversion happened
+upstream of it -- and because the user has no second composition to hand. A
+later PR can let a site state its own mix for the surplus, and
+``residual_composition`` is the one function it has to replace.
+
+(The 27.2% figure quoted in PR #785 is about blending two mixes into a *single*
+kernel run, where one ``k`` has to stand for both. That is not what happens
+here: each stream gets its own ``Landfill`` and its own pass.)
 
 The other way to get this wrong is to skip the second kernel run and attribute
 by tonnage: ``city tons / site tons * site total``. That is wrong whenever the
@@ -58,14 +69,16 @@ follows that convention rather than growing either ``landfill.py`` or the
 9,000-line ``city_params.py``.
 """
 
-from typing import Dict, List, Optional
+from typing import Optional
 
 import pandas as pd
+from pydantic import BaseModel, ConfigDict
 
-from SWEET_python.city_params import City
+from SWEET_python.city_params import City, CustomError
 from SWEET_python.landfill import Landfill
 
 __all__ = [
+    "SiteEmissions",
     "residual_composition",
     "surplus_intake",
     "surplus_masses",
@@ -74,13 +87,36 @@ __all__ = [
 ]
 
 
+class SiteEmissions(BaseModel):
+    """One site's methane, split by whose waste produced it.
+
+    Each frame is years x the model's degradable components plus ``total``, in
+    **tons of methane per year** -- the same units and the same conversion
+    ``City.sum_landfill_emissions`` applies to the city's own figure, so the two
+    outputs can be read side by side.
+
+    ``city`` is the share the city's own headline total is built from; ``other``
+    is waste that reached the gate from outside the baseline, and is an all-zero
+    frame rather than ``None`` for the ordinary site, so no caller has to
+    special-case it.
+    """
+
+    city: pd.DataFrame
+    other: pd.DataFrame
+    total: pd.DataFrame
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 def residual_composition(
     residual: pd.DataFrame, generated: pd.DataFrame
 ) -> pd.DataFrame:
     """Per-year component shares of what the city is left to bury; rows sum to 1.
 
-    The mix the surplus is given, so that both streams at a site decay at the
-    same ``k`` -- see the module docstring on why that is not optional.
+    The mix the surplus is given. This is the single place that decision is
+    made, and the one function a later "a site states its own mix" PR replaces
+    -- nothing downstream of it assumes the two streams at a site agree, because
+    ``k`` is city-wide and they superpose whether they agree or not.
 
     Not the *generated* mix. Composting and anaerobic digestion draw only on
     organics and recycling only on recyclables, so the residual differs from
@@ -142,25 +178,46 @@ def adopt_city_params(source: Landfill, *surplus: Landfill) -> None:
     rebuilding it, is what makes them exactly equal: two streams at one site
     must agree on every non-mass parameter or they do not superpose, and an
     equality that has to be maintained by hand is one that will eventually drift.
+
+    Mirrors all three attributes ``repopulate_attr_dicts`` sets, not just the
+    first. The other two only exist once a landfill has run, which a surplus
+    stream has not yet -- but copying one of three is the kind of near-miss that
+    survives a refactor and then stops being harmless.
     """
     for landfill in surplus:
         landfill.city_params_dict = source.city_params_dict
+        if hasattr(landfill, "model"):
+            landfill.model.city_params_dict = source.city_params_dict
+            landfill.model.landfill_instance_attrs = landfill.model_dump()
+
+
+def require_linear(landfill: Landfill) -> None:
+    """Refuse to split a site whose emissions are not linear in deposited mass.
+
+    ``Landfill.doing_fancy_ox`` is hardcoded ``False`` and its body derives an
+    oxidation factor from one year's available methane and then clips it three
+    times -- genuinely nonlinear in mass. Everything here assumes it stays off:
+    with it on, two streams at a site stop superposing and "the city's share"
+    silently becomes an allocation convention rather than a measurement, with no
+    error and no visible symptom.
+
+    So this raises rather than warns, and it is a runtime check rather than a
+    test: the flag is an attribute anybody can set, and a test only fails for
+    whoever runs the suite.
+    """
+    if getattr(landfill, "doing_fancy_ox", False):
+        raise CustomError(
+            "nonlinear_oxidation",
+            "This site uses CALMIM oxidation, whose emissions are not linear in "
+            "deposited mass, so its waste cannot be split by source.",
+        )
 
 
 def emission_frames(
     city_stream: Landfill, surplus_stream: Optional[Landfill]
-) -> Dict[str, pd.DataFrame]:
-    """One site's emissions, split by whose waste produced them.
-
-    Returns ``{"city": frame, "other": frame, "total": frame}``, each indexed by
-    year with the model's degradable components plus ``total``, in **tons of
-    methane per year** -- the same units and the same conversion
-    ``City.sum_landfill_emissions`` applies to the city's own figure, so the two
-    outputs can be read side by side.
-
-    ``other`` is an all-zero frame rather than ``None`` for a site with no
-    outside waste, so a caller never has to special-case the ordinary site.
-    """
+) -> SiteEmissions:
+    """One site's emissions, split by whose waste produced them."""
+    require_linear(city_stream)
     city = _to_tons_ch4(city_stream.emissions)
 
     if surplus_stream is None or surplus_stream.emissions is None:
@@ -173,7 +230,7 @@ def emission_frames(
             index=city.index, columns=city.columns, fill_value=0.0
         )
 
-    return {"city": city, "other": other, "total": city + other}
+    return SiteEmissions(city=city, other=other, total=city + other)
 
 
 def _to_tons_ch4(emissions: pd.DataFrame) -> pd.DataFrame:

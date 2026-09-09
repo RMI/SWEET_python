@@ -26,12 +26,13 @@ after it is a mass-independent factor. Measured here at ~1e-16 relative. That is
 what makes "the city's share of this site's emissions" a physical quantity
 rather than an allocation convention someone had to invent.
 
-The linearity has one precondition and it is load-bearing: every stream at a
-site must share one ``k``. ``k`` is a step function of composition, so two
-streams at one landfill with different mixes do not superpose. Other-source
-waste therefore carries the city's own post-diversion residual composition --
-which is also the physically right answer, since a gate observation is
-downstream of whatever diversion happened upstream of it.
+Linearity needs the two streams to agree on every parameter but mass, which the
+implementation gets by building the surplus twin from the city stream's own
+kwargs. Composition is not one of those parameters: ``k`` is computed once from
+the city's generated mix and handed to every landfill, so a stream's own mix
+moves only its per-component masses. The surplus carries the city's
+post-diversion residual mix because that is the defensible reading of a gate
+observation, not because superposition would otherwise fail.
 """
 
 import numpy as np
@@ -165,7 +166,7 @@ def test_a_sites_emissions_split_into_the_city_and_the_rest():
     )
     site = result["site_emissions"]["baseline"][0]
 
-    city, other, total = _total(site["city"]), _total(site["other"]), _total(site["total"])
+    city, other, total = _total(site.city), _total(site.other), _total(site.total)
     residual = np.abs(total - (city + other))
     scale = np.where(total == 0, 1.0, total)
 
@@ -188,8 +189,8 @@ def test_the_city_contribution_is_what_the_city_alone_would_have_produced():
         with_site_emissions=True,
     )
 
-    a = _total(alone["site_emissions"]["baseline"][0]["city"])
-    b = _total(shared["site_emissions"]["baseline"][0]["city"])
+    a = _total(alone["site_emissions"]["baseline"][0].city)
+    b = _total(shared["site_emissions"]["baseline"][0].city)
     scale = np.where(a == 0, 1.0, a)
 
     assert np.max(np.abs(a - b) / scale) < 1e-12
@@ -201,8 +202,8 @@ def test_a_site_with_no_other_source_reports_a_total_equal_to_its_city_share():
     )
     site = result["site_emissions"]["baseline"][0]
 
-    assert np.allclose(_total(site["other"]), 0.0)
-    assert np.allclose(_total(site["total"]), _total(site["city"]), rtol=0, atol=1e-12)
+    assert np.allclose(_total(site.other), 0.0)
+    assert np.allclose(_total(site.total), _total(site.city), rtol=0, atol=1e-12)
 
 
 def test_the_city_shares_of_every_site_add_up_to_the_city_total():
@@ -216,7 +217,7 @@ def test_the_city_shares_of_every_site_add_up_to_the_city_total():
     result = run_advanced_dst_city(request, with_site_emissions=True)
 
     per_site = sum(
-        _total(site["city"]) for site in result["site_emissions"]["baseline"]
+        _total(site.city) for site in result["site_emissions"]["baseline"]
     )
     city_total = _total(result["baseline"])
 
@@ -248,7 +249,7 @@ def test_the_city_share_is_not_this_years_tonnage_ratio():
         with_site_emissions=True,
     )
     site = result["site_emissions"]["baseline"][0]
-    city, total = _total(site["city"]), _total(site["total"])
+    city, total = _total(site.city), _total(site.total)
 
     settled = total > 0.01 * total.max()
     emission_share = (city / np.where(total == 0, 1.0, total))[settled]
@@ -265,3 +266,78 @@ def test_the_city_share_is_not_this_years_tonnage_ratio():
         "static to be a regression guard, or attribution has been reduced to a ratio"
     )
     assert np.all(emission_share[-10:] > mass_share[-10:])
+
+
+# --------------------------------------------------------------------------- #
+# Assumptions the rest of the engine is entitled to keep making
+# --------------------------------------------------------------------------- #
+
+def test_no_surplus_emits_exactly_zero():
+    """`==`, not `approx`. E(0) is exactly 0.0, so any residual is a bug."""
+    result = run_advanced_dst_city(
+        _request([_spec(accepted={y: 0.0 for y in YEARS})], (1.0,)),
+        with_site_emissions=True,
+    )
+
+    assert (_total(result["site_emissions"]["baseline"][0].other) == 0.0).all()
+
+
+def test_the_mass_flows_sites_band_is_still_only_the_city():
+    """`sum(sites) == landfilled` is asserted in eleven places elsewhere.
+
+    The band reports where the *city's* waste went, and other-source waste is
+    not the city's. Folding it in here would be the easy mistake, and it would
+    break the one identity the mass flow exists to keep.
+    """
+    plain = run_advanced_dst_city(_request([_spec()], (1.0,)), with_mass_flow=True)
+    with_other = run_advanced_dst_city(
+        _request([_spec(accepted=GATE_WITH_NEIGHBOUR)], (1.0,)), with_mass_flow=True
+    )
+
+    for variant in ("baseline", "scenario"):
+        a = plain["mass_flow"][variant]
+        b = with_other["mass_flow"][variant]
+        assert a["sites"][0].equals(b["sites"][0])
+        assert a["landfilled"].equals(b["landfilled"])
+
+
+def test_a_combusting_site_burns_everything_it_accepts():
+    """The surplus meets the same furnace the city's waste does.
+
+    Compared at the gate but deposited after the burn, so a site stated at
+    150,000 t buries the reject of 150,000 t -- not 150,000 t of residue.
+    """
+    burning = run_advanced_dst_city(
+        _request(
+            [_spec(accepted=GATE_WITH_NEIGHBOUR, combusts=True)],
+            (1.0,),
+            diversion=0.25,
+        ),
+        with_site_emissions=True,
+    )
+    depositing = run_advanced_dst_city(
+        _request([_spec(accepted=GATE_WITH_NEIGHBOUR)], (1.0,), diversion=0.25),
+        with_site_emissions=True,
+    )
+
+    burnt = _total(burning["site_emissions"]["baseline"][0].other)
+    kept = _total(depositing["site_emissions"]["baseline"][0].other)
+
+    assert burnt.sum() > 0, "an incinerator's residue still decays"
+    # The unburnable reject is 10%, the same rate the combustion pathway uses.
+    assert burnt.sum() == pytest.approx(kept.sum() * 0.1, rel=1e-9)
+
+
+def test_the_limits_endpoint_ignores_the_new_field():
+    """Bounds are about what the city generates, which a gate total says
+    nothing about."""
+    from SWEET_python.advanced_dst_city import run_advanced_dst_city_limits
+
+    plain = run_advanced_dst_city_limits(_request([_spec()], (1.0,)))
+    with_other = run_advanced_dst_city_limits(
+        _request([_spec(accepted=GATE_WITH_NEIGHBOUR)], (1.0,))
+    )
+
+    assert plain.keys() == with_other.keys()
+    for variant in plain:
+        assert str(plain[variant]) == str(with_other[variant])
