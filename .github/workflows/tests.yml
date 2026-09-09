@@ -1,0 +1,64 @@
+name: Tests
+
+# Both events, deliberately: a branch pushed here often has no pull request yet,
+# because the usual workflow is to push a SWEET_python branch alongside a
+# same-named WasteMAP branch (WasteMAP's CI installs the matching branch) and open
+# the PRs later. `pull_request` on top of that covers forks. The cost is that a
+# branch with an open PR in this repo runs the suite twice for the same commit,
+# which is cheap here — the whole suite is a few seconds.
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fast:
+    name: Fast tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          # 3.12 is what WasteMAP's CI and deploy images run, which is where this
+          # package actually executes. The code itself needs 3.10+ (PEP 604 `X | Y`
+          # annotations), so it is not a floor imposed by this workflow.
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install libpq headers
+        # psycopg2 (not psycopg2-binary) publishes no manylinux wheel, so pip
+        # builds it from source and needs pg_config, which libpq-dev provides.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # The pinned lockfile — reproducible installs are what requirements.txt
+          # exists for; requirements.in holds the abstract deps consumers get.
+          pip install -r requirements.txt
+          # Bounded rather than pinned: minor/patch pytest releases are welcome,
+          # a major one should not break CI on a day nobody touched the model.
+          pip install "pytest>=8,<10"
+          # Editable, --no-deps: makes `import SWEET_python` resolve to this
+          # checkout without re-resolving what requirements.txt just pinned, and
+          # exercises setup.py's packaging on the way.
+          pip install --no-deps -e .
+
+      - name: Run fast tests
+        # Tests needing a live database or the network are marked `integration`
+        # and excluded here, mirroring how WasteMAP splits backend/tests/fast from
+        # backend/tests/integration. This repo has none yet: the whole suite is
+        # hermetic. When the first one lands, give it a job of its own instead of
+        # attaching a database to this one.
+        run: pytest -m "not integration" --verbose
