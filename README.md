@@ -15,9 +15,17 @@ The test suite lives in `tests/` and runs with pytest:
 
 ```
 pip install -r requirements.txt "pytest>=8,<10"
-pip install -e .
+pip install --no-deps -e .
 pytest
 ```
+
+`--no-deps` on the editable install is the point of the two lines above it:
+`setup.py`'s `install_requires` comes from `requirements.in`, the abstract deps,
+so without it pip re-resolves what `requirements.txt` just pinned and the local
+environment stops matching CI. The install step in
+`.github/workflows/tests.yml` is the same three commands for the same reason.
+(The `pip install -e .` in Installation above has no lockfile to protect and
+should resolve its dependencies.)
 
 Every test in the suite is hermetic — no database, no network, no environment
 variables — and the whole thing takes a few seconds.
