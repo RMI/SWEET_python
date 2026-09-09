@@ -50,7 +50,7 @@ IMPLEMENT_YEAR = 2025
 GENERATED = 100_000.0
 
 
-def _spec(*, open_close=(1990, 2051), other=None, combusts=None):
+def _spec(*, open_close=(1990, 2051), accepted=None, combusts=None):
     spec = dict(
         landfill_type={"baseline": 2, "scenario": 2},
         landfill_open_close={"baseline": list(open_close), "scenario": list(open_close)},
@@ -59,8 +59,8 @@ def _spec(*, open_close=(1990, 2051), other=None, combusts=None):
             "scenario": {y: 0.0 for y in YEARS},
         },
     )
-    if other is not None:
-        spec["other_source_mass"] = {"baseline": dict(other), "scenario": dict(other)}
+    if accepted is not None:
+        spec["accepted_waste_mass"] = {"baseline": dict(accepted), "scenario": dict(accepted)}
     if combusts is not None:
         spec["combusts"] = {"baseline": combusts, "scenario": combusts}
     return spec
@@ -100,11 +100,16 @@ def _total(frame):
     return np.asarray(frame["total"], dtype=float)
 
 
-# A neighbour whose tonnage RISES while the city's stays flat, so the city's
-# share of the site falls over time. Any attribution built on a same-year ratio
-# gets this case badly wrong; see the last test.
-RISING_NEIGHBOUR = {y: 3_000.0 * (1.05 ** (y - 1990)) for y in YEARS}
-FLAT_NEIGHBOUR = {y: 25_000.0 for y in YEARS}
+# `accepted_waste_mass` is the whole gate total, not the neighbour's share of
+# it, so every fixture here has to clear whatever the city sends. With 25%
+# composted the city buries ~78,154 t/yr of its 100,000 t; a site taking the
+# city's entire residual and 100,000 t is therefore comfortably over.
+GATE_WITH_NEIGHBOUR = {y: 100_000.0 for y in YEARS}
+
+# A gate total that GROWS away from the city's flat allocation, so the city's
+# share of the site falls year on year. Any attribution built on a same-year
+# tonnage ratio gets this case badly wrong; see the last test.
+GATE_GROWING = {y: 100_000.0 + 3_000.0 * (1.05 ** (y - 1990)) for y in YEARS}
 
 
 # --------------------------------------------------------------------------- #
@@ -115,7 +120,7 @@ def test_other_source_waste_does_not_change_the_city_total():
     """The whole feature, in one assertion. Bit-identical, not merely close."""
     without = run_advanced_dst_city(_request([_spec()], (1.0,), diversion=0.25))
     with_other = run_advanced_dst_city(
-        _request([_spec(other=FLAT_NEIGHBOUR)], (1.0,), diversion=0.25)
+        _request([_spec(accepted=GATE_WITH_NEIGHBOUR)], (1.0,), diversion=0.25)
     )
 
     for variant in ("baseline", "scenario"):
@@ -128,7 +133,7 @@ def test_an_absent_field_and_a_zero_series_are_the_same_request():
     """No silent second code path for the city that never uses this."""
     absent = run_advanced_dst_city(_request([_spec()], (1.0,), diversion=0.25))
     zeros = run_advanced_dst_city(
-        _request([_spec(other={y: 0.0 for y in YEARS})], (1.0,), diversion=0.25)
+        _request([_spec(accepted={y: 0.0 for y in YEARS})], (1.0,), diversion=0.25)
     )
 
     for variant in ("baseline", "scenario"):
@@ -145,7 +150,7 @@ def test_site_shares_still_have_to_sum_to_one():
 
     with pytest.raises(CustomError):
         run_advanced_dst_city(
-            _request([_spec(other=FLAT_NEIGHBOUR), _spec()], (0.5, 0.2))
+            _request([_spec(accepted=GATE_WITH_NEIGHBOUR), _spec()], (0.5, 0.2))
         )
 
 
@@ -155,7 +160,7 @@ def test_site_shares_still_have_to_sum_to_one():
 
 def test_a_sites_emissions_split_into_the_city_and_the_rest():
     result = run_advanced_dst_city(
-        _request([_spec(other=FLAT_NEIGHBOUR)], (1.0,), diversion=0.25),
+        _request([_spec(accepted=GATE_WITH_NEIGHBOUR)], (1.0,), diversion=0.25),
         with_site_emissions=True,
     )
     site = result["site_emissions"]["baseline"][0]
@@ -179,7 +184,7 @@ def test_the_city_contribution_is_what_the_city_alone_would_have_produced():
         _request([_spec()], (1.0,), diversion=0.25), with_site_emissions=True
     )
     shared = run_advanced_dst_city(
-        _request([_spec(other=FLAT_NEIGHBOUR)], (1.0,), diversion=0.25),
+        _request([_spec(accepted=GATE_WITH_NEIGHBOUR)], (1.0,), diversion=0.25),
         with_site_emissions=True,
     )
 
@@ -204,7 +209,7 @@ def test_the_city_shares_of_every_site_add_up_to_the_city_total():
     """The two outputs reconcile: city emissions are the per-site city shares
     plus whatever the diversion pathways themselves emit."""
     request = _request(
-        [_spec(other=FLAT_NEIGHBOUR), _spec(other=RISING_NEIGHBOUR)],
+        [_spec(accepted=GATE_WITH_NEIGHBOUR), _spec(accepted=GATE_GROWING)],
         (0.6, 0.4),
         diversion=0.25,
     )
@@ -239,7 +244,7 @@ def test_the_city_share_is_not_this_years_tonnage_ratio():
     This test fails if someone replaces that with the ratio.
     """
     result = run_advanced_dst_city(
-        _request([_spec(other=RISING_NEIGHBOUR)], (1.0,), diversion=0.0),
+        _request([_spec(accepted=GATE_GROWING)], (1.0,), diversion=0.0),
         with_site_emissions=True,
     )
     site = result["site_emissions"]["baseline"][0]
@@ -248,8 +253,10 @@ def test_the_city_share_is_not_this_years_tonnage_ratio():
     settled = total > 0.01 * total.max()
     emission_share = (city / np.where(total == 0, 1.0, total))[settled]
 
+    # No diversion in this run, so the city's allocation is its whole stream.
     city_tons = np.array([GENERATED for _ in YEARS])
-    mass_share = (city_tons / (city_tons + np.array([RISING_NEIGHBOUR[y] for y in YEARS])))[settled]
+    gate_tons = np.array([GATE_GROWING[y] for y in YEARS])
+    mass_share = (city_tons / gate_tons)[settled]
 
     # The two shares must visibly disagree: emissions lag mass, so a shrinking
     # city holds a larger share of the emissions than of this year's intake.

@@ -48,6 +48,7 @@ import SWEET_python.defaults_2019 as defaults_2019
 from SWEET_python.city_params import City, CityParameters, CustomError
 from SWEET_python.class_defs import DivsDF, LandfillType, LandfillWasteMassDF, Variant
 from SWEET_python import dst_common as common
+from SWEET_python import site_inflow
 from SWEET_python.dst_common import YearlyFloat, YearlyFractions
 
 __all__ = ["AdvancedDSTCityRequest", "CityLandfillSpec", "run_advanced_dst_city"]
@@ -104,6 +105,28 @@ class CityLandfillSpec(BaseModel):
             "incineration handling, where a waste-to-energy site combusts 100% "
             "of its intake for every year it is open and the 10% reject is what "
             "decays."
+        ),
+    )
+    accepted_waste_mass: Optional[Variant[YearlyFloat]] = Field(
+        None,
+        description=(
+            "Total waste crossing this site's weighbridge each year, in tons, "
+            "from every source -- a fact measured at the gate rather than a "
+            "share of anything. Omit (the default) and the site receives "
+            "exactly the city's allocation, which is the existing behaviour.\n\n"
+            "This does not replace ``landfill_split_timeline``, which still "
+            "divides the city's own landfilled waste across the city's sites "
+            "and must still sum to ~1 per year. Whatever this figure exceeds "
+            "the city's allocation is modeled as a second stream arriving from "
+            "outside the baseline: it carries the city's post-diversion "
+            "residual composition, and is combusted and windowed on exactly the "
+            "same terms as the city's stream, because it is the same hole in "
+            "the ground.\n\n"
+            "It never changes the city's own emissions -- a city answers for "
+            "the waste it generates, wherever that waste goes. A figure *below* "
+            "the city's allocation is read as 'no waste from outside', not as a "
+            "reduction of the city's; see ``site_inflow.surplus_intake``. Ask "
+            "for the split with ``with_site_emissions=True``."
         ),
     )
 
@@ -852,7 +875,10 @@ def run_advanced_dst_city_limits(
 # Public entry point
 # --------------------------------------------------------------------------- #
 def run_advanced_dst_city(
-    request: AdvancedDSTCityRequest, *, with_mass_flow: bool = False
+    request: AdvancedDSTCityRequest,
+    *,
+    with_mass_flow: bool = False,
+    with_site_emissions: bool = False,
 ) -> dict:
     """Run the city-level advanced DST.
 
@@ -872,6 +898,17 @@ def run_advanced_dst_city(
     *show* the mass flow should read it from here rather than reimplementing the
     diversion split, which is per waste type and does not survive being
     approximated as a scalar on the total.
+
+    With ``with_site_emissions=True`` the result carries a ``"site_emissions"``
+    key: per variant, one entry per landfill in request order, each
+    ``{"city", "other", "total"}`` in tons of methane per year. ``city`` is the
+    methane this city's waste produced at that site and is what the city's own
+    total is built from; ``other`` is what waste from outside the baseline
+    produced there (see ``CityLandfillSpec.accepted_waste_mass``), and is zero
+    for a site that only takes the city's waste. They are two independent passes
+    through the decay kernel, summed -- never a ratio applied to one of them,
+    which is wrong by tens of percent wherever the city's share of a site moves
+    over time. Asking for them changes no emissions.
     """
     implement_year = int(request.implement_year)
 
@@ -965,6 +1002,15 @@ def run_advanced_dst_city(
             )
         net_masses[label] = wgen.sub(divs.sum(), fill_value=0.0)
 
+    # The mix the city is left to bury, as per-year component shares. Any waste
+    # arriving at a site from outside the baseline is given this same mix, so
+    # that both streams at a site decay at one `k` and therefore superpose --
+    # see `site_inflow` for why that is load-bearing rather than tidy.
+    residual_mix = {
+        "baseline": site_inflow.residual_composition(net_masses["baseline"], wgen_baseline),
+        "scenario": site_inflow.residual_composition(net_masses["scenario"], wgen_scenario),
+    }
+
     # --- City-wide decomposition rates + compost emission factors ---
     ref_year = min(max(implement_year, int(years.min())), int(years.max()))
     ks_baseline, ks_scenario = common.decomposition_rates(
@@ -1024,6 +1070,15 @@ def run_advanced_dst_city(
     scenario_masses: List[pd.DataFrame] = []
     baseline_ox: List[pd.Series] = []
     scenario_ox: List[pd.Series] = []
+    # One entry per site, `None` where the site takes only the city's waste.
+    # Deliberately kept out of `*_parameters.landfills`: that list is what
+    # `City.sum_landfill_emissions` sums, and a city does not answer for a
+    # neighbour's waste. Keeping these out of it is the whole reason the city's
+    # total is bit-identical rather than merely close.
+    baseline_surplus: List[Optional[object]] = []
+    scenario_surplus: List[Optional[object]] = []
+    baseline_surplus_masses: List[Optional[pd.DataFrame]] = []
+    scenario_surplus_masses: List[Optional[pd.DataFrame]] = []
 
     for index, spec in enumerate(request.landfills):
         base_type = int(spec.landfill_type["baseline"])
@@ -1064,6 +1119,24 @@ def run_advanced_dst_city(
         # Net-of-diversion city waste, scaled to this landfill's per-year share.
         mass_base = LandfillWasteMassDF.create_advanced(wgen_baseline, divs_baseline, share_base.copy()).df
         mass_scen = LandfillWasteMassDF.create_advanced(wgen_scenario, divs_scenario, share_scen.copy()).df
+
+        # What the city sends here, at the gate -- read before the combustion
+        # and window lines below, because a stated gate total is measured at the
+        # weighbridge and a site that burns its intake still accepted all of it.
+        surplus_base_masses = surplus_scen_masses = None
+        if spec.accepted_waste_mass is not None:
+            accepted_base, accepted_scen = common.variant_series(
+                spec.accepted_waste_mass, years, implement_year, default=0.0
+            )
+            surplus_base_masses = site_inflow.surplus_masses(
+                site_inflow.surplus_intake(accepted_base, mass_base.sum(axis=1)),
+                residual_mix["baseline"],
+            )
+            surplus_scen_masses = site_inflow.surplus_masses(
+                site_inflow.surplus_intake(accepted_scen, mass_scen.sum(axis=1)),
+                residual_mix["scenario"],
+            )
+
         # A combusting facility burns its intake and deposits only the reject.
         # Scaled per variant here, ahead of both the window and the pre-implement
         # splice below, so a site that starts combusting at implement_year keeps
@@ -1082,13 +1155,41 @@ def run_advanced_dst_city(
         baseline_masses.append(mass_base)
         scenario_masses.append(mass_scen)
 
-        baseline_landfills.append(common.build_landfill(
+        # The surplus is the same waste in the same hole, so it takes the same
+        # three transformations in the same order. Anything else and the two
+        # streams disagree at a boundary -- a closure year, an implement year,
+        # the year a site starts burning -- which is exactly where a reader
+        # would notice and could not explain it.
+        if surplus_base_masses is not None:
+            surplus_base_masses = surplus_base_masses * _deposited_share(base_combusts, city)
+            surplus_scen_masses = surplus_scen_masses * _deposited_share(scen_combusts, city)
+            surplus_base_masses = common.apply_window(surplus_base_masses, b_open, b_close)
+            surplus_scen_masses = common.apply_window(surplus_scen_masses, s_open, s_close)
+            surplus_scen_masses.loc[: implement_year - 1, :] = surplus_base_masses.loc[
+                : implement_year - 1, :
+            ]
+            # A stated total at or below the city's allocation in every year
+            # leaves nothing to model, and running the kernel on an all-zero
+            # frame would only produce an all-zero frame.
+            if not (
+                surplus_base_masses.to_numpy().any() or surplus_scen_masses.to_numpy().any()
+            ):
+                surplus_base_masses = surplus_scen_masses = None
+        baseline_surplus_masses.append(surplus_base_masses)
+        scenario_surplus_masses.append(surplus_scen_masses)
+
+        # Lifted into a dict so the surplus stream below is built from the very
+        # same arguments rather than a copy of them that has to be kept in step:
+        # two streams at one site must agree on every parameter but their mass,
+        # or they decay differently and stop adding up to the site.
+        base_landfill_kwargs = dict(
             open_year=b_open, close_year=b_close, site_type_idx=base_type,
             mcf=mcf_base, gas_capture_efficiency=gas_base, flaring=flare_base,
             oxidation_factor=ox_base, ks=ks_baseline, city_params_dict=baseline_params_dict,
             city_instance_attrs=city_instance_attrs, implement_year=implement_year,
             scenario=0, landfill_index=index,
-        ))
+        )
+        baseline_landfills.append(common.build_landfill(**base_landfill_kwargs))
         # The model evaluates from `open_date` onward (`model_v2.estimate_emissions2`
         # builds its year range from it), so the scenario has to start wherever
         # its mass frame can first be nonzero -- and the splice above puts
@@ -1098,13 +1199,29 @@ def run_advanced_dst_city(
         # the scenario's emissions frame entirely, leaving the two halves a
         # different shape for a caller trying to subtract them.
         scenario_open_for_model = min(b_open, s_open)
-        scenario_landfills.append(common.build_landfill(
+        scen_landfill_kwargs = dict(
             open_year=scenario_open_for_model, close_year=s_close, site_type_idx=scen_type,
             mcf=mcf_scen, gas_capture_efficiency=gas_scen, flaring=flare_scen,
             oxidation_factor=ox_scen, ks=ks_scenario, city_params_dict=scenario_params_dict,
             city_instance_attrs=city_instance_attrs, implement_year=implement_year,
             scenario=1, landfill_index=index,
-        ))
+        )
+        scenario_landfills.append(common.build_landfill(**scen_landfill_kwargs))
+
+        # The surplus twin. Same open year above all else: `model_v2` builds its
+        # year range from `open_date`, so a twin opened anywhere else returns a
+        # differently indexed frame and the site total silently gains NaNs where
+        # the two failed to line up.
+        baseline_surplus.append(
+            common.build_landfill(**base_landfill_kwargs)
+            if surplus_base_masses is not None
+            else None
+        )
+        scenario_surplus.append(
+            common.build_landfill(**scen_landfill_kwargs)
+            if surplus_scen_masses is not None
+            else None
+        )
 
     # --- Wire up and run the engine ---
     baseline_parameters.landfills = baseline_landfills
@@ -1120,6 +1237,21 @@ def run_advanced_dst_city(
         landfill.waste_mass_df = mass
         landfill.oxidation_factor = ox
         landfill.estimate_emissions(skip_ox=True)
+
+    # The surplus streams, run the same way -- but only after
+    # `repopulate_attr_dicts` above has settled the city's parameter dict, which
+    # these never receive because they are not in `parameters.landfills`.
+    for streams, landfills, masses, oxidations in (
+        (baseline_surplus, baseline_landfills, baseline_surplus_masses, baseline_ox),
+        (scenario_surplus, scenario_landfills, scenario_surplus_masses, scenario_ox),
+    ):
+        for surplus, city_stream, mass, ox in zip(streams, landfills, masses, oxidations):
+            if surplus is None:
+                continue
+            site_inflow.adopt_city_params(city_stream, surplus)
+            surplus.waste_mass_df = mass
+            surplus.oxidation_factor = ox
+            surplus.estimate_emissions(skip_ox=True)
 
     city.baseline_parameters = baseline_parameters
     city.scenario_parameters[0] = scenario_parameters
@@ -1144,6 +1276,17 @@ def run_advanced_dst_city(
         "baseline": baseline_parameters.total_emissions,
         "scenario": scenario_parameters.total_emissions,
     }
+    if with_site_emissions:
+        result["site_emissions"] = {
+            "baseline": [
+                site_inflow.emission_frames(city_stream, surplus)
+                for city_stream, surplus in zip(baseline_landfills, baseline_surplus)
+            ],
+            "scenario": [
+                site_inflow.emission_frames(city_stream, surplus)
+                for city_stream, surplus in zip(scenario_landfills, scenario_surplus)
+            ],
+        }
     if with_mass_flow:
         result["mass_flow"] = {
             "baseline": _mass_flow(
