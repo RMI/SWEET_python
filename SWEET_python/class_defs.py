@@ -396,20 +396,23 @@ class DivsDF(BaseModel):
             .union(self.recycling.columns)
         )
 
-        # Reindex and fill missing values, then infer object types
+        # Reindex each stream to the union of columns, then fill the gaps with 0.
+        #
+        # infer_objects() is not here for the reindex: columns that reindex adds
+        # always arrive as float64 NaN, whatever the source dtypes. It is here for
+        # an input frame that already carries its numbers in an object column
+        # (a Series built from None, a value that arrived boxed), where a bare
+        # fillna(0) would leave the column object-dtyped and the summed frame
+        # would inherit that. It is a no-op on the float64 frames this repo
+        # builds, and cheap insurance on the ones callers hand in.
+        #
+        # No copy= keyword: it has been ignored since pandas 3.0 made
+        # Copy-on-Write unconditional, and passing it is deprecated for removal.
         divs_list = [
-            self.compost.reindex(columns=all_columns)
-            .infer_objects(copy=False)
-            .fillna(0),
-            self.anaerobic.reindex(columns=all_columns)
-            .infer_objects(copy=False)
-            .fillna(0),
-            self.combustion.reindex(columns=all_columns)
-            .infer_objects(copy=False)
-            .fillna(0),
-            self.recycling.reindex(columns=all_columns)
-            .infer_objects(copy=False)
-            .fillna(0),
+            self.compost.reindex(columns=all_columns).infer_objects().fillna(0),
+            self.anaerobic.reindex(columns=all_columns).infer_objects().fillna(0),
+            self.combustion.reindex(columns=all_columns).infer_objects().fillna(0),
+            self.recycling.reindex(columns=all_columns).infer_objects().fillna(0),
         ]
 
         return sum(divs_list)
