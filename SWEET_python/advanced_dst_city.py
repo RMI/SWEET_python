@@ -232,12 +232,13 @@ def _mass_flow(
     the total quietly composts metal and glass.
 
     ``sites`` is per landfill in request order, already windowed by each one's
-    open/close years. Those totals do NOT always sum to ``landfilled``: a year
-    in which some share is allocated to a closed landfill loses that mass, since
-    the split timeline is honoured as submitted rather than renormalized over
-    whichever landfills happen to be open. The gap is reported rather than
-    hidden — ``landfilled`` is what the city disposed of, ``sites`` is what
-    arrived somewhere.
+    open/close years. It sums to ``landfilled`` in every year that has at least
+    one open landfill, because the split is renormalized over whichever ones are
+    accepting waste (see ``_renormalize_over_open``). The one case where the two
+    differ is a year with *no* landfill open at all: that city's post-diversion
+    waste has nowhere to go, and the gap is reported rather than hidden —
+    ``landfilled`` is what the city disposed of, ``sites`` is what arrived
+    somewhere.
     """
     def shaped(frame: pd.DataFrame) -> pd.DataFrame:
         """All ten components, in one order, zero-filled.
@@ -416,10 +417,110 @@ def _deposited_share(combusts: bool, city: City) -> float:
     return float(city.combustion_reject_rate) if combusts else 1.0
 
 
-def _validate_shares(shares: List[pd.Series], years: pd.Index, label: str) -> None:
-    """Each year's landfill shares should sum to ~1 (all net waste is landfilled somewhere)."""
-    total = sum(shares)
-    bad = total[(total < 1.0 - SHARE_SUM_TOLERANCE) | (total > 1.0 + SHARE_SUM_TOLERANCE)]
+def _accepting_windows(
+    request: "AdvancedDSTCityRequest", variant: str
+) -> List[tuple[int, int]]:
+    """Each landfill's (open, close) pair for one variant, in request order."""
+    windows = []
+    for spec in request.landfills:
+        dates = spec.landfill_open_close["baseline"]
+        if variant == "scenario":
+            dates = spec.landfill_open_close["scenario"] or dates
+        windows.append((int(dates[0]), int(dates[1])))
+    return windows
+
+
+def _accepting_mask(
+    windows: List[tuple[int, int]], columns: pd.Index, years: pd.Index
+) -> pd.DataFrame:
+    """years x landfill booleans: is this landfill accepting waste this year?
+
+    Intake runs ``[open, close)`` — a closure year is not an intake year, see
+    ``common.apply_window`` — clipped into the modeled window. A landfill that
+    closes the year it opens never accepts anything.
+    """
+    accepting = pd.DataFrame(False, index=years, columns=columns)
+    first, last = int(years.min()), int(years.max())
+    for column, (open_year, close_year) in zip(columns, windows):
+        lower, upper = max(int(open_year), first), min(int(close_year) - 1, last)
+        if lower <= upper:
+            accepting.loc[lower:upper, column] = True
+    return accepting
+
+
+def _renormalize_over_open(
+    split: pd.DataFrame, accepting: pd.DataFrame
+) -> pd.DataFrame:
+    """Redistribute each year's shares across the landfills actually accepting waste.
+
+    The split says how the landfilled stream divides across landfills, but a
+    landfill only accepts waste inside its own window — and a closure year is
+    not an intake year (see ``common.apply_window``). A share pointed at a
+    landfill that is shut is not a share of anything: the mass used to be scaled
+    onto it and then zeroed by the window, so it left the model altogether. The
+    shares are meant to account for *all* the post-diversion waste, so they are
+    gated to the open landfills and renormalized over them.
+
+    A year in which no landfill is open renormalizes to all zeros rather than
+    raising. That city has nowhere to put its waste, which is a real thing for a
+    single-site city past its site's closure, and the mass flow reports it as
+    ``sites`` falling short of ``landfilled`` — the honest description of waste
+    with no destination, and now the only way that gap can arise.
+
+    A caller that already zeroes shut landfills and normalizes over the rest
+    gets its own numbers back untouched.
+    """
+    gated = split.where(accepting, 0.0)
+    totals = gated.sum(axis=1)
+    somewhere_open = totals > 0
+
+    renormalized = gated.copy()
+    renormalized.loc[somewhere_open] = gated.loc[somewhere_open].div(
+        totals[somewhere_open], axis=0
+    )
+    renormalized.loc[~somewhere_open] = 0.0
+    return renormalized
+
+
+def _validate_shares(split: pd.DataFrame, accepting: pd.DataFrame, label: str) -> None:
+    """Each year's landfill shares must be fractions, and must sum to ~1.
+
+    Checked on what the caller submitted, before the shares are renormalized over
+    the open landfills — afterwards every year sums to exactly 1 or exactly 0 by
+    construction, so checking it there would only confirm our own arithmetic.
+
+    Summing to one is not on its own enough to make a row a split. Each share is
+    a fraction of the landfilled stream, so it has to lie in [0, 1]: the row
+    ``[-0.5, 1.5]`` sums to exactly 1 and passes any sum check, then scales a
+    *negative* mass onto the first landfill and buries it there. Nothing
+    downstream rejects that — ``LandfillWasteMassDF.create_advanced``
+    multiplies straight through, and the ``over_diversion`` guard measures the
+    city's residual before the split — so it is checked here or not at all.
+
+    A year in which no landfill is open at all is exempt: there is nowhere for
+    that waste to go, so no set of shares can account for it, and whatever was
+    submitted is discarded either way.
+    """
+    somewhere_open_rows = accepting.any(axis=1)
+    checked = split.loc[somewhere_open_rows]
+    out_of_range = (checked < -SHARE_SUM_TOLERANCE) | (
+        checked > 1.0 + SHARE_SUM_TOLERANCE
+    )
+    if bool(out_of_range.to_numpy().any()):
+        rows = out_of_range.any(axis=1)
+        first_year = int(rows[rows].index[0])
+        column = int(out_of_range.loc[first_year].idxmax())
+        raise CustomError(
+            "invalid_parameters",
+            f"{label} landfill waste_share fractions must each be between 0 and 1 "
+            f"(year {first_year}, landfill {column} is "
+            f"{float(checked.loc[first_year, column]):.3f}).",
+        )
+
+    total = split.sum(axis=1)
+    somewhere_open = accepting.any(axis=1)
+    off = (total < 1.0 - SHARE_SUM_TOLERANCE) | (total > 1.0 + SHARE_SUM_TOLERANCE)
+    bad = total[off & somewhere_open]
     if not bad.empty:
         first_year = int(bad.index[0])
         raise CustomError(
@@ -555,8 +656,30 @@ def run_advanced_dst_city(
     scenario_timeline = request.landfill_split_timeline["scenario"] or baseline_timeline
     baseline_split = _split_timeline_to_df(baseline_timeline, years, n_landfills)
     scenario_split = _split_timeline_to_df(scenario_timeline, years, n_landfills)
-    # Scenario tracks baseline before changes take effect.
+
+    # Each variant is gated on its own open/close years -- a `siteClosure`
+    # intervention can move them -- then validated as submitted and renormalized
+    # over whatever is actually accepting waste.
+    baseline_accepting = _accepting_mask(
+        _accepting_windows(request, "baseline"), baseline_split.columns, years
+    )
+    scenario_accepting = _accepting_mask(
+        _accepting_windows(request, "scenario"), scenario_split.columns, years
+    )
+    # Scenario tracks baseline before changes take effect, and the splice comes
+    # first so that validation and renormalization both act on the shares the
+    # model will actually use. Ordered the other way round, a caller was
+    # rejected for a pre-implement scenario row this line then discarded --
+    # while the pre-implement renormalization it had just done was overwritten
+    # regardless, so only the error was observable.
     scenario_split.loc[: implement_year - 1, :] = baseline_split.loc[: implement_year - 1, :]
+    scenario_accepting.loc[: implement_year - 1, :] = baseline_accepting.loc[
+        : implement_year - 1, :
+    ]
+    _validate_shares(baseline_split, baseline_accepting, "baseline")
+    _validate_shares(scenario_split, scenario_accepting, "scenario")
+    baseline_split = _renormalize_over_open(baseline_split, baseline_accepting)
+    scenario_split = _renormalize_over_open(scenario_split, scenario_accepting)
 
     # --- Build a landfill (baseline + scenario) per spec ---
     baseline_landfills: List = []
@@ -565,8 +688,6 @@ def run_advanced_dst_city(
     scenario_masses: List[pd.DataFrame] = []
     baseline_ox: List[pd.Series] = []
     scenario_ox: List[pd.Series] = []
-    baseline_shares: List[pd.Series] = []
-    scenario_shares: List[pd.Series] = []
 
     for index, spec in enumerate(request.landfills):
         base_type = int(spec.landfill_type["baseline"])
@@ -587,8 +708,6 @@ def run_advanced_dst_city(
         bio_base, bio_scen = common.variant_series(spec.biocover, years, implement_year, default=0.0)
         share_base = baseline_split[index]
         share_scen = scenario_split[index]
-        baseline_shares.append(share_base)
-        scenario_shares.append(share_scen)
 
         base_combusts = bool(common.variant_get(spec.combusts, "baseline") or False)
         scen_combusts = bool(common.variant_get(spec.combusts, "scenario") or False)
@@ -635,9 +754,6 @@ def run_advanced_dst_city(
             city_instance_attrs=city_instance_attrs, implement_year=implement_year,
             scenario=1, landfill_index=index,
         ))
-
-    _validate_shares(baseline_shares, years, "baseline")
-    _validate_shares(scenario_shares, years, "scenario")
 
     # --- Wire up and run the engine ---
     baseline_parameters.landfills = baseline_landfills

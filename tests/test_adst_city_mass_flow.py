@@ -17,7 +17,7 @@ The bands are ``generated`` (per component, before prevention), ``prevented``,
 ``diverted`` (per pathway per component, net of rejects), ``landfilled`` (the
 residual) and ``sites`` (per landfill, in request order, windowed by open/close).
 They balance per component per year, with one deliberate exception that
-``test_mass_allocated_to_a_closed_site_...`` pins.
+``test_the_only_gap_left_is_a_year_with_nowhere_to_put_the_waste`` pins.
 """
 
 import pandas as pd
@@ -29,6 +29,7 @@ from SWEET_python.advanced_dst_city import (
     AdvancedDSTCityRequest,
     run_advanced_dst_city,
 )
+from SWEET_python.city_params import CustomError
 
 YEARS = range(2000, 2051)
 # Food-heavy so food-waste prevention has something to bite on. Sums to 1.0.
@@ -253,17 +254,15 @@ def test_a_site_receives_nothing_in_a_year_it_is_closed():
     assert float(closed.loc[AFTER]) == pytest.approx(0.0), "closed sites take nothing"
 
 
-def test_mass_allocated_to_a_closed_site_is_a_reported_gap_not_a_silent_reallocation():
-    """`sites` does not always sum to `landfilled`, on purpose.
+def test_a_share_pointed_at_a_closed_site_is_redistributed_not_lost():
+    """A share aimed at a shut landfill is not a share of anything.
 
-    The split timeline is honoured as submitted rather than renormalized over
-    whichever landfills happen to be open, so a year that still routes half the
-    waste to a closed site loses that half. `landfilled` stays what the city
-    disposed of and `sites` is what arrived somewhere, which makes the gap
-    visible to a caller instead of hiding it in a rescaled split.
-
-    Pinned because the honest version and the convenient one differ by a factor
-    of two here, and silently switching to renormalizing would look like a bug fix.
+    It used to be: the split was honoured as submitted, so a year still routing
+    half the waste to a closed site scaled that half onto it and the window then
+    zeroed it — the mass left the model, and `sites` came to half of
+    `landfilled`. The split is meant to account for *all* the post-diversion
+    waste, so it is now gated to the open landfills and renormalized over them,
+    and the open site receives the whole of it.
     """
     landfills = [_landfill(), _landfill(open_close=(2000, 2030))]
     flow = run_advanced_dst_city(
@@ -271,11 +270,34 @@ def test_mass_allocated_to_a_closed_site_is_a_reported_gap_not_a_silent_realloca
     )["mass_flow"]["scenario"]
 
     landfilled = float(flow["landfilled"].loc[AFTER].sum())
-    arrived = sum(float(s.loc[AFTER]) for s in flow["sites"])
+    arrived = [float(s.loc[AFTER]) for s in flow["sites"]]
 
     assert landfilled > 0
-    # Exactly the open site's half arrives; the closed site's half is the gap.
-    assert arrived == pytest.approx(0.5 * landfilled)
+    assert sum(arrived) == pytest.approx(landfilled)
+    # The whole stream goes to the one site still open, not half of it.
+    assert arrived[0] == pytest.approx(landfilled)
+    assert arrived[1] == pytest.approx(0.0)
+
+
+def test_the_only_gap_left_is_a_year_with_nowhere_to_put_the_waste():
+    """`sites` falls short of `landfilled` in exactly one case, on purpose.
+
+    Renormalizing over the open landfills closes the gap whenever at least one
+    is accepting waste. A year in which *none* is open has no denominator to
+    renormalize over: that city's post-diversion waste has nowhere to go, which
+    is a real thing for a single-site city past its site's closure. The shares
+    go to zero rather than raising, and the gap is reported rather than hidden.
+    """
+    flow = run_advanced_dst_city(
+        _busy_request(shares=(1.0,), landfills=[_landfill(open_close=(2000, 2030))]),
+        with_mass_flow=True,
+    )["mass_flow"]["scenario"]
+
+    landfilled = float(flow["landfilled"].loc[AFTER].sum())
+    arrived = sum(float(s.loc[AFTER]) for s in flow["sites"])
+
+    assert landfilled > 0, "the city still generates and disposes of waste"
+    assert arrived == pytest.approx(0.0), "but no landfill is open to receive it"
 
 
 def test_sites_sum_to_landfilled_when_every_site_is_open():
@@ -288,3 +310,126 @@ def test_sites_sum_to_landfilled_when_every_site_is_open():
     landfilled = float(flow["landfilled"].loc[AFTER].sum())
     arrived = sum(float(s.loc[AFTER]) for s in flow["sites"])
     assert arrived == pytest.approx(landfilled)
+
+
+# --------------------------------------------------------------------------- #
+# The submitted split has to be a split
+# --------------------------------------------------------------------------- #
+def test_a_negative_share_is_refused_rather_than_buried():
+    """Summing to one does not make a row a split.
+
+    ``[-0.5, 1.5]`` sums to exactly 1.0 and passed every check the sum could
+    make, then scaled a negative mass onto the first landfill and buried it
+    there — a site accumulating negative stock, decaying into negative methane.
+    Nothing downstream catches it: ``create_advanced`` multiplies straight
+    through, and ``over_diversion`` measures the city's residual before the
+    split is applied.
+    """
+    with pytest.raises(CustomError) as excinfo:
+        run_advanced_dst_city(
+            _busy_request(shares=(-0.5, 1.5), landfills=[_landfill(), _landfill()])
+        )
+    assert excinfo.value.code == "invalid_parameters"
+    assert "between 0 and 1" in excinfo.value.message
+    # The message names the year and which landfill was out of range.
+    assert "landfill 0" in excinfo.value.message
+
+
+def test_a_share_above_one_is_refused_too():
+    with pytest.raises(CustomError) as excinfo:
+        run_advanced_dst_city(
+            _busy_request(shares=(1.5, -0.5), landfills=[_landfill(), _landfill()])
+        )
+    assert excinfo.value.code == "invalid_parameters"
+    assert "between 0 and 1" in excinfo.value.message
+
+
+def test_a_well_formed_split_still_runs():
+    """The guard is a floor, not a tightening: ordinary splits are untouched."""
+    flow = run_advanced_dst_city(
+        _busy_request(shares=(0.3, 0.7), landfills=[_landfill(), _landfill()]),
+        with_mass_flow=True,
+    )["mass_flow"]["scenario"]
+    landfilled = float(flow["landfilled"].loc[AFTER].sum())
+    arrived = [float(s.loc[AFTER]) for s in flow["sites"]]
+    assert arrived[0] == pytest.approx(0.3 * landfilled)
+    assert arrived[1] == pytest.approx(0.7 * landfilled)
+
+
+def test_a_pre_implement_scenario_row_the_splice_discards_is_not_validated():
+    """The scenario's own shares before `implement_year` are never used.
+
+    Scenario tracks baseline until changes take effect, so the whole
+    pre-implement half of `scenario_split` is overwritten with baseline's. It
+    was validated first, though, so a caller who left those rows malformed —
+    within the contract, since the model ignores them — was rejected for a
+    number that would have been thrown away. Renormalization had the same
+    ordering problem, but its result was overwritten by the splice, so only the
+    error was ever observable.
+    """
+    landfills = [_landfill(), _landfill()]
+    baseline = {y: [0.5, 0.5] for y in YEARS}
+    # Malformed only before the implement year, well-formed from it onward.
+    scenario = {
+        y: ([0.25, 0.25] if y < IMPLEMENT_YEAR else [0.5, 0.5]) for y in YEARS
+    }
+    request = AdvancedDSTCityRequest(
+        city_name="Flowville",
+        precipitation=1200.0,
+        temperature=20.0,
+        implement_year=IMPLEMENT_YEAR,
+        waste_mass={
+            "baseline": {y: TOTAL_WASTE for y in YEARS},
+            "scenario": {y: TOTAL_WASTE for y in YEARS},
+        },
+        waste_fractions={
+            "baseline": {y: FRACTIONS for y in YEARS},
+            "scenario": {y: FRACTIONS for y in YEARS},
+        },
+        landfills=landfills,
+        landfill_split_timeline={"baseline": baseline, "scenario": scenario},
+        country="USA",
+    )
+
+    result = run_advanced_dst_city(request, with_mass_flow=True)
+
+    # And the pre-implement scenario really does track baseline.
+    base = result["mass_flow"]["baseline"]["sites"]
+    scen = result["mass_flow"]["scenario"]["sites"]
+    for index in range(len(landfills)):
+        assert float(scen[index].loc[BEFORE]) == pytest.approx(
+            float(base[index].loc[BEFORE])
+        )
+
+
+def test_a_post_implement_scenario_row_is_still_validated():
+    """The loosening stops at `implement_year` — those shares are used."""
+    landfills = [_landfill(), _landfill()]
+    scenario = {
+        y: ([0.5, 0.5] if y < IMPLEMENT_YEAR else [0.25, 0.25]) for y in YEARS
+    }
+    request = AdvancedDSTCityRequest(
+        city_name="Flowville",
+        precipitation=1200.0,
+        temperature=20.0,
+        implement_year=IMPLEMENT_YEAR,
+        waste_mass={
+            "baseline": {y: TOTAL_WASTE for y in YEARS},
+            "scenario": {y: TOTAL_WASTE for y in YEARS},
+        },
+        waste_fractions={
+            "baseline": {y: FRACTIONS for y in YEARS},
+            "scenario": {y: FRACTIONS for y in YEARS},
+        },
+        landfills=landfills,
+        landfill_split_timeline={
+            "baseline": {y: [0.5, 0.5] for y in YEARS},
+            "scenario": scenario,
+        },
+        country="USA",
+    )
+    with pytest.raises(CustomError) as excinfo:
+        run_advanced_dst_city(request)
+    assert excinfo.value.code == "invalid_parameters"
+    assert "sum to ~1" in excinfo.value.message
+    assert str(IMPLEMENT_YEAR) in excinfo.value.message
