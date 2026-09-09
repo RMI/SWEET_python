@@ -216,3 +216,20 @@ def test_an_unrequested_pathway_is_not_starved():
     )
     # Compost draws on nothing, but nothing is asked of it either.
     assert not bool(limits["baseline"]["starved_pathways"].loc[2030, "compost"])
+
+
+def test_the_model_refuses_the_starved_request_the_bounds_flag():
+    """`starved_pathways` and `diversion_without_material` are one boundary.
+
+    The mask exists so a caller can see, before it runs anything, the request
+    the model will refuse — the same reason the diversion bounds and
+    `over_diversion` are measured on one basis.
+    """
+    request = _request(baseline_fractions=NO_ORGANICS, baseline_diversion={"compost": 0.15})
+
+    assert bool(run_advanced_dst_city_limits(request)["baseline"]["starved_pathways"].loc[2030, "compost"])
+
+    with pytest.raises(CustomError) as excinfo:
+        run_advanced_dst_city(request)
+    assert excinfo.value.code == "diversion_without_material"
+    assert "compost" in excinfo.value.message
