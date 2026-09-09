@@ -309,7 +309,11 @@ def _diverted_masses(
     div_dfs: Dict[str, pd.DataFrame] = {}
     gross_dfs: Dict[str, pd.DataFrame] = {}
     for pathway in DIVERSION_PATHWAYS:
-        components = sorted(city.div_components[pathway])  # deterministic column order
+        # div_components values are WasteTypeSet, so iteration is already in
+        # canonical WASTE_TYPES order -- the same order every other frame in the
+        # package uses. This used to be sorted() (alphabetical), which was
+        # deterministic but disagreed with the rest of the model.
+        components = list(city.div_components[pathway])
         sub = fractions_df[components]
         denom = sub.sum(axis=1)
 
