@@ -109,7 +109,7 @@ class SiteEmissions(BaseModel):
 
 
 def residual_composition(
-    residual: pd.DataFrame, generated: pd.DataFrame
+    residual: pd.DataFrame, fractions: pd.DataFrame
 ) -> pd.DataFrame:
     """Per-year component shares of what the city is left to bury; rows sum to 1.
 
@@ -122,17 +122,23 @@ def residual_composition(
     organics and recycling only on recyclables, so the residual differs from
     what the city generates in shape and not merely in scale; splitting a
     gate-observed tonnage by the generated mix overstates its degradable half
-    and with it the methane. ``generated`` is the fallback for a year the city
-    buries nothing at all, which would otherwise be 0/0 -- and in such a year
-    the tonnage these shares scale is itself zero, so the choice is cosmetic.
+    and with it the methane.
+
+    ``fractions`` is the fallback for a year the city buries nothing, which
+    would otherwise be 0/0. It must be the city's composition **as shares**, not
+    as masses: a year in which the city generates nothing has an all-zero mass
+    frame, so a mass fallback is no fallback at all -- it leaves every share at
+    zero and the surplus is then deposited as nothing. That is not a hypothetical
+    tidy-up. A site taking regional waste while the city it belongs to collects
+    none yet is an ordinary shape, and it silently lost every ton of it.
     """
     totals = residual.sum(axis=1)
     shares = residual.div(totals, axis=0)
 
     empty = totals <= 0
     if empty.any():
-        fallback_totals = generated.sum(axis=1)
-        fallback = generated.div(fallback_totals.where(fallback_totals > 0), axis=0)
+        fallback_totals = fractions.sum(axis=1)
+        fallback = fractions.div(fallback_totals.where(fallback_totals > 0), axis=0)
         shares.loc[empty, :] = fallback.loc[empty, :]
 
     return shares.fillna(0.0)

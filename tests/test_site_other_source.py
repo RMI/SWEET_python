@@ -7,9 +7,12 @@ structurally unsayable. Real sites take waste from neighbouring municipalities,
 from private haulers, from a regional catchment the baseline never describes --
 and the site's own operator knows its gate total, not the city's share of it.
 
-So a spec may now carry ``other_source_mass``: absolute tons per year arriving
-at that site from outside this baseline. Two consequences, and this module
-exists to pin both:
+So a spec may now carry ``accepted_waste_mass``: everything crossing that site's
+weighbridge in a year, **from every source**, city waste included. It is a gate
+total, not the outside share -- the outside share is what it exceeds the city's
+own allocation by, which is the model's subtraction to do rather than the user's.
+A figure at or below that allocation therefore means "no outside waste", not a
+smaller city stream. Two consequences, and this module exists to pin both:
 
 **The city's own emissions must not move.** A city is responsible for the waste
 it generates, wherever that waste goes. Other-source waste is somebody else's
@@ -51,7 +54,14 @@ IMPLEMENT_YEAR = 2025
 GENERATED = 100_000.0
 
 
-def _spec(*, open_close=(1990, 2051), accepted=None, combusts=None):
+def _spec(
+    *,
+    open_close=(1990, 2051),
+    accepted=None,
+    accepted_scenario=None,
+    combusts=None,
+    combusts_scenario=None,
+):
     spec = dict(
         landfill_type={"baseline": 2, "scenario": 2},
         landfill_open_close={"baseline": list(open_close), "scenario": list(open_close)},
@@ -61,13 +71,19 @@ def _spec(*, open_close=(1990, 2051), accepted=None, combusts=None):
         },
     )
     if accepted is not None:
-        spec["accepted_waste_mass"] = {"baseline": dict(accepted), "scenario": dict(accepted)}
-    if combusts is not None:
-        spec["combusts"] = {"baseline": combusts, "scenario": combusts}
+        spec["accepted_waste_mass"] = {
+            "baseline": dict(accepted),
+            "scenario": dict(accepted_scenario if accepted_scenario is not None else accepted),
+        }
+    if combusts is not None or combusts_scenario is not None:
+        spec["combusts"] = {
+            "baseline": bool(combusts),
+            "scenario": bool(combusts if combusts_scenario is None else combusts_scenario),
+        }
     return spec
 
 
-def _request(specs, shares, *, diversion=None):
+def _request(specs, shares, *, diversion=None, generated=None):
     extra = {}
     if diversion is not None:
         extra["diversion_fractions"] = {
@@ -80,8 +96,8 @@ def _request(specs, shares, *, diversion=None):
         temperature=20.0,
         implement_year=IMPLEMENT_YEAR,
         waste_mass={
-            "baseline": {y: GENERATED for y in YEARS},
-            "scenario": {y: GENERATED for y in YEARS},
+            "baseline": dict(generated) if generated else {y: GENERATED for y in YEARS},
+            "scenario": dict(generated) if generated else {y: GENERATED for y in YEARS},
         },
         waste_fractions={
             "baseline": {y: FRACTIONS for y in YEARS},
@@ -341,3 +357,113 @@ def test_the_limits_endpoint_ignores_the_new_field():
     assert plain.keys() == with_other.keys()
     for variant in plain:
         assert str(plain[variant]) == str(with_other[variant])
+
+
+# --------------------------------------------------------------------------- #
+# The mix the surplus is given, where the city has none to lend it
+# --------------------------------------------------------------------------- #
+
+def test_outside_waste_still_has_a_composition_when_the_city_generates_none():
+    """A regional site whose city has not started collecting yet.
+
+    The surplus is split by the city's post-diversion residual mix, and in a
+    year the city buries nothing that mix is 0/0. The fallback has to be the
+    composition as *shares*: the composition as masses is all-zero in exactly
+    the years it would be needed, which left every share at zero and deposited
+    none of the site's inflow. Thirty years of a 200,000 t/yr site vanished, and
+    nothing said so.
+    """
+    late = {y: (0.0 if y < 2030 else GENERATED) for y in YEARS}
+    result = run_advanced_dst_city(
+        _request(
+            [_spec(accepted={y: 200_000.0 for y in YEARS})],
+            (1.0,),
+            generated=late,
+        ),
+        with_site_emissions=True,
+    )
+    site = result["site_emissions"]["baseline"][0]
+    other = _total(site.other)
+    before = np.array([other[i] for i, y in enumerate(YEARS) if y < 2030])
+
+    assert before.sum() > 0, "the site's own inflow produced no methane at all"
+    # It is the whole of the site in those years, the city having sent nothing.
+    city = _total(site.city)
+    city_before = np.array([city[i] for i, y in enumerate(YEARS) if y < 2030])
+    assert np.allclose(city_before, 0.0)
+    assert np.allclose(
+        before,
+        np.array([_total(site.total)[i] for i, y in enumerate(YEARS) if y < 2030]),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# The scenario half is spliced to baseline before the implement year
+# --------------------------------------------------------------------------- #
+
+def test_a_changed_gate_total_takes_effect_only_from_the_implement_year():
+    """The surplus follows the same baseline-until-implement rule as everything else.
+
+    The splice that enforces this for a changed *intake* is upstream, in
+    ``dst_common.variant_series`` -- it builds the scenario series equal to
+    baseline before ``implement_year`` already. This pins the behaviour end to
+    end rather than the line that implements it; the line is pinned by
+    ``test_a_site_that_starts_burning_...`` below, which exercises a difference
+    ``variant_series`` cannot see.
+    """
+    doubled = {y: 300_000.0 for y in YEARS}
+    result = run_advanced_dst_city(
+        _request(
+            [_spec(accepted=GATE_WITH_NEIGHBOUR, accepted_scenario=doubled)],
+            (1.0,),
+        ),
+        with_site_emissions=True,
+    )
+    baseline_other = _total(result["site_emissions"]["baseline"][0].other)
+    scenario_other = _total(result["site_emissions"]["scenario"][0].other)
+
+    before = [i for i, y in enumerate(YEARS) if y < IMPLEMENT_YEAR]
+    after = [i for i, y in enumerate(YEARS) if y >= IMPLEMENT_YEAR]
+
+    # Identical deposits before the implement year, so identical emissions.
+    assert np.allclose(
+        baseline_other[before], scenario_other[before], rtol=0, atol=1e-9
+    ), "the scenario rewrote history"
+    # And strictly more afterwards, since the scenario takes 3x the waste. The
+    # gap opens gradually: the extra tonnage has to decay before it shows up.
+    assert scenario_other[after[-1]] > baseline_other[after[-1]] * 1.5
+
+
+def test_a_site_that_starts_burning_still_buries_the_surplus_until_then():
+    """The frame-level splice, on a difference the series-level one cannot see.
+
+    ``variant_series`` splices the intake, so a variant-differing gate total is
+    already baseline-before-implement by the time this module sees it. Two
+    things are not: the open/close window and ``combusts``, both applied to the
+    mass frame afterwards. A site that starts incinerating at the implement year
+    must still deposit the surplus in full before then -- and without the splice
+    it deposits only the 10% reject for the whole run, quietly erasing 90% of
+    decades of history that the scenario is not supposed to be able to rewrite.
+    """
+    result = run_advanced_dst_city(
+        _request(
+            # 200 kt against an undiverted 100 kt city, so half the gate is
+            # surplus and there is something for the burning to bite on.
+            [_spec(accepted={y: 200_000.0 for y in YEARS}, combusts=False, combusts_scenario=True)],
+            (1.0,),
+        ),
+        with_site_emissions=True,
+    )
+    baseline_other = _total(result["site_emissions"]["baseline"][0].other)
+    scenario_other = _total(result["site_emissions"]["scenario"][0].other)
+
+    before = [i for i, y in enumerate(YEARS) if y < IMPLEMENT_YEAR]
+    after = [i for i, y in enumerate(YEARS) if y >= IMPLEMENT_YEAR]
+
+    assert baseline_other[before].sum() > 0, "nothing was buried to compare"
+    assert np.allclose(
+        baseline_other[before], scenario_other[before], rtol=0, atol=1e-9
+    ), "burning from the implement year reached back and unburied earlier waste"
+    # And from the implement year the scenario buries only the reject, so its
+    # emissions fall away from baseline's.
+    assert scenario_other[after[-1]] < baseline_other[after[-1]]

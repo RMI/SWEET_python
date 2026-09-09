@@ -1006,9 +1006,13 @@ def run_advanced_dst_city(
     # arriving at a site from outside the baseline is given this same mix, so
     # that both streams at a site decay at one `k` and therefore superpose --
     # see `site_inflow` for why that is load-bearing rather than tidy.
+    # The fallback is the composition as *shares* rather than `wgen_*`, the
+    # composition as masses: a year the city generates nothing has an all-zero
+    # mass frame and so no fallback at all, which left a site's outside waste
+    # with a zero mix and deposited none of it.
     residual_mix = {
-        "baseline": site_inflow.residual_composition(net_masses["baseline"], wgen_baseline),
-        "scenario": site_inflow.residual_composition(net_masses["scenario"], wgen_scenario),
+        "baseline": site_inflow.residual_composition(net_masses["baseline"], baseline_fractions),
+        "scenario": site_inflow.residual_composition(net_masses["scenario"], scenario_fractions),
     }
 
     # --- City-wide decomposition rates + compost emission factors ---
