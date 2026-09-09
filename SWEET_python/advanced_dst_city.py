@@ -1061,14 +1061,20 @@ def run_advanced_dst_city(
         mass_base = LandfillWasteMassDF.create_advanced(wgen_baseline, divs_baseline, share_base.copy()).df
         mass_scen = LandfillWasteMassDF.create_advanced(wgen_scenario, divs_scenario, share_scen.copy()).df
         # A combusting facility burns its intake and deposits only the reject.
-        # Scaled per variant here, before the pre-implement splice below, so a
-        # site that starts combusting at implement_year keeps depositing
-        # everything until then -- and one that stops burning starts to.
+        # Scaled per variant here, ahead of both the window and the pre-implement
+        # splice below, so a site that starts combusting at implement_year keeps
+        # depositing everything until then -- and one that stops burning starts to.
         mass_base = mass_base * _deposited_share(base_combusts, city)
         mass_scen = mass_scen * _deposited_share(scen_combusts, city)
-        mass_scen.loc[: implement_year - 1, :] = mass_base.loc[: implement_year - 1, :]
+        # Each variant is windowed on its own open/close years first, and only
+        # then does the scenario take baseline's pre-implement rows. The other
+        # order spliced baseline's mass in and let the *scenario* window zero it
+        # again: a site stated as opening later in the scenario than in the
+        # baseline buried nothing in the years between, though those years are
+        # before `implement_year` and are supposed to match baseline exactly.
         mass_base = common.apply_window(mass_base, b_open, b_close)
         mass_scen = common.apply_window(mass_scen, s_open, s_close)
+        mass_scen.loc[: implement_year - 1, :] = mass_base.loc[: implement_year - 1, :]
         baseline_masses.append(mass_base)
         scenario_masses.append(mass_scen)
 
@@ -1079,8 +1085,17 @@ def run_advanced_dst_city(
             city_instance_attrs=city_instance_attrs, implement_year=implement_year,
             scenario=0, landfill_index=index,
         ))
+        # The model evaluates from `open_date` onward (`model_v2.estimate_emissions2`
+        # builds its year range from it), so the scenario has to start wherever
+        # its mass frame can first be nonzero -- and the splice above puts
+        # baseline's pre-implement mass into it. A scenario stated as opening
+        # later than baseline therefore still buries waste from baseline's open
+        # year, and starting the model at `s_open` truncated those years out of
+        # the scenario's emissions frame entirely, leaving the two halves a
+        # different shape for a caller trying to subtract them.
+        scenario_open_for_model = min(b_open, s_open)
         scenario_landfills.append(common.build_landfill(
-            open_year=s_open, close_year=s_close, site_type_idx=scen_type,
+            open_year=scenario_open_for_model, close_year=s_close, site_type_idx=scen_type,
             mcf=mcf_scen, gas_capture_efficiency=gas_scen, flaring=flare_scen,
             oxidation_factor=ox_scen, ks=ks_scenario, city_params_dict=scenario_params_dict,
             city_instance_attrs=city_instance_attrs, implement_year=implement_year,
