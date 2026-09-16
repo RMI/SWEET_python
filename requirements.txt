@@ -24,13 +24,13 @@ greenlet==3.5.3
     # via sqlalchemy
 idna==3.18
     # via anyio
-numpy==2.5.2
+numpy==2.5.3
     # via
     #   -r requirements.in
     #   pandas
 pandas==3.0.5
     # via -r requirements.in
-psycopg2==2.9.12
+psycopg2==2.9.13
     # via -r requirements.in
 pycountry==26.2.16
     # via -r requirements.in
