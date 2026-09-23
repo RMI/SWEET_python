@@ -106,6 +106,103 @@ def _build_oxidation_series(default_value, canonical_row, time_series_rows, year
     return series
 
 
+# Site-type fallbacks for gas capture and oxidation. Single definition, shared by both
+# `_trace` entry points via `_resolve_gas_capture` below. `uncertainty.py` in the TRACE
+# pipeline mirrors these tables (SWEET_GAS_CAPTURE_DEFAULTS /
+# SWEET_OXIDATION_DEFAULTS_*), so a change here must be made there too.
+GAS_EFF_OPTIONS = {
+    "Sanitary Landfill": 0.6,
+    "Controlled Dumpsite": 0.45,
+    "Dumpsite": 0.0,
+}
+OX_OPTIONS = {
+    "ox_nocap": {"Sanitary Landfill": 0.1, "Controlled Dumpsite": 0.05, "Dumpsite": 0.0},
+    "ox_cap": {"Sanitary Landfill": 0.22, "Controlled Dumpsite": 0.1, "Dumpsite": 0.0},
+}
+
+
+def _resolve_gas_capture(flag, site_type, canonical_row, time_series_rows, years_range):
+    """Gas-capture presence, oxidation default and per-year capture efficiency.
+
+    THE RULE, which is the whole point of this function existing:
+    **the boolean GATES the site-type default.** A measured
+    ``gas_collection_efficiency`` wins over both; absent one, the type default
+    (:data:`GAS_EFF_OPTIONS`) applies ONLY when presence is true, and presence also
+    selects ``ox_cap`` vs ``ox_nocap``. A site with no recorded system is modelled at
+    zero capture, and an unknown flag counts as no system -- the same "unknown means
+    none" convention as the TRACE pipeline's ``mitigation_selector`` and
+    ``uncertainty.recovery_and_oxidation_components``.
+
+    WHY IT IS A FUNCTION. This logic was copied into ``site_only_estimate_trace`` and
+    ``citysite_estimate_trace`` and the copies drifted: the citysite copy applied the
+    type default unconditionally while still reading the flag for oxidation, so a
+    Brazilian city-linked landfill was built with ``gas_capture=False`` and
+    ``gas_capture_efficiency=0.6`` on the same object. That was 1,994 sites on the
+    10_05_26 submission -- every city-linked asset, and nothing else. Same history as
+    the MCF table, same fix: one definition, two callers.
+
+    Returns ``(presence, oxidation_value, gas_capture_efficiency)`` where presence is a
+    plain ``bool``, oxidation_value is the type default for that presence (the caller
+    may still override it per-year via :func:`_build_oxidation_series`), and
+    gas_capture_efficiency is a Series over ``years_range``.
+    """
+    # Presence. `pd.NA` is the reason this is not a bare truthiness test: `pd.NA == True`
+    # is `pd.NA`, and `bool(pd.NA)` raises "boolean value of NA is ambiguous". Check
+    # isna FIRST, before any comparison.
+    if pd.isna(flag):
+        presence = False
+    elif (flag == "Yes") or (flag is True) or (flag == True):  # noqa: E712
+        presence = True
+    else:
+        # Numeric or string-ish flags from older inputs: >0 means a system.
+        try:
+            presence = bool(flag == flag and flag > 0)
+        except Exception:
+            presence = False
+
+    oxidation_value = OX_OPTIONS["ox_cap" if presence else "ox_nocap"][site_type]
+
+    # Measured per-year capture, where the site has it. Keyed on
+    # `reported_emissions_year`, so a row without one cannot be placed. Drop on BOTH
+    # columns: a row can carry a reported year with no capture value, or a capture
+    # value with no year.
+    #
+    # The all-dropped case is reachable and is not an edge case. The TRACE input query
+    # selects gas_collection_efficiency independently of CH4_reported, and
+    # reported_emissions_year is DERIVED from CH4_reported
+    # (landfill_table_ops.py: extract_emissions_year_from_dict). A site with capture
+    # data but no reported emissions therefore has no reported year at all -- and,
+    # because a null CH4_reported is exactly what routes a site to 'to be modeled',
+    # such a site reaches this branch rather than the reported pathway. Taking .mean()
+    # of the emptied frame yielded NaN and poisoned the whole capture series; fall back
+    # to the gated default instead, matching the scalar path below.
+    gascap_df = None
+    if isinstance(time_series_rows, pd.DataFrame):
+        if time_series_rows['gas_collection_efficiency'].notna().any():
+            gascap_df = time_series_rows[['reported_emissions_year', 'gas_collection_efficiency']]
+            gascap_df = gascap_df.dropna(
+                subset=['reported_emissions_year', 'gas_collection_efficiency']
+            ).copy()
+            if gascap_df.empty:
+                gascap_df = None
+
+    if gascap_df is not None:
+        mean = gascap_df['gas_collection_efficiency'].mean()
+        gas_capture_efficiency = pd.Series(mean, index=years_range)
+        gas_capture_efficiency.loc[gascap_df['reported_emissions_year'].values] = (
+            gascap_df['gas_collection_efficiency'].values
+        )
+        return presence, oxidation_value, gas_capture_efficiency
+
+    # Single-row sites carry any measured value on the canonical row instead.
+    value = canonical_row['gas_collection_efficiency'] if not isinstance(
+        time_series_rows, pd.DataFrame
+    ) else np.nan
+    if pd.isna(value):
+        value = GAS_EFF_OPTIONS[site_type] if presence else 0
+    return presence, oxidation_value, pd.Series(value, index=years_range)
+
+
 # The way this model is set up is based on the unit of a City, corresponding to the City class.
 # Cities can have multiple sets of CityParameters, one for each scenario.
 # Sets of CityParameters can have one or more landfills, dumpsites, waste to energy, etc.
@@ -2467,23 +2564,6 @@ class City:
             "Controlled Dumpsite": 1,
             "Dumpsite": 2,
         }
-        ox_options = {
-            "ox_nocap": {
-                "Sanitary Landfill": 0.1,
-                "Controlled Dumpsite": 0.05,
-                "Dumpsite": 0.0,
-            },
-            "ox_cap": {
-                "Sanitary Landfill": 0.22,
-                "Controlled Dumpsite": 0.1,
-                "Dumpsite": 0.0,
-            },
-        }
-        gas_eff_options = {
-            "Sanitary Landfill": 0.6,
-            "Controlled Dumpsite": 0.45,
-            "Dumpsite": 0.0,
-        }
         # Get the most common non-NaN value, or 3 if all are NaN
         depth = canonical_row['waste_depth']
         site_type = canonical_row['type']
@@ -2512,72 +2592,10 @@ class City:
         else:
             gas_capture_presence = canonical_row['other7']
 
-        # Handle pd.NA / missing: avoid "boolean value of NA is ambiguous" in comparisons
-        if pd.isna(gas_capture_presence):
-            gas_capture_presence = False
-            oxidation_value = ox_options["ox_nocap"][site_type]
-        elif (gas_capture_presence == "Yes") or (gas_capture_presence is True) or (gas_capture_presence == True):
-            gas_capture_presence = True
-            oxidation_value = ox_options["ox_cap"][site_type]
-        else:
-            try:
-                if gas_capture_presence == gas_capture_presence:
-                    if gas_capture_presence > 0:
-                        gas_capture_presence = True
-                        oxidation_value = ox_options["ox_cap"][site_type]
-                    else:
-                        gas_capture_presence = False
-                        oxidation_value = ox_options["ox_nocap"][site_type]
-                else:
-                    gas_capture_presence = False
-                    oxidation_value = ox_options["ox_nocap"][site_type]
-            except:
-                gas_capture_presence = False
-                oxidation_value = ox_options["ox_nocap"][site_type]
-        
-        if isinstance(time_series_rows, pd.DataFrame):
-            gascap_df = None
-            if time_series_rows['gas_collection_efficiency'].notna().any():
-                # Measured per-year capture is keyed on reported_emissions_year, so a row
-                # without one cannot be placed. Drop on BOTH columns: a row can carry a
-                # reported year with no capture value, or a capture value with no year.
-                #
-                # The all-dropped case is reachable and is not an edge case. The TRACE
-                # input query selects gas_collection_efficiency independently of
-                # CH4_reported, and reported_emissions_year is DERIVED from CH4_reported
-                # (landfill_table_ops.py: extract_emissions_year_from_dict). A site with
-                # capture data but no reported emissions therefore has no reported year at
-                # all -- and, because a null CH4_reported is exactly what routes a site to
-                # 'to be modeled', such a site reaches this branch rather than the reported
-                # pathway. Taking .mean() of the emptied frame yielded NaN and poisoned the
-                # whole capture series; fall back to the site-type default instead, matching
-                # the scalar path below.
-                gascap_df = time_series_rows[['reported_emissions_year', 'gas_collection_efficiency']]
-                gascap_df = gascap_df.dropna(
-                    subset=['reported_emissions_year', 'gas_collection_efficiency']
-                ).copy()
-                if gascap_df.empty:
-                    gascap_df = None
+        gas_capture_presence, oxidation_value, gas_capture_efficiency = _resolve_gas_capture(
+            gas_capture_presence, site_type, canonical_row, time_series_rows, self.years_range
+        )
 
-            if gascap_df is not None:
-                gas_capture_efficiency_mean = gascap_df['gas_collection_efficiency'].mean()
-                gas_capture_efficiency = pd.Series(gas_capture_efficiency_mean, index=self.years_range)
-                gas_capture_efficiency.loc[gascap_df['reported_emissions_year'].values] = gascap_df['gas_collection_efficiency'].values
-            else:
-                if gas_capture_presence is True:
-                    gas_capture_efficiency = gas_eff_options[site_type]
-                else:
-                    gas_capture_efficiency = 0
-                gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=self.years_range)
-        else:
-            gas_capture_efficiency = canonical_row['gas_collection_efficiency']
-            if pd.isna(gas_capture_efficiency):
-                if gas_capture_presence is True:
-                    gas_capture_efficiency = gas_eff_options[site_type]
-                else:
-                    gas_capture_efficiency = 0
-            gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=self.years_range)
-        
         mcf = mcf_defaults.mcf_for_site(site_type_idx, depth)
         open_date = canonical_row['site_open_year']
         if isinstance(open_date, str):
@@ -2783,23 +2801,6 @@ class City:
             "Controlled Dumpsite": 1,
             "Dumpsite": 2,
         }
-        ox_options = {
-            "ox_nocap": {
-                "Sanitary Landfill": 0.1,
-                "Controlled Dumpsite": 0.05,
-                "Dumpsite": 0.0,
-            },
-            "ox_cap": {
-                "Sanitary Landfill": 0.22,
-                "Controlled Dumpsite": 0.1,
-                "Dumpsite": 0.0,
-            },
-        }
-        gas_eff_options = {
-            "Sanitary Landfill": 0.6,
-            "Controlled Dumpsite": 0.45,
-            "Dumpsite": 0.0,
-        }
         # Get the most common non-NaN value, or 3 if all are NaN
         depth = canonical_row['waste_depth']
         site_type = canonical_row['type']
@@ -2828,32 +2829,13 @@ class City:
         else:
             gas_capture_presence = canonical_row['other7']
 
-        if gas_capture_presence == "Yes" or gas_capture_presence == True:
-            gas_capture_presence = True
-            oxidation_value = ox_options["ox_cap"][site_type]
-        else:
-            gas_capture_presence = False
-            oxidation_value = ox_options["ox_nocap"][site_type]
-        
-        if isinstance(time_series_rows, pd.DataFrame):
-            if time_series_rows['gas_collection_efficiency'].notna().any():
-                gascap_df = time_series_rows[['reported_emissions_year', 'gas_collection_efficiency']]
-                gascap_df = gascap_df.dropna(subset=['reported_emissions_year']).copy()
-                gas_capture_efficiency_mean = gascap_df['gas_collection_efficiency'].mean()
-                gas_capture_efficiency = pd.Series(gas_capture_efficiency_mean, index=self.years_range)
-                gas_capture_efficiency.loc[gascap_df['reported_emissions_year'].values] = gascap_df['gas_collection_efficiency'].values
-            else:
-                gas_capture_efficiency = canonical_row['gas_collection_efficiency']
-                if pd.isna(gas_capture_efficiency):
-                    gas_capture_efficiency = gas_eff_options[site_type]
-                gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=self.years_range)
+        # Was a drifted copy of the block above: it applied the site-type default
+        # WITHOUT checking the flag, while still reading the flag for oxidation. Now
+        # both paths share `_resolve_gas_capture`, which is where the rule lives.
+        gas_capture_presence, oxidation_value, gas_capture_efficiency = _resolve_gas_capture(
+            gas_capture_presence, site_type, canonical_row, time_series_rows, self.years_range
+        )
 
-        else:
-            gas_capture_efficiency = canonical_row['gas_collection_efficiency']
-            if pd.isna(gas_capture_efficiency):
-                gas_capture_efficiency = gas_eff_options[site_type]
-            gas_capture_efficiency = pd.Series(gas_capture_efficiency, index=self.years_range)
-        
         mcf = mcf_defaults.mcf_for_site(site_type_idx, depth)
         open_date = canonical_row['site_open_year']
         if isinstance(open_date, str):
