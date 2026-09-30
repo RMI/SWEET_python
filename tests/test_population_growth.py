@@ -206,3 +206,35 @@ def test_a_custom_site_with_no_rate_grows_with_its_country():
 def test_a_typed_rate_is_compounded_as_before():
     deposits = _custom_site(0.02)
     assert deposits.loc[2035] == pytest.approx(10000.0 * 1.02**10)
+
+
+# --- review fixes --------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "given, iso3",
+    [("MUS", "MUS"), ("Mauritius", "MUS"), ("Niger", "NER"), ("Nigeria", "NGA"), ("United States", "USA")],
+)
+def test_a_country_is_found_by_its_code_before_the_fuzzy_search(given, iso3):
+    """search_fuzzy('MUS') is Turkey (province Mus), and 'Niger' was Nigeria."""
+    assert city_params._iso3_for(given) == iso3
+
+
+def test_mauritius_grows_with_mauritius():
+    city = City("custom")
+    city.dst_baseline_blank("MUS", 100_000, 1500.0, 24.0)
+    assert city.baseline_parameters.population_series.equals(country_population_series("MUS"))
+
+
+def test_republishing_a_citys_own_rates_keeps_its_growth_the_same():
+    """The map build writes a city's rates back into the cities table and the city tool
+    re-runs _city_growth on them. Republishing the rates the loader READ keeps the
+    choice; republishing the averages it applied flipped Manila City to compounding."""
+    own = (1.0022, 1.1687)  # Manila City: its own population mixed with the agglomeration's
+    series, historic, future = city_params._city_growth("PHL", 2020, 1_800_000, *own)
+    assert series is not None
+
+    reread, *_ = city_params._city_growth("PHL", 2020, 1_800_000, *own)
+    assert reread is not None
+    flipped, *_ = city_params._city_growth("PHL", 2020, 1_800_000, historic, future)
+    assert flipped is None  # why the applied averages must not be republished

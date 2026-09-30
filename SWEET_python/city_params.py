@@ -237,6 +237,18 @@ def _city_growth(iso3, anchor_year, population, city_historic, city_future):
     return _country_growth(iso3, anchor_year, city_historic, city_future)
 
 
+def _iso3_for(country):
+    """The ISO3 code for a country code or name. Raises LookupError if there is none.
+
+    An exact match first, because the fuzzy search ranks subdivisions: it resolves
+    "MUS" to Turkey, whose province Mus matches, rather than Mauritius.
+    """
+    try:
+        return pycountry.countries.lookup(country).alpha_3
+    except LookupError:
+        return pycountry.countries.search_fuzzy(country)[0].alpha_3
+
+
 def _country_growth(iso3, anchor_year, fallback_historic, fallback_future):
     """The growth for a place in ``iso3``: its country's population year by year.
 
@@ -297,6 +309,11 @@ class CityParameters(BaseModel):
     # WPP2024 per-year population series (index = year), used to grow waste and
     # diversion by P(year)/P(pivot). None -> fall back to the growth_rate_* CAGR.
     population_series: Optional[pd.Series] = None
+    # A city's own two growth rates as its loader read them, before _city_growth chose
+    # between them and the country series. Whoever republishes a city's rates should
+    # write these, so a reader re-running that choice reaches the same answer.
+    city_growth_rate_historic: Optional[float] = None
+    city_growth_rate_future: Optional[float] = None
     waste_per_capita: Optional[Union[pd.Series, float]] = None
     precip_zone: Optional[str] = None
     ks: Optional[DecompositionRates] = None
@@ -902,12 +919,14 @@ class City:
         year_of_data_pop = city_data["Year of Data Collection (Population)"].values[0]
         # A big city keeps its own UN city rates; any other grows with its country's
         # population, year by year (_city_growth).
+        city_growth_historic = city_data["Population Growth Rate: Historic (%)"].values[0] / 100 + 1
+        city_growth_future = city_data["Population Growth Rate: Future (%)"].values[0] / 100 + 1
         population_series, growth_rate_historic, growth_rate_future = _city_growth(
             self.country,
             year_of_data_pop,
             city_data["Population"].values[0],
-            city_data["Population Growth Rate: Historic (%)"].values[0] / 100 + 1,
-            city_data["Population Growth Rate: Future (%)"].values[0] / 100 + 1,
+            city_growth_historic,
+            city_growth_future,
         )
 
         city_instance_attrs = {
@@ -964,6 +983,8 @@ class City:
                 growth_rate_historic=growth_rate_historic,
                 growth_rate_future=growth_rate_future,
                 population_series=population_series,
+                city_growth_rate_historic=city_growth_historic,
+                city_growth_rate_future=city_growth_future,
                 waste_per_capita=city_data[
                     "Waste Generation Rate per Capita (kg/person/day)"
                 ].values[0],
@@ -1057,12 +1078,14 @@ class City:
             mef_compost = ((0.0055 * waste_fractions["food"].values[0] / (waste_fractions["food"].values[0] + waste_fractions["green"].values[0])+ 0.0139 * waste_fractions["green"].values[0] / (waste_fractions["food"].values[0] + waste_fractions["green"].values[0]))* 1.1023 * 0.7)
             # A big city keeps its own UN city rates; any other grows with its
             # country's population, year by year (_city_growth).
+            city_growth_historic = current_row["Population Growth Rate: Historic (%)"].iloc[0] / 100 + 1
+            city_growth_future = current_row["Population Growth Rate: Future (%)"].iloc[0] / 100 + 1
             population_series, growth_rate_historic, growth_rate_future = _city_growth(
                 iso3,
                 year_of_data_pop,
                 current_row["Population"].iloc[0],
-                current_row["Population Growth Rate: Historic (%)"].iloc[0] / 100 + 1,
-                current_row["Population Growth Rate: Future (%)"].iloc[0] / 100 + 1,
+                city_growth_historic,
+                city_growth_future,
             )
             baseline = CityParameters(
                 waste_fractions=waste_fractions,
@@ -1072,6 +1095,8 @@ class City:
                 growth_rate_historic=growth_rate_historic,
                 growth_rate_future=growth_rate_future,
                 population_series=population_series,
+                city_growth_rate_historic=city_growth_historic,
+                city_growth_rate_future=city_growth_future,
                 precip_zone=precipitation_zone,
                 gas_capture_efficiency=None,
                 mef_compost=mef_compost,
@@ -1136,8 +1161,10 @@ class City:
 
             # A big city keeps its own UN city rates; any other grows with its
             # country's population, year by year (_city_growth).
+            city_growth_historic = row["historic_growth_rate"]
+            city_growth_future = row["future_growth_rate"]
             population_series, growth_rate_historic, growth_rate_future = _city_growth(
-                iso3, year_of_data_pop, population, row["historic_growth_rate"], row["future_growth_rate"]
+                iso3, year_of_data_pop, population, city_growth_historic, city_growth_future
             )
 
             self.latitude = float(row['latitude'])
@@ -1706,6 +1733,8 @@ class City:
                 growth_rate_historic=growth_rate_historic,
                 growth_rate_future=growth_rate_future,
                 population_series=population_series,
+                city_growth_rate_historic=city_growth_historic,
+                city_growth_rate_future=city_growth_future,
                 waste_per_capita=waste_per_capita,
                 precip_zone=precip_zone,
                 gas_capture_efficiency=gas_capture_efficiency,
@@ -4632,7 +4661,7 @@ class City:
 
         # Initialize a new CityParameters instance with all required fields
         try:
-            iso3 = pycountry.countries.search_fuzzy(country)[0].alpha_3
+            iso3 = _iso3_for(country)
         except LookupError:
             raise ValueError(f"Country '{country}' not found.")
 
@@ -5004,7 +5033,7 @@ class City:
 
         # Initialize a new CityParameters instance with all required fields
         try:
-            iso3 = pycountry.countries.search_fuzzy(country)[0].alpha_3
+            iso3 = _iso3_for(country)
         except LookupError:
             raise ValueError(f"Country '{country}' not found.")
 
@@ -9040,7 +9069,7 @@ class City:
             location = geolocator.reverse((latlon[0], latlon[1]), language="en")
             country = location.raw["address"].get("country")
             try:
-                iso3 = pycountry.countries.search_fuzzy(country)[0].alpha_3
+                iso3 = _iso3_for(country)
             except LookupError:
                 raise ValueError(f"Country '{country}' not found.")
             region = defaults_2019.region_lookup_iso3.get(iso3)
@@ -9157,7 +9186,13 @@ class City:
 
         wf_out = waste_fractions_df.iloc[0].to_dict()
 
-        growth_rate = defaults_2019.growth_rate_country[iso3] / 100
+        # The rate a custom site's form starts from: the country's population
+        # projection, which is what the site grows by when no rate is set.
+        population_series = country_population_series(iso3)
+        if population_series is not None:
+            growth_rate = average_growth_rates(population_series, datetime.now().year - 1)[1] - 1
+        else:
+            growth_rate = defaults_2019.growth_rate_country[iso3] / 100
 
         if (not isinstance(latlon, list)) and (not isinstance(latlon, tuple)):
             latlon = latlon.tolist()

@@ -26,6 +26,13 @@ unless the table carries EVERY column from MODEL_START_YEAR onward -- which
 silently drops every country back to the frozen-CAGR growth scalars. Regenerate
 with diagnostic_scripts/generate_pops_yearly.py and upload to blob
 static_data/pops_yearly.csv BEFORE the constant lands in a run.
+
+THERE ARE TWO COPIES OF THAT TABLE, and nothing keeps them in step. Climate TRACE's
+pipeline reads the blob copy; the WasteMAP tools read SWEET's own
+SWEET_python/pops_yearly.csv (SWEET_python.population), which is the same table
+extended back to 1950 because the site tool models from a landfill's real opening
+year. Regenerate both from the same WPP file: the generator starts at
+MODEL_START_YEAR, so SWEET's copy needs its START_YEAR set to 1950.
 """
 
 MODEL_START_YEAR: int = 1970
