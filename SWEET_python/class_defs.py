@@ -226,36 +226,20 @@ class WasteGeneratedDF(BaseModel):
         growth_rate_historic: float,
         growth_rate_future: float,
         implement_year: Optional[int] = None,
+        population_series: Optional[pd.Series] = None,
     ):
-        years = np.arange(start_year, end_year + 1)
-        t = years - year_of_data_pop
-
-        if (growth_rate_future == growth_rate_future) and (growth_rate_future == 0.0):
-            growth_factors = np.ones(len(years))
-        else:
-            # Create growth rate array, using growth_rate_historic for years before year_of_data_pop and growth_rate_future after
-            growth_rate = np.where(
-                years < year_of_data_pop, growth_rate_historic, growth_rate_future
-            )
-            growth_factors = growth_rate**t
-
-        # Apply growth factors to each row of the DataFrame
-        adjusted_data = waste_masses_df.multiply(growth_factors, axis=0)
-
-        # Repeat with the implement_year if it is provided
-        if implement_year is not None:
-            year_of_data_pop = implement_year
-            t = years - year_of_data_pop
-            growth_rate = np.where(
-                years < year_of_data_pop, growth_rate_historic, growth_rate_future
-            )
-            growth_factors = growth_rate**t
-            adjusted_data2 = waste_masses_df.multiply(growth_factors, axis=0)
-
-            # Update the original DataFrame
-            adjusted_data.loc[implement_year:] = adjusted_data2.loc[implement_year:]
-
-        return cls(df=adjusted_data)
+        # The same as create_advanced_2 with the scenario pivoting at implement_year.
+        return cls.create_advanced_2(
+            waste_masses_df,
+            start_year,
+            end_year,
+            year_of_data_pop,
+            implement_year,
+            growth_rate_historic,
+            growth_rate_future,
+            implement_year=implement_year,
+            population_series=population_series,
+        )
 
     @classmethod
     def create_advanced_2(
@@ -268,32 +252,29 @@ class WasteGeneratedDF(BaseModel):
         growth_rate_historic: float,
         growth_rate_future: float,
         implement_year: Optional[int] = None,
+        population_series: Optional[pd.Series] = None,
     ):
         years = np.arange(start_year, end_year + 1)
-        t = years - year_of_data_pop_baseline
 
-        if (growth_rate_future == growth_rate_future) and (growth_rate_future == 0.0):
+        # By the population series when there is one, else the two rates
+        # (growth_factors_for_years). A future rate of exactly 0.0 with no series
+        # means "no growth model".
+        if population_series is None and growth_rate_future == 0.0:
             growth_factors = np.ones(len(years))
         else:
-            # Create growth rate array, using growth_rate_historic for years before year_of_data_pop and growth_rate_future after
-            growth_rate = np.where(
-                years < year_of_data_pop_baseline, growth_rate_historic, growth_rate_future
+            growth_factors = growth_factors_for_years(
+                years, year_of_data_pop_baseline, growth_rate_historic, growth_rate_future,
+                population_series,
             )
-            growth_factors = growth_rate**t
-
-        # Apply growth factors to each row of the DataFrame
         adjusted_data = waste_masses_df.multiply(growth_factors, axis=0)
 
-        # Repeat with the implement_year if it is provided
+        # From implement_year on, the scenario pivots on its own year.
         if implement_year is not None:
-            t = years - year_of_data_pop_scenario
-            growth_rate = np.where(
-                years < year_of_data_pop_scenario, growth_rate_historic, growth_rate_future
+            growth_factors = growth_factors_for_years(
+                years, year_of_data_pop_scenario, growth_rate_historic, growth_rate_future,
+                population_series,
             )
-            growth_factors = growth_rate**t
             adjusted_data2 = waste_masses_df.multiply(growth_factors, axis=0)
-
-            # Update the original DataFrame
             adjusted_data.loc[implement_year:] = adjusted_data2.loc[implement_year:]
 
         return cls(df=adjusted_data)
@@ -428,7 +409,16 @@ class DivsDF(BaseModel):
         year_of_data_pop: int,
         growth_rate_historic: float,
         growth_rate_future: float,
+        population_series: Optional[pd.Series] = None,
     ) -> "DivsDF":
+
+        years = np.arange(start_year, end_year + 1)
+        # By the population series when there is one, else the two rates, as the waste
+        # it is diverted from (growth_factors_for_years). The same for all four streams.
+        growth_factors = growth_factors_for_years(
+            years, year_of_data_pop, growth_rate_historic, growth_rate_future,
+            population_series,
+        )
 
         def create_div_df(baseline: WasteMasses, scenario: WasteMasses) -> pd.DataFrame:
             # All waste types in order
@@ -437,17 +427,6 @@ class DivsDF(BaseModel):
             # Convert baseline and scenario WasteMasses to arrays
             baseline_arr = np.array([getattr(baseline, w) for w in waste_types])
             scenario_arr = np.array([getattr(scenario, w) for w in waste_types])
-
-            # Array of years
-            years = np.arange(start_year, end_year + 1)
-            # Compute time offsets
-            t = years - year_of_data_pop
-
-            # Compute growth factors
-            # If year < year_of_data_pop -> use growth_rate_historic, else growth_rate_future
-            growth_factors = np.where(
-                years < year_of_data_pop, growth_rate_historic**t, growth_rate_future**t
-            )
 
             # Mask for baseline vs scenario (before or after implement_year)
             baseline_mask = years < implement_year
