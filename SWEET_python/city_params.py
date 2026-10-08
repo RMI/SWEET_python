@@ -803,6 +803,17 @@ class City:
             other=city_data["Waste Components: Other (%)"].values[0] / 100,
         )
         waste_fractions_dict = waste_fractions.model_dump()
+        # A published composition need not add up to 100%: Brazil's precomputed
+        # rows carry their source percentages as they are (São Paulo's sum to 99%,
+        # Brasília's to 87%, Brazil's national default to 100.1%). Normalize, as
+        # the other loaders do. Otherwise the typed masses below miss or exceed
+        # the city's waste, and implement_dst_changes_simple_v1_5 rejects a
+        # composition more than 1% off.
+        total = sum(waste_fractions_dict.values())
+        if total > 0:  # an empty or missing composition stays as published
+            waste_fractions_dict = {
+                waste: fraction / total for waste, fraction in waste_fractions_dict.items()
+            }
         waste_fractions = pd.DataFrame(waste_fractions_dict, index=years)
 
         div_fractions = DiversionFractions(
