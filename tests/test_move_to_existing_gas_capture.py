@@ -206,7 +206,8 @@ def test_a_share_outside_zero_to_one_is_rejected(city_with_capture, existing_gas
     "split",
     [
         (0.0, 0.7, 0.3),
-        # A Custom Location in a country with no disposal defaults (Pakistan's).
+        # No disposal at all, the split a Custom Location had in 31 countries
+        # before RMI/SWEET_python#74.
         (0.0, 0.0, 0.0),
     ],
 )
