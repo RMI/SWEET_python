@@ -1284,6 +1284,48 @@ fraction_landfilled_country = {
     country_to_iso3[country]: value
     for country, value in fraction_landfilled_country.items()
 }
+
+
+def disposal_split_for(iso3, region):
+    """Default disposal split for a city with no landfill data of its own.
+
+    Returns the shares of disposed waste sent to ``landfill_w_capture``,
+    ``landfill_wo_capture`` and ``dumpsite``, summing to 1. The country's row is
+    used when it sends waste to a landfill or a dump, else the region's; a place
+    with neither is all landfill in ``landfill_default_regions`` and all dumpsite
+    elsewhere.
+
+    Southern Asia, South-Eastern Asia and Southern Africa have no regional row
+    (the other regional tables carry them as ``0.0  # np.nan``), so their
+    countries without a row of their own take that fallback. Canada's, Germany's
+    and Switzerland's rows are all zeros, so they take their region's, which is
+    landfill only.
+
+    This is the split ``City.load_andre_params`` gives a cities-table row with no
+    landfill data, so a Custom Location starts from the same split as a mapped
+    city in the same country.
+    """
+    for key, dumped, landfilled in (
+        (iso3, fraction_open_dumped_country, fraction_landfilled_country),
+        (region, fraction_open_dumped, fraction_landfilled),
+    ):
+        dumpsite = dumped.get(key, 0.0)
+        landfill = landfilled.get(key, 0.0)
+        total = dumpsite + landfill
+        if total > 0:
+            return {
+                "landfill_w_capture": 0.0,
+                "landfill_wo_capture": landfill / total,
+                "dumpsite": dumpsite / total,
+            }
+    landfills = region in landfill_default_regions
+    return {
+        "landfill_w_capture": 0.0,
+        "landfill_wo_capture": 1.0 if landfills else 0.0,
+        "dumpsite": 0.0 if landfills else 1.0,
+    }
+
+
 fraction_incinerated_country = {
     "Japan": 0.76,
     "South Korea": 0.22,
