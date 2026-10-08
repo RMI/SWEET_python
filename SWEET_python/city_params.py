@@ -4725,40 +4725,11 @@ class City:
             textiles=pd.Series(ks.get("textiles", 0.0), index=years),
         )
 
-        # Determine waste split fractions using .get() method
-        dumpsite_frac = defaults_2019.fraction_open_dumped_country.get(
-            iso3, defaults_2019.fraction_open_dumped.get(region, 0)
+        # Determine waste split fractions, as the cities table does for a city
+        # with no landfill data
+        split_fractions = SplitFractions(
+            **defaults_2019.disposal_split_for(iso3, region)
         )
-        landfill_wo_capture_frac = defaults_2019.fraction_landfilled_country.get(
-            iso3, defaults_2019.fraction_landfilled.get(region, 0)
-        )
-        landfill_w_capture_frac = 0.0  # Default as per original function
-
-        try:
-            split_fractions = SplitFractions(
-                dumpsite=dumpsite_frac,
-                landfill_wo_capture=landfill_wo_capture_frac,
-                landfill_w_capture=landfill_w_capture_frac,
-            )
-        except KeyError:
-            if self.region in defaults_2019.landfill_default_regions:
-                split_fractions = SplitFractions(
-                    landfill_w_capture=0.0, landfill_wo_capture=1.0, dumpsite=0.0
-                )
-            else:
-                split_fractions = SplitFractions(
-                    landfill_w_capture=0.0, landfill_wo_capture=0.0, dumpsite=1.0
-                )
-
-        # Normalize split fractions
-        split_total = sum(split_fractions.model_dump().values())
-        if split_total > 0:
-            split_fractions = SplitFractions(
-                **{
-                    site: frac / split_total
-                    for site, frac in split_fractions.model_dump().items()
-                }
-            )
 
         # Instantiate landfill objects
         years_range = range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
