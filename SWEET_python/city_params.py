@@ -1,5 +1,7 @@
 import os
+import re
 import sys
+import unicodedata
 from pathlib import Path
 
 sys.path.append("/app/SWEET_python/SWEET_python")
@@ -241,6 +243,31 @@ def _city_growth(iso3, anchor_year, population, city_historic, city_future):
 _ISO3_BY_NAME = {name.lower(): iso3 for name, iso3 in defaults_2019.country_to_iso3.items()}
 
 
+def _fold(text):
+    """``text`` lower-cased and without accents, as pycountry's fuzzy search compares names."""
+    return "".join(
+        ch for ch in unicodedata.normalize("NFKD", text.lower()) if not unicodedata.combining(ch)
+    )
+
+
+def _is_named(country, name):
+    """Whether ``name`` is whole words of one of ``country``'s own names, or their initials.
+
+    Initials count from two letters ("UK", "UAE"), because a one-word name's are
+    just its first letter.
+    """
+    wanted = _fold(name)
+    for own in (country._fields.get(field) for field in ("name", "official_name", "common_name")):
+        if not own:
+            continue
+        initials = "".join(ch for ch in own if ch.isupper())
+        if len(initials) > 1 and wanted == _fold(initials):
+            return True
+        if re.search(rf"(?<!\w){re.escape(wanted)}(?!\w)", _fold(own)):
+            return True
+    return False
+
+
 def _iso3_for(country):
     """The ISO3 code for a country code or name. Raises LookupError if there is none.
 
@@ -252,16 +279,53 @@ def _iso3_for(country):
     Then pycountry, an exact match first, because the fuzzy search ranks
     subdivisions: it resolves "MUS" to Turkey, whose province Mus matches, rather
     than Mauritius.
+
+    The fuzzy search's answer counts only when the name is the country's own (see
+    _is_named). Its ranking scores subdivisions too, so it answered with whichever
+    country had a province that matched: "None" was Italy (Frosinone), "nan"
+    Thailand (Nan province), "Sint Maarten" the Netherlands rather than SXM. A
+    province's name is now not found even where the answer was right ("England").
+
+    No country is not found: None, anything that isn't a string, and a blank
+    string raise. The fuzzy search scored every country for an empty name and
+    answered with the one that has the most subdivisions, the United Kingdom.
     """
-    if isinstance(country, str):
-        if country.upper() in defaults_2019.region_lookup_iso3:
-            return country.upper()
-        if country.lower() in _ISO3_BY_NAME:
-            return _ISO3_BY_NAME[country.lower()]
+    if not isinstance(country, str) or not country.strip():
+        raise LookupError(f"No country given: {country!r}")
+    country = country.strip()
+    if country.upper() in defaults_2019.region_lookup_iso3:
+        return country.upper()
+    if country.lower() in _ISO3_BY_NAME:
+        return _ISO3_BY_NAME[country.lower()]
     try:
         return pycountry.countries.lookup(country).alpha_3
     except LookupError:
-        return pycountry.countries.search_fuzzy(country)[0].alpha_3
+        pass
+    for match in pycountry.countries.search_fuzzy(country):
+        if _is_named(match, country):
+            return match.alpha_3
+    raise LookupError(f"No country is named {country!r}")
+
+
+def _iso3_at(address):
+    """The ISO3 code for a geocoded place: Nominatim's ``address``. Raises LookupError.
+
+    By the country's English name first, because SWEET has its own codes for
+    Aruba, Curaçao and Sint Maarten, which Nominatim codes as the Netherlands. Then
+    by Nominatim's ISO 3166-1 code, for the names neither SWEET nor pycountry spell
+    Nominatim's way: Turkey, Ivory Coast, Cape Verde, East Timor, Democratic Republic
+    of the Congo, Congo-Brazzaville, Palestinian Territories, Sahrawi Arab Democratic
+    Republic, and the breakaway regions it names as countries (Abkhazia, South
+    Ossetia, Northern Cyprus, Somaliland), which it codes as the country they're in.
+    """
+    try:
+        return _iso3_for(address.get("country"))
+    except LookupError:
+        code = address.get("country_code")
+        match = pycountry.countries.get(alpha_2=code.upper()) if isinstance(code, str) else None
+        if match is None:
+            raise
+        return match.alpha_3
 
 
 def _country_growth(iso3, anchor_year, fallback_historic, fallback_future):
@@ -9082,10 +9146,15 @@ class City:
                 raise ValueError(f"Region for ISO3 code '{iso3}' not found.")
         else:
             location = geolocator.reverse((latlon[0], latlon[1]), language="en")
-            country = location.raw["address"].get("country")
+            # geopy gives None where Nominatim can't place the point (open sea), and
+            # an address can lack a country (Antarctica).
+            address = location.raw.get("address", {}) if location is not None else {}
+            country = address.get("country")
             try:
-                iso3 = _iso3_for(country)
+                iso3 = _iso3_at(address)
             except LookupError:
+                if country is None:
+                    raise ValueError(f"No country at {latlon[0]}, {latlon[1]}.")
                 raise ValueError(f"Country '{country}' not found.")
             region = defaults_2019.region_lookup_iso3.get(iso3)
             if region is None:
