@@ -7201,6 +7201,9 @@ class City:
                     mcf_defaults.MCF_UNCATEGORISED,
                     index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1),
                 )
+                # Keep these oxidation factors: Landfill.estimate_emissions would
+                # reset them from gas_capture, which is still False for the two
+                # converted sites, to 0.1 and 0.
                 skip_ox = True
 
             if move_gas:
@@ -7251,6 +7254,7 @@ class City:
                 lf.scenario = 1
 
         else:
+            skip_ox = True
             if add_gas:
                 for lf in scenario_parameters.landfills:
                     if lf.site_type == "Sanitary Landfill":
@@ -7538,7 +7542,7 @@ class City:
                     )
 
         # scenario_parameters.repopulate_attr_dicts() # does this need to come sooner? Does anything in the above functions rely on the attr dicts?
-        skip_ox = scenario_parameters.sites_method
+        # skip_ox comes from the branch above, so the oxidation it set is kept.
         for landfill in scenario_parameters.landfills:
             landfill.estimate_emissions(skip_ox=skip_ox)
             # print(landfill.emissions)
