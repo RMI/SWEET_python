@@ -237,12 +237,27 @@ def _city_growth(iso3, anchor_year, population, city_historic, city_future):
     return _country_growth(iso3, anchor_year, city_historic, city_future)
 
 
+#: SWEET's own country names, lower-cased, to the codes its defaults are keyed by.
+_ISO3_BY_NAME = {name.lower(): iso3 for name, iso3 in defaults_2019.country_to_iso3.items()}
+
+
 def _iso3_for(country):
     """The ISO3 code for a country code or name. Raises LookupError if there is none.
 
-    An exact match first, because the fuzzy search ranks subdivisions: it resolves
-    "MUS" to Turkey, whose province Mus matches, rather than Mauritius.
+    SWEET's own country table first, by code and then by name, ignoring case as
+    pycountry does. pycountry has no Kosovo: it can't find XKX, the code SWEET's
+    defaults are keyed by, and its fuzzy search resolves "Kosovo" to Serbia, whose
+    province Kosovo-Metohija matches.
+
+    Then pycountry, an exact match first, because the fuzzy search ranks
+    subdivisions: it resolves "MUS" to Turkey, whose province Mus matches, rather
+    than Mauritius.
     """
+    if isinstance(country, str):
+        if country.upper() in defaults_2019.region_lookup_iso3:
+            return country.upper()
+        if country.lower() in _ISO3_BY_NAME:
+            return _ISO3_BY_NAME[country.lower()]
     try:
         return pycountry.countries.lookup(country).alpha_3
     except LookupError:
