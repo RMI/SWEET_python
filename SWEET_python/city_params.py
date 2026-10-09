@@ -1196,11 +1196,12 @@ class City:
                 self.waste_mass_defaults = True
                 if iso3 in defaults_2019.msw_per_capita_country:
                     waste_per_capita = defaults_2019.msw_per_capita_country[iso3]
-                    year_of_data_msw = 2019
                 else:
                     waste_per_capita = defaults_2019.msw_per_capita_defaults[region]
-                    year_of_data_msw = 2019
                 waste_mass_load = waste_per_capita * population / 1000 * 365
+                # A rate times this population is already the population year's
+                # waste, so the year adjustment below must not move it again.
+                year_of_data_msw = int(year_of_data_pop)
 
             # Subtract mass that is informally collected
             # self.informal_fraction = np.nan_to_num(row['percent_informal_sector_percent_collected_by_informal_sector_percent']) / 100
@@ -3189,11 +3190,12 @@ class City:
             waste_mass_defaults = True
             if self.iso3 in defaults_2019.msw_per_capita_country:
                 waste_per_capita = defaults_2019.msw_per_capita_country[self.iso3]
-                year_of_data_msw = 2019
             else:
                 waste_per_capita = defaults_2019.msw_per_capita_defaults[self.region]
-                year_of_data_msw = 2019
             waste_mass_load = waste_per_capita * population / 1000 * 365
+            # A rate times this population is already the population year's
+            # waste, so the year adjustment below must not move it again.
+            year_of_data_msw = int(year_of_data_pop)
 
         # Subtract mass that is informally collected
         # self.informal_fraction = np.nan_to_num(row['percent_informal_sector_percent_collected_by_informal_sector_percent']) / 100
