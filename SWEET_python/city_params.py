@@ -450,6 +450,54 @@ class CustomError(Exception):
         super().__init__(self.message)
 
 
+def _move_to_existing_gas_capture(
+    split_fractions: SplitFractions, existing_gas_pct: float
+) -> SplitFractions:
+    """The city's disposal split with ``existing_gas_pct`` of it going to the
+    landfills it already has with gas capture: the City DST's "move waste to
+    existing gas capture" lever.
+
+    The landfill and dumpsite shares without capture take the rest,
+    ``1 - existing_gas_pct``, in the proportions they had to each other. A city
+    sending 34% of its waste to capture and 66% to a landfill without it, moved to
+    90%, sends the other 10% to that landfill.
+
+    Raises CustomError("INVALID_PARAMETERS") when the share is outside [0, 1], when
+    the city has no landfill with gas capture to move waste to, and when it has no
+    site without capture to move waste away to.
+    """
+    if not 0.0 <= existing_gas_pct <= 1.0:
+        raise CustomError(
+            "INVALID_PARAMETERS",
+            "The share of waste to existing gas capture must be between 0 and 1, "
+            f"not {existing_gas_pct}",
+        )
+    with_capture = split_fractions.landfill_w_capture
+    without_capture = split_fractions.landfill_wo_capture + split_fractions.dumpsite
+    if with_capture <= 0:
+        if existing_gas_pct > 0:
+            raise CustomError(
+                "INVALID_PARAMETERS",
+                "This city has no landfill with gas capture to move waste to",
+            )
+        return split_fractions.model_copy()
+    if without_capture <= 0:
+        if existing_gas_pct < 1:
+            raise CustomError(
+                "INVALID_PARAMETERS",
+                "This city sends all of its waste to landfills with gas capture, "
+                "so there is no site without capture to move waste to",
+            )
+        return split_fractions.model_copy()
+    scale = (1 - existing_gas_pct) / without_capture
+    return SplitFractions(
+        landfill_w_capture=existing_gas_pct,
+        landfill_wo_capture=split_fractions.landfill_wo_capture * scale,
+        dumpsite=split_fractions.dumpsite * scale,
+        new_w_capture=split_fractions.new_w_capture,
+    )
+
+
 class City:
     def __init__(self, city_name: str):
         """
@@ -7204,18 +7252,19 @@ class City:
                 skip_ox = True
 
             if move_gas:
-                original_gas_pct = (
-                    scenario_parameters.split_fractions.landfill_w_capture
+                scenario_parameters.split_fractions = _move_to_existing_gas_capture(
+                    scenario_parameters.split_fractions, existing_gas_pct
                 )
-                scenario_parameters.split_fractions.landfill_w_capture = (
-                    existing_gas_pct
+                # Each landfill's waste comes from its own fraction_of_waste
+                # (LandfillWasteMassDF.create below), not from split_fractions.
+                split = scenario_parameters.split_fractions
+                scenario_parameters.landfills[0].fraction_of_waste = (
+                    split.landfill_w_capture
                 )
-                if original_gas_pct > 0:
-                    ratio = existing_gas_pct / original_gas_pct
-                else:
-                    ratio = 0
-                scenario_parameters.split_fractions.landfill_wo_capture *= ratio
-                scenario_parameters.split_fractions.dumpsite *= ratio
+                scenario_parameters.landfills[1].fraction_of_waste = (
+                    split.landfill_wo_capture
+                )
+                scenario_parameters.landfills[2].fraction_of_waste = split.dumpsite
 
             if new_gas_pct > 0:
                 scenario_parameters.landfills.append(
@@ -7232,7 +7281,8 @@ class City:
                 total = sum(scenario_parameters.split_fractions.model_dump().values())
                 if abs(total - 1.0) > 1e-3:
                     raise CustomError(
-                        f"Invalid split fractions: {scenario_parameters.split_fractions}"
+                        "INVALID_PARAMETERS",
+                        f"Invalid split fractions: {scenario_parameters.split_fractions}",
                     )
                 scenario_parameters.landfills[0].fraction_of_waste = (
                     scenario_parameters.split_fractions.landfill_w_capture
