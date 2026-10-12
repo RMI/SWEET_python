@@ -46,47 +46,112 @@ that is the gap this workflow fills. Tests of this package's internals belong
 here, in the repo that owns them.
 
 # Usage
-You will have to write your own code to import your data files. Examples are in SWEET_python/sweet_tools_obj.py—the load_from_database method illustrates the many different parameters that can be specified. For many parameters, default values are available. These are stored in the defaults_2019.py file, and the sweet_tools_obj.py file contains many examples of accessing them. The code for the model itself is in model.py. Models are generally run as part of a Landfill instance—the Landfill class is defined at the bottom of sweet_tools_obj.py
 
-The standard way to run the model is shown by this code:
-
-```
-from SWEET_python.sweet_tools_obj import City
-city = City(city_name)
-city.load_from_database(db_file) # Replace this with your own data loading code
-for landfill in city.non_zero_landfills:
-    landfill.estimate_emissions(baseline=True)
-
-city.organic_emissions_baseline = city.estimate_diversion_emissions(baseline=True)
-city.total_emissions_baseline = city.sum_landfill_emissions(baseline=True)
-```
-
-The minimum information required to run the model is:
-1) The country the city is in. This is used for some default parameters, and will look up a global region, used for other defaults.
-2) Population or total waste generated per year. Default waste generation values are per capita, so city population is needed to calculate total waste generation if those data are not available.
-3) Population growth rate, both historic (before the current year) and future (after current year). This is used to determine how waste generation changes backwards and forwards in time. Growth rates are percent growth rate + 1, e.g. 5% growth is represented by 1.05. Historic growth rates are above 1, not below, i.e. if population grew by an average of 5% per year from 1950 to the current date, the historic growth rate would be 1.05 not .95
-4) Mean annual precipitation in mm. Precipitation is used to determine waste decay rates.
-
-The SWEET model is designed to operate at the city level, and allows multiple landfills per city. If you would like to model only a single landfill, that can be done by creating only a single Landfill instance, directing all waste to it with the fraction_of_waste attribute, and setting all the diversion values to 0—no waste is composted, anaerobically digested, combusted/incinerated, or recycled, it all goes to the landfill. Country, population or waste generation, population growth rate, and precipitation are still required. 
-
-## Release coordination
-
-SWEET_python is one of three repositories that build [wastemap.earth](https://wastemap.earth),
-alongside [RMI/WasteMAP](https://github.com/RMI/WasteMAP) — which `pip`-installs this
-package into its API and map-data pipeline — and the
+SWEET has no single entry point: each caller uses the path built for it. The two apps
+that call it are the working examples — WasteMAP's API (`backend/sweet_launch.py` in
+[RMI/WasteMAP](https://github.com/RMI/WasteMAP)) and the
 [Climate TRACE waste-methane pipeline](https://github.com/RMI/RMI_Climate_TRACE_Waste_Methane).
+Where things are:
 
-Production releases of wastemap.earth are coordinated by a shared `vYYYY.MM.DD` git
-tag applied to the same release across all three repos. At each release, the commit of
-SWEET_python that the WasteMAP API/pipeline images were built from is tagged with the
-release version and recorded in WasteMAP's release manifest. This supersedes the old
-date-named snapshot branches (`04_13_26`, `06_15_26`, …).
+- **`SWEET_python/city_params.py`** — `City`, which sets up a city's waste, diversion
+  and landfills and runs them. Its main entry points: `load_csv_new` and
+  `load_andre_params` (a row of WasteMAP's cities table); `dst_baseline_blank` (a
+  Custom Location: a country, a population and the climate);
+  `cityparams_obj_for_blank_site` and `sdst_v1_5` (WasteMAP's single-site tool); and
+  `site_only_estimate_trace` (one Climate TRACE site).
+- **`SWEET_python/landfill.py`** — `Landfill`: one disposal site (its type, open and
+  close years, gas capture and cover) and `estimate_emissions`, which runs the model
+  for it.
+- **`SWEET_python/model_v2.py`** — `SWEET`, the first-order-decay engine.
+- **`SWEET_python/advanced_dst.py`** and **`advanced_dst_city.py`** — the advanced DST,
+  where the caller supplies waste mass and composition as yearly series directly:
+  `run_advanced_dst` for one site, `run_advanced_dst_city` for a city and its
+  landfills.
+- **`SWEET_python/defaults_2019.py`** — default parameters by country and region (waste
+  per person, composition, disposal split), alongside `mcf.py` (methane correction
+  factors), `population.py` (UN population, for growing waste year by year) and
+  `dst_common.py` (shared by the DST paths).
 
-> Note: SWEET_python is baked into two WasteMAP images with different timing — the batch
-> map-data pipeline **and** the API, whose live decision-support endpoints (`/sdst`,
-> `/adst`, `/cdst`) call this model at request time. A model change merged here reaches
-> the live site only when WasteMAP builds a release against that commit (and, for the
-> map, re-runs its pipeline). See the process doc below.
+# Releases
 
-See **[WasteMAP `RELEASES.md`](https://github.com/RMI/WasteMAP/blob/main/RELEASES.md)**
-for the full release process.
+SWEET publishes dated releases. A release is an annotated git tag named
+`sweet/YYYY.MM.N` on a commit from `main`, with a matching
+[GitHub Release](https://github.com/RMI/SWEET_python/releases).
+
+## What the name means
+
+- **`sweet/`** — a release of this repository. The other tags here are other projects'
+  records of which SWEET commit they used: `wastemap/YYYY.MM.DD` (a wastemap.earth
+  deploy), `submission/MM_DD_YY` (a Climate TRACE submission) and the older
+  `v2026.08.17`. They are not SWEET releases, and the release workflow does not count
+  them.
+- **`YYYY.MM`** — the year and month, in UTC, that the release was cut. Not the year of
+  any data or method in it.
+- **`N`** — counts from 0 within the month: `sweet/2026.10.0`, `sweet/2026.10.1`, then
+  `sweet/2026.11.0`.
+
+A later name always contains everything in an earlier one: the workflow will not release
+a commit that lacks the newest release, so moving a pin to a newer release can never take
+a fix away. The name says nothing about how big the change is; the release notes and the
+changelog do.
+
+## A release is never moved or reused
+
+Once `sweet/2026.10.0` exists, it points at the same commit for good. Nothing moves,
+deletes or re-creates a release tag, because an app pinned to it has to keep installing
+exactly the code it was tested with. A release with a mistake in it is fixed by merging
+the fix to `main` and cutting the next release.
+
+## Cutting a release
+
+1. Merge what should be in it to `main`, with its changelog entry (see
+   [`changelog/README.md`](changelog/README.md)).
+2. On GitHub, open **Actions → Release → Run workflow**, leave "Use workflow from" on
+   `main`, and run it. The defaults release the tip of `main` under the next free name
+   for this month. The two inputs are for when you need something else:
+   - **ref** — what to release: a branch, tag or commit sha. It has to be on `main`.
+   - **version** — a name of your own, e.g. `sweet/2026.10.3`. It has to be unused and
+     sort after the newest release.
+3. Before anything is tagged, the workflow refuses a commit `main` does not contain, a
+   commit that is already a release, a commit that lacks the newest release, a name that
+   is taken, and a commit whose tests fail (the same `pytest -m "not integration"` as
+   CI, run against that commit). Then it tags the commit, pushes the tag and publishes
+   the GitHub Release, whose notes list the pull requests merged since the previous
+   release and link to that month's changelog file. The run's summary page shows the
+   tag, the commit and the links.
+
+If the tag gets pushed but the GitHub Release step fails, do not re-run the workflow:
+the name is taken now, so it will refuse. The run's summary page gives the
+`gh release create` command that finishes the job.
+
+## How an app asks for a release
+
+An app that uses SWEET names the release it wants in a small pin file in its own
+repository (each app documents its own) and installs that tag:
+
+```
+pip install "git+https://github.com/RMI/SWEET_python.git@sweet/2026.10.0"
+```
+
+A copy installed this way knows which commit it is: pip builds it from a git checkout,
+and `setup.py` writes that commit into the package, so `SWEET_python.__version__` returns
+it (`VERSION_SOURCE == "build"`). An editable install or a path dependency has no such
+stamp; for those, the app sets `SWEET_GIT_SHA` to the commit it installed (both apps do),
+and a local checkout falls back to reading its `.git`. Nothing reports a commit it
+cannot vouch for: with none of the three, `__version__` is `"unknown"`.
+
+- On an app's **feature branch**, the pin may name a SWEET branch instead, to try a
+  model change before it is released.
+- On an app's **`main` and production line**, the pin names a release or an exact
+  commit sha, never a branch. A branch moves: the next merge here would change what the
+  app runs without anyone changing the app.
+
+In a running app, `SWEET_python.__version__` is the commit it installed, not the release
+name (the package docstring says why). To turn a commit back into a release name:
+`git tag --points-at <sha> --list 'sweet/*'`.
+
+The pin matters most for WasteMAP's API, which calls SWEET at request time for its
+decision-support tools (`/sdst`, `/adst`, `/cdst`): whatever SWEET its image was built
+with is live the moment it deploys, even while the map's precomputed numbers came from an
+older model. WasteMAP's
+[`RELEASES.md`](https://github.com/RMI/WasteMAP/blob/main/RELEASES.md) covers its side.
