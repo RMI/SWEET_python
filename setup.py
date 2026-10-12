@@ -16,12 +16,13 @@ requirements = [
 
 setup(
     name="SWEET_python",
-    # Decoration, not a version. SWEET never ships on its own -- it reaches the world
-    # only inside a Climate TRACE run or a WasteMAP deploy, each of which has an
-    # identity already -- so there is no hand-maintained number here to keep honest.
-    # What a caller should read is SWEET_python.__version__, which is the commit this
-    # copy was installed from. See the package docstring, and VERSIONING.md in
-    # RMI_Climate_TRACE_Waste_Methane.
+    # Decoration, not a version. SWEET's releases are git tags named sweet/YYYY.MM.N,
+    # cut from main by .github/workflows/release.yml (see the README's Releases
+    # section). This string does not follow them and is never bumped -- pip reports
+    # 0.1 whichever release it installed. What a caller should read is
+    # SWEET_python.__version__, which is the commit this copy was installed from; a
+    # release tag names exactly one commit, so the commit identifies the release too.
+    # See the package docstring.
     version="0.1",
     packages=find_packages(),
     include_package_data=True,
