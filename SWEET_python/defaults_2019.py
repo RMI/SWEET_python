@@ -686,6 +686,7 @@ region_lookup_iso3 = {}
 for country in region_lookup:
     iso3 = country_to_iso3[country]
     region_lookup_iso3[iso3] = region_lookup[country]
+# tonnes/cap/yr: IPCC 2019 Refinement, Vol. 5 Ch. 2, Table 2.1 (Updated)
 msw_per_capita_defaults = {
     "Australia and New Zealand": 0.6,
     "Caribbean": 0.78,
@@ -712,6 +713,7 @@ msw_per_capita_defaults = {
 msw_per_capita_defaults = {
     key: (value / 365) * 1000 for key, value in msw_per_capita_defaults.items()
 }  # convert from tons/year to kg/day
+# tonnes/cap/yr: IPCC 2019 Refinement, Vol. 5 Ch. 2, Table 2A.1 (Updated), 2010 column
 msw_per_capita_country = {
     "Tajikistan": 0.32,
     "Turkmenistan": 0.36,
@@ -720,6 +722,7 @@ msw_per_capita_country = {
     "Mongolia": 0.24,
     "South Korea": 0.35,
     "Brunei Darussalam": 0.32,
+    "Indonesia": 0.19,
     "Laos": 0.26,
     "Malaysia": 0.55,
     "Myanmar": 0.16,
