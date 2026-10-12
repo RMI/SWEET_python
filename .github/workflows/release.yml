@@ -40,6 +40,10 @@ jobs:
     name: Cut a release
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # The first release's notes, written once: the Release step and the recovery
+      # command below must say the same thing.
+      FIRST_RELEASE_NOTE: "The first dated release of SWEET_python. What came before it is written up month by month in the changelog."
     steps:
       - name: Refuse to run release tooling from a branch
         # "Use workflow from" picks which copy of this file runs. A branch's copy is
@@ -247,7 +251,7 @@ jobs:
             # The first release has nothing to count from, and a list of every
             # pull request since the repository began would bury the point.
             url="$(gh release create "$VERSION" --verify-tag --title "$VERSION" \
-              --notes "$(printf 'The first dated release of SWEET_python. What came before it is written up month by month in the changelog.\n\n%s' "$CHANGELOG_LINE")")"
+              --notes "$(printf '%s\n\n%s' "$FIRST_RELEASE_NOTE" "$CHANGELOG_LINE")")"
           fi
           echo "$url"
           echo "url=${url}" >> "$GITHUB_OUTPUT"
@@ -289,11 +293,16 @@ jobs:
         env:
           VERSION: ${{ steps.plan.outputs.version }}
           PREVIOUS: ${{ steps.plan.outputs.previous }}
+          CHANGELOG_LINE: ${{ steps.plan.outputs.changelog_line }}
         run: |
+          # The same notes the Release step would have written, changelog link included,
+          # each argument quoted for bash (`printf %q`) so the command pastes as is.
+          q() { printf '%q' "$1"; }
+          base="gh release create $(q "$VERSION") --repo $(q "$GITHUB_REPOSITORY") --verify-tag --title $(q "$VERSION")"
           if [[ -n "$PREVIOUS" ]]; then
-            cmd="gh release create ${VERSION} --repo ${GITHUB_REPOSITORY} --verify-tag --title ${VERSION} --generate-notes --notes-start-tag ${PREVIOUS}"
+            cmd="${base} --generate-notes --notes-start-tag $(q "$PREVIOUS") --notes $(q "$CHANGELOG_LINE")"
           else
-            cmd="gh release create ${VERSION} --repo ${GITHUB_REPOSITORY} --verify-tag --title ${VERSION} --notes 'The first dated release of SWEET_python.'"
+            cmd="${base} --notes $(q "$(printf '%s\n\n%s' "$FIRST_RELEASE_NOTE" "$CHANGELOG_LINE")")"
           fi
           {
             echo "## ${VERSION} is tagged, but has no GitHub Release"
