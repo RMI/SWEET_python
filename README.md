@@ -133,6 +133,13 @@ repository (each app documents its own) and installs that tag:
 pip install "git+https://github.com/RMI/SWEET_python.git@sweet/2026.10.0"
 ```
 
+A copy installed this way knows which commit it is: pip builds it from a git checkout,
+and `setup.py` writes that commit into the package, so `SWEET_python.__version__` returns
+it (`VERSION_SOURCE == "build"`). An editable install or a path dependency has no such
+stamp; for those, the app sets `SWEET_GIT_SHA` to the commit it installed (both apps do),
+and a local checkout falls back to reading its `.git`. Nothing reports a commit it
+cannot vouch for: with none of the three, `__version__` is `"unknown"`.
+
 - On an app's **feature branch**, the pin may name a SWEET branch instead, to try a
   model change before it is released.
 - On an app's **`main` and production line**, the pin names a release or an exact
