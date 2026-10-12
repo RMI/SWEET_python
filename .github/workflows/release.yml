@@ -1,0 +1,307 @@
+name: Release
+
+# Cuts a SWEET release: an annotated tag sweet/YYYY.MM.N on a commit from main, and a
+# GitHub Release for it whose notes list the pull requests merged since the previous
+# release. Run it from the Actions tab ("Release" > "Run workflow"); with both inputs
+# left at their defaults it releases the tip of main under the next free name for the
+# current UTC month. The README's Releases section says what the name means and how a
+# consumer asks for one.
+#
+# A release tag is never moved, reused or deleted -- an app pinned to it has to keep
+# installing the same code -- so every check below runs before the tag exists, and the
+# push is a plain one that git refuses if the name is already taken.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "What to release: a branch, tag or commit sha. It must be on main."
+        required: true
+        default: main
+        type: string
+      version:
+        description: "Release name, e.g. sweet/2026.10.0. Leave blank for the next free one this month (UTC)."
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write # push the tag, create the GitHub Release
+
+# One release at a time, repository-wide, so two runs cannot both compute the same
+# next number. A second run waits rather than cancelling the first. (GitHub keeps
+# only one run waiting per group: a third click while one is running and one is
+# waiting replaces the waiting one.)
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Cut a release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Refuse to run release tooling from a branch
+        # "Use workflow from" picks which copy of this file runs. A branch's copy is
+        # unreviewed and could skip any check below, so only main's copy may tag.
+        # (Which commit gets released is the `ref` input, not this.)
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Run the Release workflow from main (\"Use workflow from: main\"), not ${GITHUB_REF}. To release some other commit on main, put it in the 'ref' input."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # All history and all tags: reachability from main, the next free
+          # number and the previous release all need the whole picture.
+          fetch-depth: 0
+
+      - name: Decide what to release and what to call it
+        id: plan
+        env:
+          # Inputs reach the script as environment variables, never pasted into
+          # it, so a crafted ref cannot become shell.
+          REF: ${{ inputs.ref }}
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin
+
+          REF="$(printf '%s' "$REF" | tr -d '[:space:]')"
+          if [[ -z "$REF" || "$REF" == -* ]]; then
+            echo "::error::'ref' must name a branch, tag or commit; got '${REF}'."
+            exit 1
+          fi
+
+          # A branch name means the branch on GitHub as of this run, then a tag,
+          # then a commit sha. Each lookup is spelled out so a tag and a branch
+          # sharing a name cannot be confused for each other.
+          if sha="$(git rev-parse --verify --quiet "refs/remotes/origin/${REF}^{commit}")"; then
+            kind=branch
+          elif sha="$(git rev-parse --verify --quiet "refs/tags/${REF}^{commit}")"; then
+            kind=tag
+          elif [[ "$REF" =~ ^[0-9a-fA-F]{7,40}$ ]] && sha="$(git rev-parse --verify --quiet "${REF}^{commit}")"; then
+            kind=commit
+          else
+            echo "::error::'${REF}' is not a branch, tag or commit in this repository."
+            exit 1
+          fi
+          echo "'${REF}' is ${kind} -> commit ${sha}"
+
+          # Releases come from main. A commit main does not contain is unreviewed
+          # (or not merged yet), and an app pinned to it would be pinned to code
+          # main may never have.
+          if ! git merge-base --is-ancestor "$sha" refs/remotes/origin/main; then
+            echo "::error::Commit ${sha} ('${REF}') is not on main. Releases are cut from main only: merge it first, then release main or a commit on it."
+            exit 1
+          fi
+
+          # A second release of the same commit would be a second name for code
+          # that already has one -- usually a double click on "Run workflow".
+          already="$(git tag --points-at "$sha" --list 'sweet/*' | python3 scripts/next_release.py --latest)"
+          if [[ -n "$already" ]]; then
+            echo "::error::Commit ${sha} is already released as ${already}. Use that release; there is nothing new to cut."
+            exit 1
+          fi
+
+          if [[ -z "$(printf '%s' "$VERSION_INPUT" | tr -d '[:space:]')" ]]; then
+            version="$(git tag --list 'sweet/*' | python3 scripts/next_release.py)"
+            echo "No version given; the next free name this month is ${version}."
+          else
+            # --check prints the name back trimmed, or explains what is wrong.
+            if ! version="$(python3 scripts/next_release.py --check "$VERSION_INPUT")"; then
+              echo "::error::'${VERSION_INPUT}' is not a release name. Use sweet/YYYY.MM.N, e.g. sweet/2026.10.0, or leave 'version' blank."
+              exit 1
+            fi
+          fi
+
+          # Never move or reuse a release: refuse a name that exists here or on
+          # GitHub. (The plain push below would also refuse it; this says why
+          # before the tests spend minutes.)
+          if git rev-parse --verify --quiet "refs/tags/${version}" >/dev/null \
+             || git ls-remote --exit-code --tags origin "refs/tags/${version}" >/dev/null; then
+            echo "::error::${version} already exists. A release name is never moved or reused; leave 'version' blank to get the next free one."
+            exit 1
+          fi
+
+          # A later release must contain every earlier one, so that moving a pin to
+          # a newer name can never take a fix away. Main always satisfies this;
+          # only an old commit picked by sha or tag can fail it.
+          newest="$(git tag --list 'sweet/*' | python3 scripts/next_release.py --latest)"
+          if [[ -n "$newest" ]] && ! git merge-base --is-ancestor "refs/tags/${newest}" "$sha"; then
+            echo "::error::Commit ${sha} ('${REF}') does not contain ${newest}, the newest release. A release has to include the ones before it: release main, or a commit on main after ${newest}."
+            exit 1
+          fi
+          # ...and its name has to sort after theirs, or "the newest release"
+          # stops meaning the one with the highest name (a hand-typed
+          # sweet/2026.09.9 after sweet/2026.10.0, say).
+          if [[ -n "$newest" ]] \
+             && [[ "$(printf '%s\n%s\n' "$newest" "$version" | python3 scripts/next_release.py --latest)" != "$version" ]]; then
+            echo "::error::${version} would sort before ${newest}, the newest release. Pick a later name, or leave 'version' blank."
+            exit 1
+          fi
+
+          # The previous release is the newest one this commit contains -- after
+          # the check above, the newest release there is -- which is what "the pull
+          # requests since the last release" are counted from. Empty for the first.
+          previous="$(git tag --merged "$sha" --list 'sweet/*' | python3 scripts/next_release.py --latest)"
+
+          # The month's hand-written changelog, linked by commit so the link shows
+          # the file as it was when released. A month nobody has written an entry
+          # for yet falls back to the index.
+          month="$(printf '%s' "$version" | sed -E 's#^sweet/([0-9]{4})\.([0-9]{2})\..*$#\1-\2#')"
+          base="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${sha}/changelog"
+          if git cat-file -e "${sha}:changelog/${month}.md" 2>/dev/null; then
+            changelog_line="The hand-written account of this month's changes, as of this release: [changelog/${month}.md](${base}/${month}.md)."
+            changelog_url="${base}/${month}.md"
+          else
+            changelog_line="There is no changelog/${month}.md at this commit yet; the monthly changelog files are listed in [changelog/README.md](${base}/README.md)."
+            changelog_url="${base}/README.md"
+          fi
+
+          {
+            echo "ref=${REF}"
+            echo "sha=${sha}"
+            echo "kind=${kind}"
+            echo "version=${version}"
+            echo "previous=${previous}"
+            echo "changelog_line=${changelog_line}"
+            echo "changelog_url=${changelog_url}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Will release ${sha} as ${version} (previous release: ${previous:-none})."
+
+      # Everything from here runs against the commit being released, so the tests
+      # are that commit's tests with that commit's pinned dependencies. The steps
+      # mirror .github/workflows/tests.yml; keep the two in step.
+      - name: Check out the commit being released
+        env:
+          SHA: ${{ steps.plan.outputs.sha }}
+        run: git checkout --quiet --detach "$SHA"
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install libpq headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install "pytest>=8,<10"
+          pip install --no-deps -e .
+
+      - name: Run fast tests
+        # A failure here stops the release: nothing has been tagged yet.
+        run: pytest -m "not integration" --verbose
+
+      - name: Tag the release
+        id: tag
+        env:
+          SHA: ${{ steps.plan.outputs.sha }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          REF: ${{ steps.plan.outputs.ref }}
+          KIND: ${{ steps.plan.outputs.kind }}
+        run: |
+          set -euo pipefail
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          # Annotated, so the tag records who cut it, when, and from what. The
+          # tagger is the bot that made it; the person who asked is in the message.
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898283+github-actions[bot]@users.noreply.github.com" \
+              tag --annotate --file=- "$VERSION" "$SHA" <<MSG
+          ${VERSION}
+
+          SWEET_python release ${VERSION}: commit ${SHA}, from ${KIND} '${REF}'.
+          Cut by @${GITHUB_ACTOR} in ${run_url}
+          MSG
+          # A plain push: git will not overwrite a tag that already exists on
+          # GitHub, so this cannot move a release even if the checks above missed one.
+          git push origin "refs/tags/${VERSION}"
+
+      - name: Create the GitHub Release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          PREVIOUS: ${{ steps.plan.outputs.previous }}
+          CHANGELOG_LINE: ${{ steps.plan.outputs.changelog_line }}
+        run: |
+          set -euo pipefail
+          # gh prints the new Release's URL; it goes into the job summary.
+          if [[ -n "$PREVIOUS" ]]; then
+            # GitHub lists the pull requests merged since PREVIOUS; the changelog
+            # line is put above that list.
+            url="$(gh release create "$VERSION" --verify-tag --title "$VERSION" \
+              --generate-notes --notes-start-tag "$PREVIOUS" \
+              --notes "$CHANGELOG_LINE")"
+          else
+            # The first release has nothing to count from, and a list of every
+            # pull request since the repository began would bury the point.
+            url="$(gh release create "$VERSION" --verify-tag --title "$VERSION" \
+              --notes "$(printf 'The first dated release of SWEET_python. What came before it is written up month by month in the changelog.\n\n%s' "$CHANGELOG_LINE")")"
+          fi
+          echo "$url"
+          echo "url=${url}" >> "$GITHUB_OUTPUT"
+
+      - name: Summary
+        if: success()
+        env:
+          SHA: ${{ steps.plan.outputs.sha }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          PREVIOUS: ${{ steps.plan.outputs.previous }}
+          CHANGELOG_URL: ${{ steps.plan.outputs.changelog_url }}
+          RELEASE_URL: ${{ steps.release.outputs.url }}
+          REF: ${{ steps.plan.outputs.ref }}
+        run: |
+          repo="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+          {
+            echo "## Released ${VERSION}"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Tag | \`${VERSION}\` |"
+            echo "| Commit | [\`${SHA}\`](${repo}/commit/${SHA}) |"
+            echo "| Requested ref | \`${REF}\` |"
+            echo "| Previous release | ${PREVIOUS:-none (first release)} |"
+            echo "| Notes | [GitHub Release](${RELEASE_URL}) · [changelog](${CHANGELOG_URL}) |"
+            echo
+            echo "A consumer installs it with:"
+            echo
+            echo '```'
+            echo "pip install \"git+${repo}.git@${VERSION}\""
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Say how to finish if only the tag was made
+        # The tag is pushed and permanent, but the Release step failed. Running
+        # this workflow again would refuse the name (it exists now), so the
+        # Release has to be created by hand -- here is the exact command.
+        if: failure() && steps.tag.outcome == 'success'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          PREVIOUS: ${{ steps.plan.outputs.previous }}
+        run: |
+          if [[ -n "$PREVIOUS" ]]; then
+            cmd="gh release create ${VERSION} --repo ${GITHUB_REPOSITORY} --verify-tag --title ${VERSION} --generate-notes --notes-start-tag ${PREVIOUS}"
+          else
+            cmd="gh release create ${VERSION} --repo ${GITHUB_REPOSITORY} --verify-tag --title ${VERSION} --notes 'The first dated release of SWEET_python.'"
+          fi
+          {
+            echo "## ${VERSION} is tagged, but has no GitHub Release"
+            echo
+            echo "The tag is pushed and stays. Do not delete or move it. Create the Release by hand:"
+            echo
+            echo '```'
+            echo "$cmd"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::${VERSION} is tagged but the GitHub Release was not created. See the job summary for the command that finishes it."
