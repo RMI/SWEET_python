@@ -7,9 +7,24 @@ emissions. It is the modeling library that the WasteMAP backend API depends on,
 and this folder tracks notable changes to it.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-The project does not publish semantic version tags, so releases are tracked by
-**calendar month**: each entry file covers a one-month span and is named
-`YYYY-MM.md`.
+Entries are filed by **calendar month**: each file covers the changes merged in
+one month and is named `YYYY-MM.md`.
+
+## Releases and this changelog
+
+SWEET's releases are git tags named `sweet/YYYY.MM.N`, cut from `main` by the
+Release workflow (see the [README](../README.md#releases)). A release and these
+files do different jobs:
+
+- **A GitHub Release's notes** are generated when the release is cut: the pull
+  requests merged since the previous release, and a link to that month's file
+  here. Nobody writes them by hand.
+- **The monthly files** keep the human-written entries: what changed, why, and
+  what it does to the numbers. Write the entry in the pull request that makes the
+  change, under the month it merges in, whichever release ends up shipping it.
+
+A release's link points at its month's file as of the release's commit, so it
+shows the month up to that release. Entries are not grouped by release.
 
 ## Entries
 
