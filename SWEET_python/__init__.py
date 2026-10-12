@@ -23,10 +23,17 @@ A process that imports this can now log what it actually got.
 
 HOW IT RESOLVES, in order, inventing nothing:
 
-1. ``SWEET_GIT_SHA``, which the image build sets from the ref it actually installed.
-2. A ``.git`` directory beside the package, for an editable checkout.
-3. ``"unknown"`` -- an honest answer, and the one a reader must be able to distinguish
-   from a real sha. ``VERSION_SOURCE`` says which of the three it was.
+1. The build stamp, ``SWEET_python/_build_sha.py``: ``setup.py`` writes the commit into
+   every copy built from a clean git checkout -- which is how ``pip install
+   git+https://...@sweet/2026.10.0`` builds -- so the copy itself knows. First because
+   it describes the installed code, where an environment variable is a claim made from
+   outside it.
+2. ``SWEET_GIT_SHA``, which the apps set from the commit they install, for a copy with
+   no stamp (an editable install, or a path dependency).
+3. A ``.git`` directory beside the package, for an editable checkout.
+4. ``"unknown"`` -- an honest answer, and the one a reader must be able to distinguish
+   from a real sha. ``VERSION_SOURCE`` says which of the four it was: ``build``,
+   ``env``, ``git`` or ``unavailable``.
 
 Same shape, deliberately, as the Climate TRACE pipeline's
 ``results_tables.resolve_git_shas``: env first, then a repository read, then a recorded
@@ -62,7 +69,18 @@ def _sha_from_git(repo_dir: Path) -> Optional[str]:
     return (out.stdout or "").strip() or None
 
 
+def _sha_from_build() -> Optional[str]:
+    try:
+        from SWEET_python._build_sha import GIT_SHA
+    except ImportError:
+        return None
+    return (GIT_SHA or "").strip() or None
+
+
 def _resolve_version() -> "tuple[str, str]":
+    sha = _sha_from_build()
+    if sha:
+        return sha, "build"
     sha = (os.environ.get("SWEET_GIT_SHA") or "").strip()
     if sha:
         return sha, "env"
