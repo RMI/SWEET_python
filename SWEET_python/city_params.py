@@ -23,6 +23,7 @@ from SWEET_python.landfill import Landfill
 from SWEET_python.singapore_k import compute_singapore_k
 import SWEET_python.defaults_2019 as defaults_2019
 import SWEET_python.mcf as mcf_defaults
+import SWEET_python.site_type_defaults as site_type_defaults
 from SWEET_python.population import average_growth_rates, country_population_series
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -1426,7 +1427,7 @@ class City:
                         }
                         self.landfill_split_defaults = True
                     else:
-                        if region in defaults_2019.landfill_default_regions:
+                        if site_type_defaults.landfill_is_default(iso3):
                             split_fractions = {
                                 "landfill_w_capture": 0,
                                 "landfill_wo_capture": 1,
@@ -1517,7 +1518,7 @@ class City:
                         }
                         self.landfill_split_defaults = True
                     else:
-                        if region in defaults_2019.landfill_default_regions:
+                        if site_type_defaults.landfill_is_default(iso3):
                             split_fractions = {
                                 "landfill_w_capture": 0.0,
                                 "landfill_wo_capture": 1.0,
@@ -1549,7 +1550,7 @@ class City:
             # Normalize landfills to 1
             split_total = sum([x for x in split_fractions.values()])
             if split_total == 0:
-                if region in defaults_2019.landfill_default_regions:
+                if site_type_defaults.landfill_is_default(iso3):
                     split_fractions = {
                         "landfill_w_capture": 0.0,
                         "landfill_wo_capture": 1.0,
@@ -2464,17 +2465,7 @@ class City:
         depth = None
         site_type = row["Site Type"].values[0]
         if site_type not in get_site_type_idx.keys():
-            if self.region in [
-                "Australia and New Zealand",
-                "Eastern Asia",
-                "North America",
-                "Northern Europe",
-                "Southern Europe",
-                "Western Europe"
-            ]:
-                site_type = "Sanitary Landfill"
-            else:
-                site_type = "Dumpsite"
+            site_type = site_type_defaults.default_site_type(self.iso3)
         site_type_idx = get_site_type_idx[site_type]
         city_params_dict = baseline.update_cityparams_dict()
         baseline.city_params_dict = city_params_dict
@@ -2667,22 +2658,9 @@ class City:
         depth = canonical_row['waste_depth']
         site_type = canonical_row['type']
         if pd.isna(site_type) or site_type == '':
-            if self.region in defaults_2019.landfill_default_regions:
-                site_type = "Sanitary Landfill"
-            else:
-                site_type = "Dumpsite"
-            if site_type not in get_site_type_idx.keys():
-                if self.region in [
-                    "Australia and New Zealand",
-                    "Eastern Asia",
-                    "North America",
-                    "Northern Europe",
-                    "Southern Europe",
-                    "Western Europe"
-                ]:
-                    site_type = "Sanitary Landfill"
-                else:
-                    site_type = "Dumpsite"
+            site_type = site_type_defaults.default_site_type(
+                self.iso3, canonical_row.get("income_id")
+            )
         site_type_idx = get_site_type_idx[site_type]
         city_params_dict = baseline.update_cityparams_dict()
         baseline.landfills = []
@@ -2904,22 +2882,9 @@ class City:
         depth = canonical_row['waste_depth']
         site_type = canonical_row['type']
         if pd.isna(site_type) or site_type == '':
-            if self.region in defaults_2019.landfill_default_regions:
-                site_type = "Sanitary Landfill"
-            else:
-                site_type = "Dumpsite"
-            if site_type not in get_site_type_idx.keys():
-                if self.region in [
-                    "Australia and New Zealand",
-                    "Eastern Asia",
-                    "North America",
-                    "Northern Europe",
-                    "Southern Europe",
-                    "Western Europe"
-                ]:
-                    site_type = "Sanitary Landfill"
-                else:
-                    site_type = "Dumpsite"
+            site_type = site_type_defaults.default_site_type(
+                self.iso3, canonical_row.get("income_id")
+            )
         site_type_idx = get_site_type_idx[site_type]
         city_params_dict = baseline.update_cityparams_dict()
         baseline.landfills = []
@@ -9075,10 +9040,13 @@ class City:
             region = defaults_2019.region_lookup_iso3.get(iso3)
             if region is None:
                 raise ValueError(f"Region for ISO3 code '{iso3}' not found.")
-            if region in defaults_2019.landfill_default_regions:
+            if site_type_defaults.landfill_is_default(iso3):
                 site_type = "Landfill"
             else:
                 site_type = "Dumpsite"
+        # A site in the sites list with no recorded type takes the same rule.
+        if pd.isna(site_type) or site_type == "":
+            site_type = site_type_defaults.default_site_type(iso3)
 
         if site_type in ["Landfill", "Sanitary Landfill"]:
             site_type = 0
