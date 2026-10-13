@@ -94,3 +94,9 @@ def test_oxidation_without_input_keeps_the_default():
     rows = _rows({2013: np.nan}, column="oxidation")
     series = _build_oxidation_series(0.05, rows.iloc[0], rows, YEARS)
     assert (series == 0.05).all()
+
+
+def test_nullable_columns_are_read():
+    years = pd.array([2010, pd.NA, 2012], dtype="Int64")
+    values = pd.array([0.5, 0.6, pd.NA], dtype="Float64")
+    assert (_carried_series(years, values, YEARS) == 0.5).all()

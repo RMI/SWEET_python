@@ -57,8 +57,10 @@ def _carried_series(years, values, years_range):
     and repeats the value on every year, so this gives a constant; if upstream starts
     resolving them per year, the series follows the reports with no change here.
     """
-    years = pd.to_numeric(pd.Series(years, dtype=object), errors="coerce").to_numpy(dtype=float)
-    values = pd.to_numeric(pd.Series(values, dtype=object), errors="coerce").to_numpy(dtype=float)
+    # na_value: a nullable column (Int64, Float64) holds pd.NA, which a plain float
+    # conversion refuses.
+    years = pd.to_numeric(pd.Series(years, dtype=object), errors="coerce").to_numpy(dtype=float, na_value=np.nan)
+    values = pd.to_numeric(pd.Series(values, dtype=object), errors="coerce").to_numpy(dtype=float, na_value=np.nan)
     usable = ~np.isnan(years) & ~np.isnan(values)
     if not usable.any():
         return None
