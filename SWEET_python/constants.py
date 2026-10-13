@@ -24,15 +24,15 @@ CHANGING THIS CONSTANT REQUIRES A MATCHING pops_yearly.csv. The waste series is
 population-driven, and city_params._population_series_from_pop_data returns None
 unless the table carries EVERY column from MODEL_START_YEAR onward -- which
 silently drops every country back to the frozen-CAGR growth scalars. Regenerate
-with diagnostic_scripts/generate_pops_yearly.py and upload to blob
-static_data/pops_yearly.csv BEFORE the constant lands in a run.
+SWEET_python/pops_yearly.csv with Climate TRACE's
+diagnostic_scripts/generate_pops_yearly.py BEFORE the constant lands in a run.
 
-THERE ARE TWO COPIES OF THAT TABLE, and nothing keeps them in step. Climate TRACE's
-pipeline reads the blob copy; the WasteMAP tools read SWEET's own
-SWEET_python/pops_yearly.csv (SWEET_python.population), which is the same table
-extended back to 1950 because the site tool models from a landfill's real opening
-year. Regenerate both from the same WPP file: the generator starts at
-MODEL_START_YEAR, so SWEET's copy needs its START_YEAR set to 1950.
+THERE IS ONE COPY OF THAT TABLE: SWEET_python/pops_yearly.csv (SWEET_python.population),
+from 1950, because the site tool models from a landfill's real opening year. Climate
+TRACE's pipeline reads this file too, MODEL_START_YEAR onward (its
+util/population.py), and so does its offline country-data build; the blob copy it used
+to read, static_data/pops_yearly.csv, is no longer read by anything. So which
+population a run used is fixed by the SWEET commit the run records.
 """
 
 MODEL_START_YEAR: int = 1970

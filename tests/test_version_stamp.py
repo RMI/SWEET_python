@@ -28,13 +28,13 @@ def _reimport(monkeypatch, **env):
     return importlib.reload(SWEET_python)
 
 
-def test_an_env_sha_wins(monkeypatch):
-    """The image build knows the ref it actually installed and passes it in. That beats
-    reading a repository, because the image holds source, not a repository."""
-    mod = _reimport(monkeypatch, SWEET_GIT_SHA="a" * 40)
+def test_an_env_sha_wins_over_a_repository(monkeypatch):
+    """With no build stamp, the app's SWEET_GIT_SHA beats reading a repository, because
+    an image holds source, not a repository."""
+    monkeypatch.setattr(SWEET_python, "_sha_from_build", lambda: None)
+    monkeypatch.setenv("SWEET_GIT_SHA", "a" * 40)
 
-    assert mod.__version__ == "a" * 40
-    assert mod.VERSION_SOURCE == "env"
+    assert SWEET_python._resolve_version() == ("a" * 40, "env")
 
 
 def test_a_blank_env_sha_does_not_count(monkeypatch):
@@ -43,7 +43,7 @@ def test_a_blank_env_sha_does_not_count(monkeypatch):
     mod = _reimport(monkeypatch, SWEET_GIT_SHA="   ")
 
     assert mod.__version__ != ""
-    assert mod.VERSION_SOURCE in {"git", "unavailable"}
+    assert mod.VERSION_SOURCE in {"build", "git", "unavailable"}
 
 
 def test_an_editable_checkout_reads_its_own_git(monkeypatch):
@@ -62,7 +62,64 @@ def test_an_editable_checkout_reads_its_own_git(monkeypatch):
     assert mod.VERSION_SOURCE == "git"
 
 
+def test_a_build_stamp_beats_the_environment(monkeypatch):
+    """A copy built from a git checkout carries its commit (setup.py writes
+    _build_sha.py). That describes the installed code; an env var is a claim from outside."""
+    monkeypatch.setattr(SWEET_python, "_sha_from_build", lambda: "b" * 40)
+    monkeypatch.setenv("SWEET_GIT_SHA", "a" * 40)
+
+    assert SWEET_python._resolve_version() == ("b" * 40, "build")
+
+
+def test_without_a_stamp_the_environment_still_counts(monkeypatch):
+    monkeypatch.setattr(SWEET_python, "_sha_from_build", lambda: None)
+    monkeypatch.setenv("SWEET_GIT_SHA", "a" * 40)
+
+    assert SWEET_python._resolve_version() == ("a" * 40, "env")
+
+
+def test_the_source_tree_carries_no_stamp():
+    """setup.py writes the stamp into the build directory only, so an editable install
+    of a checkout can never report a stale commit from one."""
+    from pathlib import Path
+
+    assert not (Path(SWEET_python.__file__).parent / "_build_sha.py").exists()
+
+
+def test_setup_stamps_only_a_clean_checkout(tmp_path):
+    """The commit a build reports is the code it built: a dirty tree gets no stamp."""
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "sweet_setup", Path(SWEET_python.__file__).parents[1] / "setup.py"
+    )
+    setup_src = spec.origin
+    namespace: dict = {}
+    # Only the helper, not setup() itself.
+    source = Path(setup_src).read_text()
+    helper = source[source.index("def _clean_head") : source.index("class build_py_with_commit")]
+    exec("import pathlib, subprocess\n" + helper, namespace)
+    clean_head = namespace["_clean_head"]
+
+    def git(*args):
+        subprocess.run(["git", "-C", str(tmp_path), *args], check=True, capture_output=True)
+
+    git("init", "-q")
+    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "x")
+    (tmp_path / "f.txt").write_text("1")
+    git("add", "f.txt")
+    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "y")
+    head = subprocess.run(["git", "-C", str(tmp_path), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+
+    assert clean_head(tmp_path) == head
+    (tmp_path / "f.txt").write_text("2")
+    assert clean_head(tmp_path) is None
+    assert clean_head(tmp_path / "not-a-repo") is None
+
+
 def test_an_unreadable_install_says_unknown_rather_than_guessing(monkeypatch):
+    monkeypatch.setattr(SWEET_python, "_sha_from_build", lambda: None)
     monkeypatch.setattr(SWEET_python, "_sha_from_git", lambda _: None)
     monkeypatch.delenv("SWEET_GIT_SHA", raising=False)
 
