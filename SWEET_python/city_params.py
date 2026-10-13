@@ -39,6 +39,43 @@ from SWEET_python.constants import (
 )
 
 
+#: Column the Climate TRACE pipeline adds to a site's rows when they come from the
+#: consolidated facility table: the year each row describes. Its presence is what marks
+#: rows as one per YEAR of a site, rather than the legacy input's one per SOURCE record.
+ROW_YEAR_COLUMN = "row_year"
+
+
+def _carried_series(years, values, years_range):
+    """One value per model year from the years a site reported one, or None if none did.
+
+    One distinct value is that value in every year. Several make a step series: the
+    first reported value is carried back to the start of ``years_range``, each value
+    forward until the next report, and the latest forward to the end. Two values in one
+    year are averaged first.
+
+    Used for rows that carry their own year (``ROW_YEAR_COLUMN``). The consolidated
+    facility table resolves gas collection efficiency and oxidation once per site today
+    and repeats the value on every year, so this gives a constant; if upstream starts
+    resolving them per year, the series follows the reports with no change here.
+    """
+    # na_value: a nullable column (Int64, Float64) holds pd.NA, which a plain float
+    # conversion refuses.
+    years = pd.to_numeric(pd.Series(years, dtype=object), errors="coerce").to_numpy(dtype=float, na_value=np.nan)
+    values = pd.to_numeric(pd.Series(values, dtype=object), errors="coerce").to_numpy(dtype=float, na_value=np.nan)
+    usable = ~np.isnan(years) & ~np.isnan(values)
+    if not usable.any():
+        return None
+    reported = (
+        pd.Series(values[usable], index=years[usable].astype(int))
+        .groupby(level=0).mean().sort_index()
+    )
+    index = pd.Index(years_range)
+    if reported.nunique() == 1:
+        return pd.Series(float(reported.iloc[0]), index=index)
+    full = reported.reindex(reported.index.union(index)).ffill().bfill()
+    return full.reindex(index).astype(float)
+
+
 def _build_oxidation_series(default_value, canonical_row, time_series_rows, years_range):
     """Per-year oxidation factor for one modeled landfill, preferring per-site input
     oxidation over the type/gas-capture default.
@@ -89,6 +126,17 @@ def _build_oxidation_series(default_value, canonical_row, time_series_rows, year
     ox = pd.to_numeric(frame['oxidation'], errors='coerce')
     if not ox.notna().any():
         return series  # no input oxidation -> keep the type/gas-capture default
+
+    # Rows that carry their own year (the consolidated input): each value belongs to
+    # that year, so carry the reports back and forward rather than averaging them.
+    if ROW_YEAR_COLUMN in frame.columns:
+        carried = _carried_series(frame[ROW_YEAR_COLUMN], ox, years_index)
+        if carried is None:
+            # Values, but no row with a usable year: still the site's own value, in every
+            # year. The emissions-year rule below is the legacy input's, and does not get
+            # to decide these rows.
+            carried = pd.Series(float(ox[ox.notna()].mean()), index=years_index)
+        return carried
 
     # 1) Site-wide mean as the full-series baseline.
     series[:] = float(ox[ox.notna()].mean())
@@ -178,6 +226,26 @@ def _resolve_gas_capture(flag, site_type, canonical_row, time_series_rows, years
     # such a site reaches this branch rather than the reported pathway. Taking .mean()
     # of the emptied frame yielded NaN and poisoned the whole capture series; fall back
     # to the gated default instead, matching the scalar path below.
+    # Rows that carry their own year (the consolidated input): the value belongs to
+    # that year, whether or not the site reported CH4 in it. Keyed on the emissions
+    # year below, a modelled site -- which has none -- lost its measured efficiency to
+    # the type default.
+    if (
+        isinstance(time_series_rows, pd.DataFrame)
+        and ROW_YEAR_COLUMN in time_series_rows.columns
+        and 'gas_collection_efficiency' in time_series_rows.columns
+    ):
+        efficiency = pd.to_numeric(time_series_rows['gas_collection_efficiency'], errors='coerce')
+        carried = _carried_series(time_series_rows[ROW_YEAR_COLUMN], efficiency, years_range)
+        if carried is None and efficiency.notna().any():
+            # A measured value on rows with no usable year is still the site's own value.
+            # Falling through to the emissions-year rule below would drop it for the
+            # default, which is the fault this branch exists to fix.
+            carried = pd.Series(float(efficiency[efficiency.notna()].mean()), index=years_range)
+        if carried is not None:
+            return presence, oxidation_value, carried
+        # No measured value at all: the gated default below, as for any site.
+
     gascap_df = None
     if isinstance(time_series_rows, pd.DataFrame):
         if time_series_rows['gas_collection_efficiency'].notna().any():
