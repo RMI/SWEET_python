@@ -100,3 +100,28 @@ def test_nullable_columns_are_read():
     years = pd.array([2010, pd.NA, 2012], dtype="Int64")
     values = pd.array([0.5, 0.6, pd.NA], dtype="Float64")
     assert (_carried_series(years, values, YEARS) == 0.5).all()
+
+
+def test_a_measured_efficiency_on_undated_rows_is_kept():
+    """Rows carrying `row_year` whose years are all blank must not fall through to the
+    emissions-year rule, which drops a modelled site's value for the default."""
+    rows = pd.DataFrame({"row_year": [np.nan, np.nan], "gas_collection_efficiency": [0.82, 0.82],
+                         "reported_emissions_year": [np.nan, np.nan]})
+    _, _, gce = _resolve_gas_capture(True, "Sanitary Landfill", pd.Series(dtype=object), rows, YEARS)
+    assert (gce == 0.82).all()
+
+
+def test_undated_rows_without_a_value_get_the_gated_default():
+    rows = pd.DataFrame({"row_year": [np.nan], "gas_collection_efficiency": [np.nan],
+                         "reported_emissions_year": [np.nan]})
+    _, _, gce = _resolve_gas_capture(True, "Sanitary Landfill", pd.Series(dtype=object), rows, YEARS)
+    assert (gce == GAS_EFF_OPTIONS["Sanitary Landfill"]).all()
+
+
+def test_undated_oxidation_is_one_value_in_every_year():
+    """The legacy rule would overwrite 2020 with that row's 0.1; on these rows the
+    emissions year does not date the value."""
+    rows = pd.DataFrame({"row_year": [np.nan, np.nan], "oxidation": [0.1, 0.3],
+                         "reported_emissions_year": [2020, np.nan]})
+    series = _build_oxidation_series(0.05, rows.iloc[0], rows, YEARS)
+    assert np.allclose(series.to_numpy(), 0.2)

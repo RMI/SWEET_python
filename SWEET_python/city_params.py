@@ -131,8 +131,12 @@ def _build_oxidation_series(default_value, canonical_row, time_series_rows, year
     # that year, so carry the reports back and forward rather than averaging them.
     if ROW_YEAR_COLUMN in frame.columns:
         carried = _carried_series(frame[ROW_YEAR_COLUMN], ox, years_index)
-        if carried is not None:
-            return carried
+        if carried is None:
+            # Values, but no row with a usable year: still the site's own value, in every
+            # year. The emissions-year rule below is the legacy input's, and does not get
+            # to decide these rows.
+            carried = pd.Series(float(ox[ox.notna()].mean()), index=years_index)
+        return carried
 
     # 1) Site-wide mean as the full-series baseline.
     series[:] = float(ox[ox.notna()].mean())
@@ -231,13 +235,16 @@ def _resolve_gas_capture(flag, site_type, canonical_row, time_series_rows, years
         and ROW_YEAR_COLUMN in time_series_rows.columns
         and 'gas_collection_efficiency' in time_series_rows.columns
     ):
-        carried = _carried_series(
-            time_series_rows[ROW_YEAR_COLUMN],
-            time_series_rows['gas_collection_efficiency'],
-            years_range,
-        )
+        efficiency = pd.to_numeric(time_series_rows['gas_collection_efficiency'], errors='coerce')
+        carried = _carried_series(time_series_rows[ROW_YEAR_COLUMN], efficiency, years_range)
+        if carried is None and efficiency.notna().any():
+            # A measured value on rows with no usable year is still the site's own value.
+            # Falling through to the emissions-year rule below would drop it for the
+            # default, which is the fault this branch exists to fix.
+            carried = pd.Series(float(efficiency[efficiency.notna()].mean()), index=years_range)
         if carried is not None:
             return presence, oxidation_value, carried
+        # No measured value at all: the gated default below, as for any site.
 
     gascap_df = None
     if isinstance(time_series_rows, pd.DataFrame):
