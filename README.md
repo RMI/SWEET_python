@@ -72,6 +72,36 @@ Where things are:
   factors), `population.py` (UN population, for growing waste year by year) and
   `dst_common.py` (shared by the DST paths).
 
+# Decision comments
+
+Some lines carry a comment like `# decision: mcf-by-type-and-depth`. Each marks a modelling
+choice that changes the numbers Climate TRACE publishes: a default value, a fallback, or a
+simplification. The id names an entry in
+[`docs/MODEL_DECISIONS.md`](https://github.com/RMI/RMI_Climate_TRACE_Waste_Methane/blob/main/docs/MODEL_DECISIONS.md)
+in the Climate TRACE pipeline repo. The entry says what the choice is, why it was made, and how
+sure we are of it. The list lives there, not here, because its ratings are about Climate TRACE's
+published numbers. SWEET keeps no copy.
+
+Seven decisions are tagged in SWEET.
+
+- **Four are shared with WasteMAP's tools**, so changing one moves WasteMAP's numbers too:
+  - MCF, in `mcf.py`
+  - the guess for a site with no recorded type, in `site_type_defaults.py`
+  - waste composition, in `defaults_2019.waste_composition_for`
+  - population growth, in `class_defs.growth_factors_for_years`
+- **Three are in the Climate TRACE paths** of `city_params.py`: gas capture, oxidation and
+  flaring.
+
+To change a tagged line:
+
+- Open a pull request in the Climate TRACE repo, from a branch with the same name as yours here,
+  that updates the entry. A replaced decision moves to that list's "Retired" section with the date.
+- Keep the comment on the line it marks. Rename or remove it only when the entry changes too.
+
+The Climate TRACE pipeline's test checks these comments against its list. It reads them from the
+SWEET release named in that repo's `sweet_python.ref`. A release that drops or renames a comment
+therefore fails that repo's CI when the release is pinned, not this repo's.
+
 # Releases
 
 SWEET publishes dated releases. A release is an annotated git tag named
