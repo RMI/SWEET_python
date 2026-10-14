@@ -412,6 +412,7 @@ def waste_composition_for(iso3, region):
         plastic = candidate.get("plastic")
         if pd.notna(plastic) and plastic > 0:
             row = candidate
+    # decision: waste-composition
     if row is None:
         row = waste_fraction_defaults.loc[region, :]
     total = row.sum()
