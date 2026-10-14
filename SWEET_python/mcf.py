@@ -108,6 +108,7 @@ def mcf_for_site(site_type_idx: int, depth: Optional[float] = None) -> float:
     Returns:
         The methane correction factor, between 0 and 1.
     """
+    # decision: mcf-by-type-and-depth
     if site_type_idx not in DEPTH_SENSITIVE_TYPES:
         return MCF_BY_TYPE[site_type_idx]
     if depth is None or pd.isna(depth):

@@ -95,6 +95,7 @@ def _build_oxidation_series(default_value, canonical_row, time_series_rows, year
     sites; ``canonical_row`` is the single deduped row. Either may carry ``oxidation``.
     """
     years_index = pd.Index(years_range)
+    # decision: oxidation
     series = pd.Series(float(default_value), index=years_index)
 
     # Assemble the site's input rows as a frame so single-row (Series) and multi-row
@@ -210,6 +211,7 @@ def _resolve_gas_capture(flag, site_type, canonical_row, time_series_rows, years
         except Exception:
             presence = False
 
+    # decision: oxidation
     oxidation_value = OX_OPTIONS["ox_cap" if presence else "ox_nocap"][site_type]
 
     # Measured per-year capture, where the site has it. Keyed on
@@ -269,6 +271,7 @@ def _resolve_gas_capture(flag, site_type, canonical_row, time_series_rows, years
         time_series_rows, pd.DataFrame
     ) else np.nan
     if pd.isna(value):
+        # decision: gas-capture-efficiency
         value = GAS_EFF_OPTIONS[site_type] if presence else 0
     return presence, oxidation_value, pd.Series(value, index=years_range)
 
@@ -2783,6 +2786,7 @@ class City:
         # mitigation raises it to 0.98/0.99 via _gccs_flaring (max/clip). Local import
         # avoids the dst_common <-> city_params import cycle.
         from SWEET_python.dst_common import DEFAULT_FLARE_EFFICIENCY
+        # decision: flaring-uniform
         flaring_series = pd.Series(DEFAULT_FLARE_EFFICIENCY, index=self.years_range)
         new_landfill = Landfill(
             open_date=open_date,
@@ -3006,6 +3010,7 @@ class City:
         # (see site_only_estimate_trace). Applies to both the single- and multi-city
         # landfill constructors below. Local import avoids the dst_common import cycle.
         from SWEET_python.dst_common import DEFAULT_FLARE_EFFICIENCY
+        # decision: flaring-uniform
         flaring_series = pd.Series(DEFAULT_FLARE_EFFICIENCY, index=self.years_range)
         baseline._singapore_k(advanced_baseline=True)
         if (citysite_rows is None) or (isinstance(citysite_rows, pd.Series)):
@@ -3725,6 +3730,7 @@ class City:
 
             # Normalize waste fractions to sum to 1
             wf_norm = waste_fractions / waste_fractions.sum()
+            # decision: waste-composition
             waste_fractions = pd.DataFrame(
                 np.repeat(wf_norm.values[np.newaxis, :], len(self.years_range), axis=0),
                 index=self.years_range,

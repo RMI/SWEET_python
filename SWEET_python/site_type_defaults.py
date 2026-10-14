@@ -67,6 +67,7 @@ def income_for(iso3: Optional[str]) -> Optional[str]:
     return INCOME_ID_BY_ISO3.get(str(iso3).upper())
 
 
+# decision: site-type-fill
 def landfill_is_default(iso3: Optional[str], income_id: Optional[str] = None) -> bool:
     """True where a site of unknown type should be assumed a sanitary landfill.
 
