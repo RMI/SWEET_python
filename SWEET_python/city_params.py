@@ -2551,6 +2551,7 @@ class City:
         gas_capture_efficiency = gas_eff_options[site_type]
         mcf = mcf_defaults.mcf_for_site(site_type_idx, depth)
         open_date = row['Site Open Year'].fillna(MODEL_START_YEAR).values[0]
+        # decision: waste-before-1970-is-zero
         if open_date < MODEL_START_YEAR:
             open_date = MODEL_START_YEAR
         close_date = row['Site Close Year'].fillna(MODEL_END_YEAR + 1).values[0]
@@ -2558,6 +2559,7 @@ class City:
                 0.0, index=self.years_range
             )
         # Sites accept waste in open years but not the closure year.
+        # decision: intake-ends-before-close-year
         fration_of_waste_vector.loc[open_date:close_date-1] = 1.0
         new_landfill = Landfill(
             open_date=open_date,
@@ -2758,6 +2760,7 @@ class City:
                 open_date = MODEL_START_YEAR
             else:
                 open_date = int(open_date)
+        # decision: waste-before-1970-is-zero
         if open_date < MODEL_START_YEAR:
             open_date = MODEL_START_YEAR
         if open_date == 20007:
@@ -2776,6 +2779,7 @@ class City:
         fraction_of_waste_vector = pd.Series(
                 0.0, index=self.years_range
             )
+        # decision: intake-ends-before-close-year
         fraction_of_waste_vector.loc[open_date:close_date-1] = 1.0
         id = int(canonical_row['asset_identifier'])
         oxidation_series = _build_oxidation_series(
@@ -2986,6 +2990,7 @@ class City:
                 open_date = MODEL_START_YEAR
             else:
                 open_date = int(open_date)
+        # decision: waste-before-1970-is-zero
         if open_date < MODEL_START_YEAR:
             open_date = MODEL_START_YEAR
         if open_date == 20007:
@@ -3018,6 +3023,7 @@ class City:
                     0.0, index=self.years_range
                 )
             # Sites accept waste in open years but not the closure year.
+            # decision: intake-ends-before-close-year
             fraction_of_waste_vector.loc[open_date:close_date-1] = 1.0
             new_landfill = Landfill(
                 open_date=open_date,
@@ -3117,6 +3123,7 @@ class City:
             # per-city fractions are the only deposition gate for the virtual
             # landfills below, so zero them outside the operating window.
             operating_years = pd.Series(False, index=self.years_range)
+            # decision: intake-ends-before-close-year
             operating_years.loc[open_date:close_date-1] = True
             fraction_of_waste_df.loc[~operating_years] = 0.0
             baseline.fraction_of_waste_df = fraction_of_waste_df
@@ -3428,6 +3435,7 @@ class City:
             general_reference_year = current_year - 1
 
             # Check if row is a single row or multiple rows
+            # decision: intake-follows-population
             if (time_series_rows is None) or isinstance(time_series_rows, pd.Series):
                 # Single row - use old method
                 year_of_data_msw = canonical_row['incoming_waste_year']
@@ -3467,6 +3475,7 @@ class City:
                         waste_per_capita = waste_mass * 1000 / population / 365
                     
             else:
+                # decision: intake-follows-population
                 # Multiple rows - create time series
                 waste_mass_defaults = False
                 year_of_data_msw = time_series_rows['incoming_waste_year'].max()
