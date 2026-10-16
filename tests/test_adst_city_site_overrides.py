@@ -15,6 +15,7 @@ two derivations -- one in the defaults, one in the run -- from drifting apart.
 
 import pandas as pd
 import pytest
+from pydantic import ValidationError
 
 from SWEET_python.advanced_dst_city import (
     AdvancedDSTCityRequest,
@@ -91,11 +92,12 @@ def _site_totals(result, half, index):
 @pytest.mark.parametrize("prevention", [None, 0.9])
 def test_defaults_fed_back_as_overrides_change_nothing(prevention):
     """Every site, every variant, bit for bit -- including a type change at
-    implement_year, gas capture, and food waste prevention moving k."""
+    implement_year, gas capture, a biocover, and food waste prevention moving k."""
     landfills = [
         _landfill(site_type=LANDFILL, gas=0.6),
         _landfill(site_type=OPEN_DUMP, scenario_type=LANDFILL),
         _landfill(site_type=CONTROLLED_DUMP),
+        _landfill(site_type=CONTROLLED_DUMP, biocover=0.5),
     ]
     plain = _request(landfills, prevention=prevention)
     defaults = run_advanced_dst_city_defaults(plain)
@@ -122,7 +124,7 @@ def test_defaults_fed_back_as_overrides_change_nothing(prevention):
             )
 
 
-def test_defaults_report_the_type_and_capture_oxidation_before_biocover():
+def test_defaults_report_the_oxidation_a_site_gets_when_it_states_none():
     defaults = run_advanced_dst_city_defaults(
         _request(
             [
@@ -138,8 +140,9 @@ def test_defaults_report_the_type_and_capture_oxidation_before_biocover():
 
     assert first("baseline", 0) == OX_NOCAP["landfill"]
     assert first("baseline", 1) == OX_CAP["landfill"]
-    # The cover is its own input, so it does not show up in the default it sits on.
-    assert first("baseline", 2) == OX_NOCAP["controlled_dumpsite"]
+    # A cover raises the site to its own rate, and a stated rate replaces the
+    # lot -- so the default it stands in for includes the cover.
+    assert first("baseline", 2) == 0.5
     # The scenario's type takes over from implement_year, and only then.
     assert first("scenario", 3) == OX_NOCAP["controlled_dumpsite"]
     assert last("scenario", 3) == OX_NOCAP["dumpsite"]
@@ -243,21 +246,45 @@ def test_scenario_half_of_an_override_takes_effect_at_implement_year():
     )
 
 
-def test_biocover_still_floors_a_stated_oxidation_rate():
-    """A stated rate replaces the type lookup, not the cover: a site that adds a
-    50% biocover oxidises at 50% even where it states 20%."""
-    with_cover = run_advanced_dst_city(
-        _request([_landfill(biocover=0.5, oxidation_override={"baseline": _constant(0.2)})])
-    )
-    cover_alone = run_advanced_dst_city(_request([_landfill(biocover=0.5)]))
-    pd.testing.assert_series_equal(with_cover["baseline"]["total"], cover_alone["baseline"]["total"])
+def test_a_stated_rate_is_used_as_stated_even_under_a_cover():
+    """A stated rate is the caller's account of everything covering the site, so
+    it replaces the cover's rate too -- below it as well as above it."""
+    plain = run_advanced_dst_city(_request([_landfill()]))["baseline"]["total"]
+    for stated in (0.2, 0.8):
+        with_cover = run_advanced_dst_city(
+            _request(
+                [_landfill(biocover=0.5, oxidation_override={"baseline": _constant(stated)})]
+            )
+        )
+        # An open dump oxidises nothing, so `plain` is the methane before any.
+        pd.testing.assert_series_equal(
+            with_cover["baseline"]["total"], plain * (1 - stated)
+        )
 
-    above_cover = run_advanced_dst_city(
-        _request([_landfill(biocover=0.5, oxidation_override={"baseline": _constant(0.8)})])
-    )
-    pd.testing.assert_series_equal(
-        above_cover["baseline"]["total"], cover_alone["baseline"]["total"] * (0.2 / 0.5)
-    )
+
+def test_a_null_year_hands_the_rate_back_to_the_model():
+    """How a caller says "the site this rate described changed in 2030": the
+    stated 30% holds to 2029, and from 2030 the cover's 50% applies again."""
+    stated = {y: (0.3 if y < 2030 else None) for y in YEARS}
+    result = run_advanced_dst_city(
+        _request([_landfill(biocover=0.5, oxidation_override={"baseline": stated})])
+    )["baseline"]["total"]
+    plain = run_advanced_dst_city(_request([_landfill()]))["baseline"]["total"]
+
+    pd.testing.assert_series_equal(result.loc[:2029], plain.loc[:2029] * 0.7)
+    pd.testing.assert_series_equal(result.loc[2030:], plain.loc[2030:] * 0.5)
+
+
+def test_a_missing_year_follows_the_last_year_stated_null_included():
+    """Like every yearly input, a gap takes the entry before it -- and a null
+    entry is carried as "nothing stated", not filled over by the number before."""
+    sparse = run_advanced_dst_city(
+        _request([_landfill(oxidation_override={"baseline": {2000: 0.4, 2030: None}})])
+    )["baseline"]["total"]
+    plain = run_advanced_dst_city(_request([_landfill()]))["baseline"]["total"]
+
+    pd.testing.assert_series_equal(sparse.loc[:2029], plain.loc[:2029] * 0.6)
+    pd.testing.assert_series_equal(sparse.loc[2030:], plain.loc[2030:])
 
 
 # --------------------------------------------------------------------------- #
@@ -278,6 +305,22 @@ def test_out_of_range_override_is_refused(field, value, message):
         run_advanced_dst_city(_request([_landfill(**{field: {"baseline": series}})]))
     assert raised.value.code == "invalid_parameters"
     assert message in raised.value.message
+
+
+def test_an_out_of_range_year_is_refused_among_null_ones():
+    series = {y: None for y in YEARS}
+    series[2040] = 1.5
+    with pytest.raises(CustomError) as raised:
+        run_advanced_dst_city(_request([_landfill(oxidation_override={"baseline": series})]))
+    assert "oxidation_override for 2040 is 1.5" in raised.value.message
+
+
+def test_k_has_no_null_years():
+    """Only oxidation hands years back to the model; a k is stated or it isn't."""
+    series = _constant(0.1)
+    series[2010] = None
+    with pytest.raises(ValidationError):
+        _request([_landfill(k_override={"baseline": series})])
 
 
 def test_an_empty_override_names_its_field():

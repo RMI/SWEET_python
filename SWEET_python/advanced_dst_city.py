@@ -49,7 +49,7 @@ from SWEET_python.city_params import City, CityParameters, CustomError
 from SWEET_python.class_defs import DivsDF, LandfillType, LandfillWasteMassDF, Variant
 from SWEET_python import dst_common as common
 from SWEET_python import site_inflow
-from SWEET_python.dst_common import YearlyFloat, YearlyFractions
+from SWEET_python.dst_common import YearlyFloat, YearlyFractions, YearlyOptionalFloat
 
 __all__ = ["AdvancedDSTCityRequest", "CityLandfillSpec", "run_advanced_dst_city"]
 
@@ -98,15 +98,17 @@ class CityLandfillSpec(BaseModel):
             "`run_advanced_dst_city_defaults` reports."
         ),
     )
-    oxidation_override: Optional[Variant[YearlyFloat]] = Field(
+    oxidation_override: Optional[Variant[YearlyOptionalFloat]] = Field(
         None,
         description=(
-            "Oxidation rate for this site, per year (a fraction, 0-1). Replaces "
-            "the factor the model looks up from the site's type and whether it "
-            "captures gas. `biocover` is still a floor on top of it, so a cover "
-            "that oxidises more than this still does. Omit (the default) to use "
-            "the looked-up factor, which `run_advanced_dst_city_defaults` "
-            "reports."
+            "Oxidation rate for this site, per year: a fraction (0-1), or null "
+            "for a year that states none. A number is the site's oxidation that "
+            "year as stated -- it replaces both the factor the model looks up "
+            "from the site's type and gas capture and the `biocover` floor. A "
+            "null year, like an omitted field, gets that factor raised to the "
+            "biocover as usual, which `run_advanced_dst_city_defaults` reports. "
+            "Null is how a caller hands a year back to the model, e.g. once an "
+            "intervention has changed the site the rate was stated for."
         ),
     )
     combusts: Optional[Variant[bool]] = Field(
@@ -956,8 +958,12 @@ def _override_series(
     *,
     field: str,
     upper: Optional[float],
+    optional_years: bool = False,
 ) -> Optional[tuple[pd.Series, pd.Series]]:
     """A site's stated rate as (baseline, scenario) series, or None if it states none.
+
+    With ``optional_years`` a year may be null, carried as NaN: that year
+    states nothing and the model's own rate applies.
 
     Refused rather than clipped when out of range: unlike a capture efficiency,
     an override is a number someone typed in place of the model's, and quietly
@@ -967,11 +973,18 @@ def _override_series(
     if variant is None:
         return None
     try:
-        base, scen = common.variant_series(variant, years, implement_year, default=None)
+        if optional_years:
+            base, scen = common.optional_variant_series(variant, years, implement_year)
+        else:
+            base, scen = common.variant_series(variant, years, implement_year, default=None)
     except CustomError as error:
         raise CustomError("invalid_parameters", f"{field}: {error.message}") from error
     for label, series in (("baseline", base), ("scenario", scen)):
-        bad = ~np.isfinite(series) | (series < 0)
+        # NaN is a year that states nothing where years may (`optional_years`),
+        # and a malformed number everywhere else.
+        bad = np.isinf(series) | (series < 0)
+        if not optional_years:
+            bad |= series.isna()
         if upper is not None:
             bad |= series > upper
         if bool(bad.any()):
@@ -1016,8 +1029,9 @@ def run_advanced_dst_city_defaults(
       Every biodegradable component decays at this one rate, and every site in
       the city shares it, because they all receive the city's waste.
     * ``oxidation`` -- the factor looked up from the site's type and whether it
-      captures gas, *before* biocover raises it. That is exactly the number an
-      ``oxidation_override`` replaces; biocover stays its own input.
+      captures gas, raised to the ``biocover`` floor in the years the request
+      has one. That is exactly the number a year of ``oxidation_override``
+      replaces.
 
     Neither reflects an override in the request: this is what an override
     stands in for, so a caller can show it beside the box a user types into.
@@ -1049,21 +1063,23 @@ def run_advanced_dst_city_defaults(
         request, years, baseline_fractions, scenario_fractions
     )
 
-    no_cover = pd.Series(0.0, index=years)
     result: Dict[str, List[Dict[str, pd.Series]]] = {"baseline": [], "scenario": []}
     for spec in request.landfills:
         base_type, scen_type = _site_types(spec)
         gas_base, gas_scen = _gas_capture(spec, years, implement_year)
+        bio_base, bio_scen = common.variant_series(
+            spec.biocover, years, implement_year, default=0.0
+        )
         result["baseline"].append({
             "k": ks_baseline.food,
             "oxidation": common.oxidation_series(
-                base_type, base_type, gas_base, no_cover, implement_year, years
+                base_type, base_type, gas_base, bio_base, implement_year, years
             ),
         })
         result["scenario"].append({
             "k": ks_scenario.food,
             "oxidation": common.oxidation_series(
-                base_type, scen_type, gas_scen, no_cover, implement_year, years
+                base_type, scen_type, gas_scen, bio_scen, implement_year, years
             ),
         })
     return result
@@ -1299,7 +1315,7 @@ def run_advanced_dst_city(
         )
         ox_override = _override_series(
             spec.oxidation_override, years, implement_year,
-            field="oxidation_override", upper=1.0,
+            field="oxidation_override", upper=1.0, optional_years=True,
         )
         ox_override_base, ox_override_scen = ox_override or (None, None)
         ox_base = common.oxidation_series(

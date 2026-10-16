@@ -89,6 +89,9 @@ LANDFILL_LANDFILL_TYPE = 0  # LandfillType.landfill
 # JSON string keys ("2025") to ints.
 YearlyFloat = Dict[int, float]
 YearlyFractions = Dict[int, List[float]]
+# A yearly series in which a year may state nothing: null means "the model's own
+# value that year", which has to stay distinct from any number.
+YearlyOptionalFloat = Dict[int, Optional[float]]
 
 
 # --------------------------------------------------------------------------- #
@@ -162,6 +165,46 @@ def variant_series(
     scenario_input = yearly_to_series(scenario_map, years, default=default)
     scenario = baseline.copy()
     scenario.loc[implement_year:] = scenario_input.loc[implement_year:]
+    return baseline, scenario
+
+
+def optional_yearly_to_series(
+    mapping: Optional[Dict[int, Optional[float]]],
+    years: pd.Index,
+) -> pd.Series:
+    """Turn a ``{year: value or None}`` map into a series aligned to ``years``.
+
+    Like ``yearly_to_series``, a year missing from the map takes the entry of
+    the latest earlier year that has one (the first entry, before any). The
+    difference is that a ``None`` entry is carried as NaN rather than filled
+    over -- "stated in 2020, not stated from 2030" has to survive as two things.
+    """
+    if not mapping:
+        raise CustomError("invalid_parameters", "Missing required yearly time series.")
+    entries = sorted((int(year), value) for year, value in mapping.items())
+    keys = pd.Index([year for year, _ in entries])
+    values = pd.Series(
+        [float("nan") if value is None else float(value) for _, value in entries],
+        dtype=float,
+    ).to_numpy()
+    position = keys.searchsorted(years, side="right") - 1
+    return pd.Series(values[position.clip(0)], index=years, dtype=float)
+
+
+def optional_variant_series(
+    variant,
+    years: pd.Index,
+    implement_year: int,
+) -> Tuple[pd.Series, pd.Series]:
+    """``variant_series`` for a :data:`YearlyOptionalFloat` input, NaN where nothing is stated."""
+    baseline = optional_yearly_to_series(variant_get(variant, "baseline"), years)
+    scenario_map = variant["scenario"]
+    if scenario_map is None:
+        return baseline, baseline.copy()
+    scenario = baseline.copy()
+    scenario.loc[implement_year:] = optional_yearly_to_series(scenario_map, years).loc[
+        implement_year:
+    ]
     return baseline, scenario
 
 
@@ -263,11 +306,13 @@ def oxidation_series(
     capped vs uncapped oxidation factor. A dump upgraded to an engineered landfill
     with capture gets the higher remediated factor. ``biocover`` acts as a floor.
 
-    ``override``, where given, is a rate the caller states for the site, and it
-    replaces that type-and-capture lookup in every year. Biocover is still a
-    floor on top of it: a cover is a separate, dated fact about the site, and a
-    stated rate that silently outranked one would turn every "add biocover"
-    change at that site into a no-op.
+    ``override``, where given, is the rate a caller states for the site, per
+    year. A year with a number takes it as the site's oxidation as stated --
+    over the type-and-capture lookup and over the biocover floor alike, because
+    a stated rate is the caller's account of everything covering the site that
+    year. A NaN year states nothing and gets the lookup and the floor as usual,
+    which is how a caller says "the site I stated a rate for has changed from
+    here on".
     """
     baseline_name = SITE_TYPE_NAMES[baseline_type]
     scenario_name = SITE_TYPE_NAMES[scenario_type]
@@ -275,10 +320,12 @@ def oxidation_series(
 
     values = []
     for year in years:
+        stated = float(override.loc[year]) if override is not None else float("nan")
+        if stated == stated:  # not NaN
+            values.append(stated)
+            continue
         has_capture = float(gas_capture.loc[year]) > 0
-        if override is not None:
-            value = float(override.loc[year])
-        elif year < implement_year:
+        if year < implement_year:
             value = OX_CAP[baseline_name] if has_capture else OX_NOCAP[baseline_name]
         elif has_capture:
             if ameliorated and scenario_type == LANDFILL_LANDFILL_TYPE:
