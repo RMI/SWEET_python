@@ -254,6 +254,7 @@ def oxidation_series(
     biocover: pd.Series,
     implement_year: int,
     years: pd.Index,
+    override: Optional[pd.Series] = None,
 ) -> pd.Series:
     """Per-year oxidation factor for one landfill.
 
@@ -261,6 +262,12 @@ def oxidation_series(
     ``scenario_type``. For each year, gas capture (efficiency > 0) selects the
     capped vs uncapped oxidation factor. A dump upgraded to an engineered landfill
     with capture gets the higher remediated factor. ``biocover`` acts as a floor.
+
+    ``override``, where given, is a rate the caller states for the site, and it
+    replaces that type-and-capture lookup in every year. Biocover is still a
+    floor on top of it: a cover is a separate, dated fact about the site, and a
+    stated rate that silently outranked one would turn every "add biocover"
+    change at that site into a no-op.
     """
     baseline_name = SITE_TYPE_NAMES[baseline_type]
     scenario_name = SITE_TYPE_NAMES[scenario_type]
@@ -269,7 +276,9 @@ def oxidation_series(
     values = []
     for year in years:
         has_capture = float(gas_capture.loc[year]) > 0
-        if year < implement_year:
+        if override is not None:
+            value = float(override.loc[year])
+        elif year < implement_year:
             value = OX_CAP[baseline_name] if has_capture else OX_NOCAP[baseline_name]
         elif has_capture:
             if ameliorated and scenario_type == LANDFILL_LANDFILL_TYPE:

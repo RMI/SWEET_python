@@ -87,6 +87,28 @@ class CityLandfillSpec(BaseModel):
     biocover: Optional[Variant[YearlyFloat]] = Field(
         None, description="Biocover oxidation floor per year (a fraction; defaults to 0)."
     )
+    k_override: Optional[Variant[YearlyFloat]] = Field(
+        None,
+        description=(
+            "Decomposition rate k for this site, per year (1/yr, 0 or more). "
+            "Applied to every biodegradable component in place of the k the "
+            "model derives from the city's temperature, precipitation and "
+            "composition -- the site DST's `ks_overrides`, per landfill. Omit "
+            "(the default) to use the derived k, which "
+            "`run_advanced_dst_city_defaults` reports."
+        ),
+    )
+    oxidation_override: Optional[Variant[YearlyFloat]] = Field(
+        None,
+        description=(
+            "Oxidation rate for this site, per year (a fraction, 0-1). Replaces "
+            "the factor the model looks up from the site's type and whether it "
+            "captures gas. `biocover` is still a floor on top of it, so a cover "
+            "that oxidises more than this still does. Omit (the default) to use "
+            "the looked-up factor, which `run_advanced_dst_city_defaults` "
+            "reports."
+        ),
+    )
     combusts: Optional[Variant[bool]] = Field(
         None,
         description=(
@@ -813,15 +835,7 @@ def run_advanced_dst_city_limits(
     "how much further could I go" gets an answer consistent with where it is.
     """
     implement_year = int(request.implement_year)
-    open_close_pairs = []
-    for spec in request.landfills:
-        b_open, b_close = (int(x) for x in spec.landfill_open_close["baseline"])
-        s_dates = spec.landfill_open_close["scenario"] or spec.landfill_open_close["baseline"]
-        s_open, s_close = (int(x) for x in s_dates)
-        open_close_pairs.append((b_open, b_close))
-        open_close_pairs.append((s_open, s_close))
-    model_start = common.validate_years(open_close_pairs, implement_year)
-    years = pd.Index(range(model_start, common.MODEL_YEAR_MAX + 1), name="year")
+    years = _model_years(request)
 
     baseline_fractions = common.fractions_to_df(request.waste_fractions["baseline"], years)
     scenario_fractions = common.fractions_to_df(
@@ -872,6 +886,190 @@ def run_advanced_dst_city_limits(
 
 
 # --------------------------------------------------------------------------- #
+# Per-site decomposition and oxidation rates
+# --------------------------------------------------------------------------- #
+def _model_years(request: "AdvancedDSTCityRequest") -> pd.Index:
+    """The years every series is aligned to, after validating each site's window."""
+    open_close_pairs = []
+    for spec in request.landfills:
+        b_open, b_close = (int(x) for x in spec.landfill_open_close["baseline"])
+        s_dates = spec.landfill_open_close["scenario"] or spec.landfill_open_close["baseline"]
+        s_open, s_close = (int(x) for x in s_dates)
+        open_close_pairs.append((b_open, b_close))
+        open_close_pairs.append((s_open, s_close))
+    model_start = common.validate_years(open_close_pairs, int(request.implement_year))
+    return pd.Index(range(model_start, common.MODEL_YEAR_MAX + 1), name="year")
+
+
+def _reference_year(implement_year: int, years: pd.Index) -> int:
+    """The year whose composition stands for a variant's k and compost factor."""
+    return min(max(implement_year, int(years.min())), int(years.max()))
+
+
+def _city_decomposition_rates(
+    request: "AdvancedDSTCityRequest",
+    years: pd.Index,
+    baseline_fractions: pd.DataFrame,
+    scenario_fractions: pd.DataFrame,
+):
+    """The k every site decays at unless it states its own, per variant.
+
+    Derived once for the city, from its climate and the composition left after
+    food waste prevention, because that is what every site receives.
+    """
+    implement_year = int(request.implement_year)
+    ref_year = _reference_year(implement_year, years)
+    return common.decomposition_rates(
+        request.temperature, request.precipitation, implement_year, years,
+        common.representative_vector(baseline_fractions, ref_year),
+        common.representative_vector(scenario_fractions, ref_year),
+    )
+
+
+def _site_types(spec: CityLandfillSpec) -> tuple[int, int]:
+    base_type = int(spec.landfill_type["baseline"])
+    scen_type = (
+        int(spec.landfill_type["scenario"])
+        if spec.landfill_type["scenario"] is not None
+        else base_type
+    )
+    return base_type, scen_type
+
+
+def _gas_capture(
+    spec: CityLandfillSpec, years: pd.Index, implement_year: int
+) -> tuple[pd.Series, pd.Series]:
+    gas_base, gas_scen = common.variant_series(
+        spec.gas_capture_efficiency, years, implement_year, default=0.0
+    )
+    # A capture efficiency is a fraction of generated methane, so it cannot
+    # exceed 1. Nothing downstream bounds it -- the field is typed as a bare
+    # float map and the engine multiplies straight through -- so an out-of-range
+    # value silently produced negative emissions rather than an error.
+    return gas_base.clip(0.0, 1.0), gas_scen.clip(0.0, 1.0)
+
+
+def _override_series(
+    variant,
+    years: pd.Index,
+    implement_year: int,
+    *,
+    field: str,
+    upper: Optional[float],
+) -> Optional[tuple[pd.Series, pd.Series]]:
+    """A site's stated rate as (baseline, scenario) series, or None if it states none.
+
+    Refused rather than clipped when out of range: unlike a capture efficiency,
+    an override is a number someone typed in place of the model's, and quietly
+    modelling a different one would show them a result for a site they did not
+    describe.
+    """
+    if variant is None:
+        return None
+    try:
+        base, scen = common.variant_series(variant, years, implement_year, default=None)
+    except CustomError as error:
+        raise CustomError("invalid_parameters", f"{field}: {error.message}") from error
+    for label, series in (("baseline", base), ("scenario", scen)):
+        bad = ~np.isfinite(series) | (series < 0)
+        if upper is not None:
+            bad |= series > upper
+        if bool(bad.any()):
+            year = int(series.index[bad.to_numpy()][0])
+            bound = f"between 0 and {upper:g}" if upper is not None else "0 or more"
+            raise CustomError(
+                "invalid_parameters",
+                f"{label}: {field} for {year} is {series.loc[year]:g}; it must be {bound}.",
+            )
+    return base, scen
+
+
+def _site_decomposition_rates(
+    spec: CityLandfillSpec,
+    city_ks: tuple,
+    years: pd.Index,
+    implement_year: int,
+) -> tuple:
+    """A site's (baseline, scenario) k: its own where it states one, else the city's."""
+    override = _override_series(
+        spec.k_override, years, implement_year, field="k_override", upper=None
+    )
+    if override is None:
+        return city_ks
+    k_base, k_scen = override
+    return (
+        common.uniform_decomposition_rates(k_base),
+        common.uniform_decomposition_rates(k_scen),
+    )
+
+
+def run_advanced_dst_city_defaults(
+    request: "AdvancedDSTCityRequest",
+) -> Dict[str, List[Dict[str, pd.Series]]]:
+    """The rates the model uses at each site that does not state its own.
+
+    Returns ``{"baseline": [...], "scenario": [...]}``, one entry per landfill
+    in request order, each ``{"k", "oxidation"}`` indexed by year:
+
+    * ``k`` -- the decomposition rate (1/yr) derived from the city's
+      temperature, precipitation and composition after food waste prevention.
+      Every biodegradable component decays at this one rate, and every site in
+      the city shares it, because they all receive the city's waste.
+    * ``oxidation`` -- the factor looked up from the site's type and whether it
+      captures gas, *before* biocover raises it. That is exactly the number an
+      ``oxidation_override`` replaces; biocover stays its own input.
+
+    Neither reflects an override in the request: this is what an override
+    stands in for, so a caller can show it beside the box a user types into.
+    Nothing here runs the decay model, so it is cheap enough to call on every
+    edit.
+    """
+    implement_year = int(request.implement_year)
+    years = _model_years(request)
+
+    # The same composition `run_advanced_dst_city` derives k from: as authored,
+    # then with the prevented food taken out.
+    baseline_fractions = common.fractions_to_df(request.waste_fractions["baseline"], years)
+    scenario_fractions = common.fractions_to_df(
+        request.waste_fractions["scenario"] or request.waste_fractions["baseline"], years
+    )
+    baseline_total, scenario_total = common.variant_series(
+        request.waste_mass, years, implement_year, default=None
+    )
+    prevented_baseline, prevented_scenario = common.variant_series(
+        request.food_waste_prevention, years, implement_year, default=0.0
+    )
+    baseline_fractions, _ = _prevent_food_waste(
+        baseline_fractions, baseline_total, prevented_baseline
+    )
+    scenario_fractions, _ = _prevent_food_waste(
+        scenario_fractions, scenario_total, prevented_scenario
+    )
+    ks_baseline, ks_scenario = _city_decomposition_rates(
+        request, years, baseline_fractions, scenario_fractions
+    )
+
+    no_cover = pd.Series(0.0, index=years)
+    result: Dict[str, List[Dict[str, pd.Series]]] = {"baseline": [], "scenario": []}
+    for spec in request.landfills:
+        base_type, scen_type = _site_types(spec)
+        gas_base, gas_scen = _gas_capture(spec, years, implement_year)
+        result["baseline"].append({
+            "k": ks_baseline.food,
+            "oxidation": common.oxidation_series(
+                base_type, base_type, gas_base, no_cover, implement_year, years
+            ),
+        })
+        result["scenario"].append({
+            "k": ks_scenario.food,
+            "oxidation": common.oxidation_series(
+                base_type, scen_type, gas_scen, no_cover, implement_year, years
+            ),
+        })
+    return result
+
+
+# --------------------------------------------------------------------------- #
 # Public entry point
 # --------------------------------------------------------------------------- #
 def run_advanced_dst_city(
@@ -913,15 +1111,7 @@ def run_advanced_dst_city(
     implement_year = int(request.implement_year)
 
     # --- Years: validate every landfill's open/close window ---
-    open_close_pairs = []
-    for spec in request.landfills:
-        b_open, b_close = (int(x) for x in spec.landfill_open_close["baseline"])
-        s_dates = spec.landfill_open_close["scenario"] or spec.landfill_open_close["baseline"]
-        s_open, s_close = (int(x) for x in s_dates)
-        open_close_pairs.append((b_open, b_close))
-        open_close_pairs.append((s_open, s_close))
-    model_start = common.validate_years(open_close_pairs, implement_year)
-    years = pd.Index(range(model_start, common.MODEL_YEAR_MAX + 1), name="year")
+    years = _model_years(request)
 
     # --- City composition + total generated waste, per variant ---
     baseline_fractions = common.fractions_to_df(request.waste_fractions["baseline"], years)
@@ -1016,11 +1206,10 @@ def run_advanced_dst_city(
     }
 
     # --- City-wide decomposition rates + compost emission factors ---
-    ref_year = min(max(implement_year, int(years.min())), int(years.max()))
-    ks_baseline, ks_scenario = common.decomposition_rates(
-        request.temperature, request.precipitation, implement_year, years,
-        common.representative_vector(baseline_fractions, ref_year),
-        common.representative_vector(scenario_fractions, ref_year),
+    # A site that states its own k decays at that instead; see the landfill loop.
+    ref_year = _reference_year(implement_year, years)
+    ks_baseline, ks_scenario = _city_decomposition_rates(
+        request, years, baseline_fractions, scenario_fractions
     )
     mef_baseline = _mef_compost(baseline_fractions, ref_year)
     mef_scenario = _mef_compost(scenario_fractions, ref_year)
@@ -1085,20 +1274,13 @@ def run_advanced_dst_city(
     scenario_surplus_masses: List[Optional[pd.DataFrame]] = []
 
     for index, spec in enumerate(request.landfills):
-        base_type = int(spec.landfill_type["baseline"])
-        scen_type = int(spec.landfill_type["scenario"]) if spec.landfill_type["scenario"] is not None else base_type
+        base_type, scen_type = _site_types(spec)
 
         b_open, b_close = (int(x) for x in spec.landfill_open_close["baseline"])
         s_dates = spec.landfill_open_close["scenario"] or spec.landfill_open_close["baseline"]
         s_open, s_close = (int(x) for x in s_dates)
 
-        gas_base, gas_scen = common.variant_series(spec.gas_capture_efficiency, years, implement_year, default=0.0)
-        # A capture efficiency is a fraction of generated methane, so it cannot
-        # exceed 1. Nothing downstream bounds it -- the field is typed as a bare
-        # float map and the engine multiplies straight through -- so an out-of-range
-        # value silently produced negative emissions rather than an error.
-        gas_base = gas_base.clip(0.0, 1.0)
-        gas_scen = gas_scen.clip(0.0, 1.0)
+        gas_base, gas_scen = _gas_capture(spec, years, implement_year)
         flare_base, flare_scen = common.variant_series(spec.flaring, years, implement_year, default=common.DEFAULT_FLARE_EFFICIENCY)
         bio_base, bio_scen = common.variant_series(spec.biocover, years, implement_year, default=0.0)
         share_base = baseline_split[index]
@@ -1115,10 +1297,24 @@ def run_advanced_dst_city(
         mcf_scen = common.mcf_series(
             base_type, scen_type, implement_year, years, base_depth, scen_depth
         )
-        ox_base = common.oxidation_series(base_type, base_type, gas_base, bio_base, implement_year, years)
-        ox_scen = common.oxidation_series(base_type, scen_type, gas_scen, bio_scen, implement_year, years)
+        ox_override = _override_series(
+            spec.oxidation_override, years, implement_year,
+            field="oxidation_override", upper=1.0,
+        )
+        ox_override_base, ox_override_scen = ox_override or (None, None)
+        ox_base = common.oxidation_series(
+            base_type, base_type, gas_base, bio_base, implement_year, years,
+            override=ox_override_base,
+        )
+        ox_scen = common.oxidation_series(
+            base_type, scen_type, gas_scen, bio_scen, implement_year, years,
+            override=ox_override_scen,
+        )
         baseline_ox.append(ox_base)
         scenario_ox.append(ox_scen)
+        ks_site_base, ks_site_scen = _site_decomposition_rates(
+            spec, (ks_baseline, ks_scenario), years, implement_year
+        )
 
         # Net-of-diversion city waste, scaled to this landfill's per-year share.
         mass_base = LandfillWasteMassDF.create_advanced(wgen_baseline, divs_baseline, share_base.copy()).df
@@ -1189,7 +1385,7 @@ def run_advanced_dst_city(
         base_landfill_kwargs = dict(
             open_year=b_open, close_year=b_close, site_type_idx=base_type,
             mcf=mcf_base, gas_capture_efficiency=gas_base, flaring=flare_base,
-            oxidation_factor=ox_base, ks=ks_baseline, city_params_dict=baseline_params_dict,
+            oxidation_factor=ox_base, ks=ks_site_base, city_params_dict=baseline_params_dict,
             city_instance_attrs=city_instance_attrs, implement_year=implement_year,
             scenario=0, landfill_index=index,
         )
@@ -1206,7 +1402,7 @@ def run_advanced_dst_city(
         scen_landfill_kwargs = dict(
             open_year=scenario_open_for_model, close_year=s_close, site_type_idx=scen_type,
             mcf=mcf_scen, gas_capture_efficiency=gas_scen, flaring=flare_scen,
-            oxidation_factor=ox_scen, ks=ks_scenario, city_params_dict=scenario_params_dict,
+            oxidation_factor=ox_scen, ks=ks_site_scen, city_params_dict=scenario_params_dict,
             city_instance_attrs=city_instance_attrs, implement_year=implement_year,
             scenario=1, landfill_index=index,
         )
