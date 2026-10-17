@@ -31,6 +31,7 @@ def growth_factors_for_years(
     population Series serves any pivot year, e.g. an ``implement_year`` scenario.
     """
     years = np.asarray(years)
+    # decision: population-growth
     if population_series is not None and len(population_series) > 0:
         P = population_series.reindex(years)
         # Hold the nearest known value across any gap so the factor never goes NaN.
