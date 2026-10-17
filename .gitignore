@@ -17,3 +17,5 @@ SWEET_python.egg-info
 /CLAUDE.md
 # Local PR-body drafts (edit in VS Code, sync to GitHub via `gh pr edit`)
 /pr-drafts/
+# Written into built copies by setup.py, never committed.
+SWEET_python/_build_sha.py
