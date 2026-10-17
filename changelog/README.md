@@ -7,15 +7,30 @@ emissions. It is the modeling library that the WasteMAP backend API depends on,
 and this folder tracks notable changes to it.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-The project does not publish semantic version tags, so releases are tracked by
-**calendar month**: each entry file covers a one-month span and is named
-`YYYY-MM.md`.
+Entries are filed by **calendar month**: each file covers the changes merged in
+one month and is named `YYYY-MM.md`.
+
+## Releases and this changelog
+
+SWEET's releases are git tags named `sweet/YYYY.MM.N`, cut from `main` by the
+Release workflow (see the [README](../README.md#releases)). A release and these
+files do different jobs:
+
+- **A GitHub Release's notes** are generated when the release is cut: the pull
+  requests merged since the previous release, and a link to that month's file
+  here. Nobody writes them by hand.
+- **The monthly files** keep the human-written entries: what changed, why, and
+  what it does to the numbers. Write the entry in the pull request that makes the
+  change, under the month it merges in, whichever release ends up shipping it.
+
+A release's link points at its month's file as of the release's commit, so it
+shows the month up to that release. Entries are not grouped by release.
 
 ## Entries
 
 Newest first:
 
-- [2026-10](2026-10.md) — a city with no waste figure of its own generates waste at its country's per-capita default, instead of having that default moved a second time as if it described 2019; the 39 such cities in WasteMAP's cities table change by −8% to +54% (model-output change)
+- [2026-10](2026-10.md) — Indonesia sizes its waste from its own IPCC per-capita row instead of the South-Eastern Asia default, 2.4× higher (model-output change); a site with no recorded type is guessed by Climate TRACE's rule (income, region and named countries) in every SWEET path, moving 55 countries' unknown sites from open dump to sanitary landfill in the site tool (model-output change); gas collection efficiency and oxidation follow a site's reports year by year on rows that carry their year, and a modelled site keeps its measured efficiency (no output change on current data); `load_csv_new` normalizes a city's composition as the other loaders do, so WasteMAP's city DST runs for São Paulo (99%) and Brasília (87%), whose every scenario it rejected as "Invalid waste fractions"; the city DST of Brazil's precomputed cities scales by 100 ÷ their published sum (Brasília +14.9%, most −0.1%), and the no-change scenario reproduces the baseline (model-output change); a Custom Location city models landfill methane in every country: in 31 (Southern Asia, South-Eastern Asia and Southern Africa, which have no regional disposal row, plus Canada, Germany and Switzerland, whose rows are all zeros) its disposal split was (0, 0, 0), so its landfills took none of its waste; it now gets the cities table's split for a city with no landfill data (model-output change); the City DST's "move waste to existing gas capture" slider changes a city's emissions; it computed a new split and never applied it to the landfills, so every setting returned the no-change scenario for the 7 cities with a live slider (its arithmetic also scaled the shares without capture up, not down) (model-output change); the City DST's "add gas capture" lever applies the oxidation it sets (0.22 for the landfill it fits with gas capture, 0.1 for the dumpsite it converts) instead of resetting both to the no-capture defaults at the end of `implement_dst_changes_simple_v1_5`; its results fall another 10–13% after the implementation year, a city that landfills everything from −60% to −65.3% against no change in 2040 (model-output change); a Custom Location in Kosovo builds: SWEET looks a country up in its own table before asking pycountry, which has no Kosovo, so Kosovo's code XKX no longer raises "Country 'XKX' not found." (WasteMAP answered 500), and the name "Kosovo" no longer resolves to Serbia, which the site tool's prefill for a point in Kosovo returned (model-output change for a country given by name); a blank or junk country is not found instead of being modelled as another country (`""` was the UK, `"None"` Italy), and the site tool's prefill finds the country for a point in Turkey, both Congos and eight more places, and says so for a point in none, where it crashed (model-output change for a point in Sint Maarten); a city with no waste figure of its own generates waste at its country's per-capita default, instead of having that default moved a second time as if it described 2019; the 39 such cities in WasteMAP's cities table change by −8% to +54% (model-output change)
 - [2026-09](2026-09.md) — WasteMAP's site tool, city tool and Custom Location grow waste with the country's UN population year by year, as Climate TRACE does; big cities keep their own UN city rates (model-output change); model output frames get one fixed waste-type column order instead of a per-process one (a `set` fed the ordering, and Python randomizes set iteration per process), moving values in the last bit only, where a sum runs across the reordered columns; City DST's diversion sum stops passing pandas a keyword pandas is removing, which would have broken the model path on pandas 4 behind a misleading `AttributeError` (no output change); annual model no longer charges a flare's inefficiency twice (a hardcoded 2% slip stacked on the `flaring` destruction efficiency), so it agrees with the monthly model again and a site with gas capture emits ~3.5% less (model-output change); `gas_capture_efficiency` bounded to [0, 1], where an out-of-range value used to produce negative emissions silently; one methane density constant instead of two 9.1% apart
 - [2026-08](2026-08.md) — Single-site adst gains optional `depth` (deep-dump MCF bump) and `k_override` (caller-supplied decomposition rate) inputs, restoring the last two site-DST levers; `/sdst` flaring efficiency reaches the model again after a variable-name bug silently forced flare destruction to 0.98; annual model applies cover oxidation by emission year not deposit year, fixing biocover having no effect on closed landfills (WasteMAP #719); `City.sdst_v1_5` custom-site path holds the scenario equal to the baseline before the implementation year even when composition changes (was back-dating the new composition onto pre-implementation deposits) (model-output change); MCF consolidated into a new `SWEET_python.mcf` module and both dump types moved to the IPCC uncategorised-SWDS 0.6 (open dumps up from 0.4, controlled dumps down from 0.7), with a supplied depth now selecting the deep/shallow category (model-output change)
 - [2026-07](2026-07.md) — All ten waste types eligible for combustion (metal/glass/other added); methane-only model treats combustion as landfill diversion (model-output change)

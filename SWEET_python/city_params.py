@@ -1,5 +1,7 @@
 import os
+import re
 import sys
+import unicodedata
 from pathlib import Path
 
 sys.path.append("/app/SWEET_python/SWEET_python")
@@ -23,6 +25,7 @@ from SWEET_python.landfill import Landfill
 from SWEET_python.singapore_k import compute_singapore_k
 import SWEET_python.defaults_2019 as defaults_2019
 import SWEET_python.mcf as mcf_defaults
+import SWEET_python.site_type_defaults as site_type_defaults
 from SWEET_python.population import average_growth_rates, country_population_series
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -36,6 +39,43 @@ from SWEET_python.constants import (
     WASTE_TYPES,
     WasteTypeSet,
 )
+
+
+#: Column the Climate TRACE pipeline adds to a site's rows when they come from the
+#: consolidated facility table: the year each row describes. Its presence is what marks
+#: rows as one per YEAR of a site, rather than the legacy input's one per SOURCE record.
+ROW_YEAR_COLUMN = "row_year"
+
+
+def _carried_series(years, values, years_range):
+    """One value per model year from the years a site reported one, or None if none did.
+
+    One distinct value is that value in every year. Several make a step series: the
+    first reported value is carried back to the start of ``years_range``, each value
+    forward until the next report, and the latest forward to the end. Two values in one
+    year are averaged first.
+
+    Used for rows that carry their own year (``ROW_YEAR_COLUMN``). The consolidated
+    facility table resolves gas collection efficiency and oxidation once per site today
+    and repeats the value on every year, so this gives a constant; if upstream starts
+    resolving them per year, the series follows the reports with no change here.
+    """
+    # na_value: a nullable column (Int64, Float64) holds pd.NA, which a plain float
+    # conversion refuses.
+    years = pd.to_numeric(pd.Series(years, dtype=object), errors="coerce").to_numpy(dtype=float, na_value=np.nan)
+    values = pd.to_numeric(pd.Series(values, dtype=object), errors="coerce").to_numpy(dtype=float, na_value=np.nan)
+    usable = ~np.isnan(years) & ~np.isnan(values)
+    if not usable.any():
+        return None
+    reported = (
+        pd.Series(values[usable], index=years[usable].astype(int))
+        .groupby(level=0).mean().sort_index()
+    )
+    index = pd.Index(years_range)
+    if reported.nunique() == 1:
+        return pd.Series(float(reported.iloc[0]), index=index)
+    full = reported.reindex(reported.index.union(index)).ffill().bfill()
+    return full.reindex(index).astype(float)
 
 
 def _build_oxidation_series(default_value, canonical_row, time_series_rows, years_range):
@@ -57,6 +97,7 @@ def _build_oxidation_series(default_value, canonical_row, time_series_rows, year
     sites; ``canonical_row`` is the single deduped row. Either may carry ``oxidation``.
     """
     years_index = pd.Index(years_range)
+    # decision: oxidation
     series = pd.Series(float(default_value), index=years_index)
 
     # Assemble the site's input rows as a frame so single-row (Series) and multi-row
@@ -88,6 +129,17 @@ def _build_oxidation_series(default_value, canonical_row, time_series_rows, year
     ox = pd.to_numeric(frame['oxidation'], errors='coerce')
     if not ox.notna().any():
         return series  # no input oxidation -> keep the type/gas-capture default
+
+    # Rows that carry their own year (the consolidated input): each value belongs to
+    # that year, so carry the reports back and forward rather than averaging them.
+    if ROW_YEAR_COLUMN in frame.columns:
+        carried = _carried_series(frame[ROW_YEAR_COLUMN], ox, years_index)
+        if carried is None:
+            # Values, but no row with a usable year: still the site's own value, in every
+            # year. The emissions-year rule below is the legacy input's, and does not get
+            # to decide these rows.
+            carried = pd.Series(float(ox[ox.notna()].mean()), index=years_index)
+        return carried
 
     # 1) Site-wide mean as the full-series baseline.
     series[:] = float(ox[ox.notna()].mean())
@@ -161,6 +213,7 @@ def _resolve_gas_capture(flag, site_type, canonical_row, time_series_rows, years
         except Exception:
             presence = False
 
+    # decision: oxidation
     oxidation_value = OX_OPTIONS["ox_cap" if presence else "ox_nocap"][site_type]
 
     # Measured per-year capture, where the site has it. Keyed on
@@ -177,6 +230,26 @@ def _resolve_gas_capture(flag, site_type, canonical_row, time_series_rows, years
     # such a site reaches this branch rather than the reported pathway. Taking .mean()
     # of the emptied frame yielded NaN and poisoned the whole capture series; fall back
     # to the gated default instead, matching the scalar path below.
+    # Rows that carry their own year (the consolidated input): the value belongs to
+    # that year, whether or not the site reported CH4 in it. Keyed on the emissions
+    # year below, a modelled site -- which has none -- lost its measured efficiency to
+    # the type default.
+    if (
+        isinstance(time_series_rows, pd.DataFrame)
+        and ROW_YEAR_COLUMN in time_series_rows.columns
+        and 'gas_collection_efficiency' in time_series_rows.columns
+    ):
+        efficiency = pd.to_numeric(time_series_rows['gas_collection_efficiency'], errors='coerce')
+        carried = _carried_series(time_series_rows[ROW_YEAR_COLUMN], efficiency, years_range)
+        if carried is None and efficiency.notna().any():
+            # A measured value on rows with no usable year is still the site's own value.
+            # Falling through to the emissions-year rule below would drop it for the
+            # default, which is the fault this branch exists to fix.
+            carried = pd.Series(float(efficiency[efficiency.notna()].mean()), index=years_range)
+        if carried is not None:
+            return presence, oxidation_value, carried
+        # No measured value at all: the gated default below, as for any site.
+
     gascap_df = None
     if isinstance(time_series_rows, pd.DataFrame):
         if time_series_rows['gas_collection_efficiency'].notna().any():
@@ -200,6 +273,7 @@ def _resolve_gas_capture(flag, site_type, canonical_row, time_series_rows, years
         time_series_rows, pd.DataFrame
     ) else np.nan
     if pd.isna(value):
+        # decision: gas-capture-efficiency
         value = GAS_EFF_OPTIONS[site_type] if presence else 0
     return presence, oxidation_value, pd.Series(value, index=years_range)
 
@@ -237,16 +311,93 @@ def _city_growth(iso3, anchor_year, population, city_historic, city_future):
     return _country_growth(iso3, anchor_year, city_historic, city_future)
 
 
+#: SWEET's own country names, lower-cased, to the codes its defaults are keyed by.
+_ISO3_BY_NAME = {name.lower(): iso3 for name, iso3 in defaults_2019.country_to_iso3.items()}
+
+
+def _fold(text):
+    """``text`` lower-cased and without accents, as pycountry's fuzzy search compares names."""
+    return "".join(
+        ch for ch in unicodedata.normalize("NFKD", text.lower()) if not unicodedata.combining(ch)
+    )
+
+
+def _is_named(country, name):
+    """Whether ``name`` is whole words of one of ``country``'s own names, or their initials.
+
+    Initials count from two letters ("UK", "UAE"), because a one-word name's are
+    just its first letter.
+    """
+    wanted = _fold(name)
+    for own in (country._fields.get(field) for field in ("name", "official_name", "common_name")):
+        if not own:
+            continue
+        initials = "".join(ch for ch in own if ch.isupper())
+        if len(initials) > 1 and wanted == _fold(initials):
+            return True
+        if re.search(rf"(?<!\w){re.escape(wanted)}(?!\w)", _fold(own)):
+            return True
+    return False
+
+
 def _iso3_for(country):
     """The ISO3 code for a country code or name. Raises LookupError if there is none.
 
-    An exact match first, because the fuzzy search ranks subdivisions: it resolves
-    "MUS" to Turkey, whose province Mus matches, rather than Mauritius.
+    SWEET's own country table first, by code and then by name, ignoring case as
+    pycountry does. pycountry has no Kosovo: it can't find XKX, the code SWEET's
+    defaults are keyed by, and its fuzzy search resolves "Kosovo" to Serbia, whose
+    province Kosovo-Metohija matches.
+
+    Then pycountry, an exact match first, because the fuzzy search ranks
+    subdivisions: it resolves "MUS" to Turkey, whose province Mus matches, rather
+    than Mauritius.
+
+    The fuzzy search's answer counts only when the name is the country's own (see
+    _is_named). Its ranking scores subdivisions too, so it answered with whichever
+    country had a province that matched: "None" was Italy (Frosinone), "nan"
+    Thailand (Nan province), "Sint Maarten" the Netherlands rather than SXM. A
+    province's name is now not found even where the answer was right ("England").
+
+    No country is not found: None, anything that isn't a string, and a blank
+    string raise. The fuzzy search scored every country for an empty name and
+    answered with the one that has the most subdivisions, the United Kingdom.
     """
+    if not isinstance(country, str) or not country.strip():
+        raise LookupError(f"No country given: {country!r}")
+    country = country.strip()
+    if country.upper() in defaults_2019.region_lookup_iso3:
+        return country.upper()
+    if country.lower() in _ISO3_BY_NAME:
+        return _ISO3_BY_NAME[country.lower()]
     try:
         return pycountry.countries.lookup(country).alpha_3
     except LookupError:
-        return pycountry.countries.search_fuzzy(country)[0].alpha_3
+        pass
+    for match in pycountry.countries.search_fuzzy(country):
+        if _is_named(match, country):
+            return match.alpha_3
+    raise LookupError(f"No country is named {country!r}")
+
+
+def _iso3_at(address):
+    """The ISO3 code for a geocoded place: Nominatim's ``address``. Raises LookupError.
+
+    By the country's English name first, because SWEET has its own codes for
+    Aruba, Curaçao and Sint Maarten, which Nominatim codes as the Netherlands. Then
+    by Nominatim's ISO 3166-1 code, for the names neither SWEET nor pycountry spell
+    Nominatim's way: Turkey, Ivory Coast, Cape Verde, East Timor, Democratic Republic
+    of the Congo, Congo-Brazzaville, Palestinian Territories, Sahrawi Arab Democratic
+    Republic, and the breakaway regions it names as countries (Abkhazia, South
+    Ossetia, Northern Cyprus, Somaliland), which it codes as the country they're in.
+    """
+    try:
+        return _iso3_for(address.get("country"))
+    except LookupError:
+        code = address.get("country_code")
+        match = pycountry.countries.get(alpha_2=code.upper()) if isinstance(code, str) else None
+        if match is None:
+            raise
+        return match.alpha_3
 
 
 def _country_growth(iso3, anchor_year, fallback_historic, fallback_future):
@@ -448,6 +599,54 @@ class CustomError(Exception):
         self.code = code
         self.message = message
         super().__init__(self.message)
+
+
+def _move_to_existing_gas_capture(
+    split_fractions: SplitFractions, existing_gas_pct: float
+) -> SplitFractions:
+    """The city's disposal split with ``existing_gas_pct`` of it going to the
+    landfills it already has with gas capture: the City DST's "move waste to
+    existing gas capture" lever.
+
+    The landfill and dumpsite shares without capture take the rest,
+    ``1 - existing_gas_pct``, in the proportions they had to each other. A city
+    sending 34% of its waste to capture and 66% to a landfill without it, moved to
+    90%, sends the other 10% to that landfill.
+
+    Raises CustomError("INVALID_PARAMETERS") when the share is outside [0, 1], when
+    the city has no landfill with gas capture to move waste to, and when it has no
+    site without capture to move waste away to.
+    """
+    if not 0.0 <= existing_gas_pct <= 1.0:
+        raise CustomError(
+            "INVALID_PARAMETERS",
+            "The share of waste to existing gas capture must be between 0 and 1, "
+            f"not {existing_gas_pct}",
+        )
+    with_capture = split_fractions.landfill_w_capture
+    without_capture = split_fractions.landfill_wo_capture + split_fractions.dumpsite
+    if with_capture <= 0:
+        if existing_gas_pct > 0:
+            raise CustomError(
+                "INVALID_PARAMETERS",
+                "This city has no landfill with gas capture to move waste to",
+            )
+        return split_fractions.model_copy()
+    if without_capture <= 0:
+        if existing_gas_pct < 1:
+            raise CustomError(
+                "INVALID_PARAMETERS",
+                "This city sends all of its waste to landfills with gas capture, "
+                "so there is no site without capture to move waste to",
+            )
+        return split_fractions.model_copy()
+    scale = (1 - existing_gas_pct) / without_capture
+    return SplitFractions(
+        landfill_w_capture=existing_gas_pct,
+        landfill_wo_capture=split_fractions.landfill_wo_capture * scale,
+        dumpsite=split_fractions.dumpsite * scale,
+        new_w_capture=split_fractions.new_w_capture,
+    )
 
 
 class City:
@@ -803,6 +1002,17 @@ class City:
             other=city_data["Waste Components: Other (%)"].values[0] / 100,
         )
         waste_fractions_dict = waste_fractions.model_dump()
+        # A published composition need not add up to 100%: Brazil's precomputed
+        # rows carry their source percentages as they are (São Paulo's sum to 99%,
+        # Brasília's to 87%, Brazil's national default to 100.1%). Normalize, as
+        # the other loaders do. Otherwise the typed masses below miss or exceed
+        # the city's waste, and implement_dst_changes_simple_v1_5 rejects a
+        # composition more than 1% off.
+        total = sum(waste_fractions_dict.values())
+        if total > 0:  # an empty or missing composition stays as published
+            waste_fractions_dict = {
+                waste: fraction / total for waste, fraction in waste_fractions_dict.items()
+            }
         waste_fractions = pd.DataFrame(waste_fractions_dict, index=years)
 
         div_fractions = DiversionFractions(
@@ -1427,7 +1637,7 @@ class City:
                         }
                         self.landfill_split_defaults = True
                     else:
-                        if region in defaults_2019.landfill_default_regions:
+                        if site_type_defaults.landfill_is_default(iso3):
                             split_fractions = {
                                 "landfill_w_capture": 0,
                                 "landfill_wo_capture": 1,
@@ -1518,7 +1728,7 @@ class City:
                         }
                         self.landfill_split_defaults = True
                     else:
-                        if region in defaults_2019.landfill_default_regions:
+                        if site_type_defaults.landfill_is_default(iso3):
                             split_fractions = {
                                 "landfill_w_capture": 0.0,
                                 "landfill_wo_capture": 1.0,
@@ -1550,7 +1760,7 @@ class City:
             # Normalize landfills to 1
             split_total = sum([x for x in split_fractions.values()])
             if split_total == 0:
-                if region in defaults_2019.landfill_default_regions:
+                if site_type_defaults.landfill_is_default(iso3):
                     split_fractions = {
                         "landfill_w_capture": 0.0,
                         "landfill_wo_capture": 1.0,
@@ -2465,17 +2675,7 @@ class City:
         depth = None
         site_type = row["Site Type"].values[0]
         if site_type not in get_site_type_idx.keys():
-            if self.region in [
-                "Australia and New Zealand",
-                "Eastern Asia",
-                "North America",
-                "Northern Europe",
-                "Southern Europe",
-                "Western Europe"
-            ]:
-                site_type = "Sanitary Landfill"
-            else:
-                site_type = "Dumpsite"
+            site_type = site_type_defaults.default_site_type(self.iso3)
         site_type_idx = get_site_type_idx[site_type]
         city_params_dict = baseline.update_cityparams_dict()
         baseline.city_params_dict = city_params_dict
@@ -2490,6 +2690,7 @@ class City:
         gas_capture_efficiency = gas_eff_options[site_type]
         mcf = mcf_defaults.mcf_for_site(site_type_idx, depth)
         open_date = row['Site Open Year'].fillna(MODEL_START_YEAR).values[0]
+        # decision: waste-before-1970-is-zero
         if open_date < MODEL_START_YEAR:
             open_date = MODEL_START_YEAR
         close_date = row['Site Close Year'].fillna(MODEL_END_YEAR + 1).values[0]
@@ -2497,6 +2698,7 @@ class City:
                 0.0, index=self.years_range
             )
         # Sites accept waste in open years but not the closure year.
+        # decision: intake-ends-before-close-year
         fration_of_waste_vector.loc[open_date:close_date-1] = 1.0
         new_landfill = Landfill(
             open_date=open_date,
@@ -2668,22 +2870,9 @@ class City:
         depth = canonical_row['waste_depth']
         site_type = canonical_row['type']
         if pd.isna(site_type) or site_type == '':
-            if self.region in defaults_2019.landfill_default_regions:
-                site_type = "Sanitary Landfill"
-            else:
-                site_type = "Dumpsite"
-            if site_type not in get_site_type_idx.keys():
-                if self.region in [
-                    "Australia and New Zealand",
-                    "Eastern Asia",
-                    "North America",
-                    "Northern Europe",
-                    "Southern Europe",
-                    "Western Europe"
-                ]:
-                    site_type = "Sanitary Landfill"
-                else:
-                    site_type = "Dumpsite"
+            site_type = site_type_defaults.default_site_type(
+                self.iso3, canonical_row.get("income_id")
+            )
         site_type_idx = get_site_type_idx[site_type]
         city_params_dict = baseline.update_cityparams_dict()
         baseline.landfills = []
@@ -2710,6 +2899,7 @@ class City:
                 open_date = MODEL_START_YEAR
             else:
                 open_date = int(open_date)
+        # decision: waste-before-1970-is-zero
         if open_date < MODEL_START_YEAR:
             open_date = MODEL_START_YEAR
         if open_date == 20007:
@@ -2728,6 +2918,7 @@ class City:
         fraction_of_waste_vector = pd.Series(
                 0.0, index=self.years_range
             )
+        # decision: intake-ends-before-close-year
         fraction_of_waste_vector.loc[open_date:close_date-1] = 1.0
         id = int(canonical_row['asset_identifier'])
         oxidation_series = _build_oxidation_series(
@@ -2738,6 +2929,7 @@ class City:
         # mitigation raises it to 0.98/0.99 via _gccs_flaring (max/clip). Local import
         # avoids the dst_common <-> city_params import cycle.
         from SWEET_python.dst_common import DEFAULT_FLARE_EFFICIENCY
+        # decision: flaring-uniform
         flaring_series = pd.Series(DEFAULT_FLARE_EFFICIENCY, index=self.years_range)
         new_landfill = Landfill(
             open_date=open_date,
@@ -2905,22 +3097,9 @@ class City:
         depth = canonical_row['waste_depth']
         site_type = canonical_row['type']
         if pd.isna(site_type) or site_type == '':
-            if self.region in defaults_2019.landfill_default_regions:
-                site_type = "Sanitary Landfill"
-            else:
-                site_type = "Dumpsite"
-            if site_type not in get_site_type_idx.keys():
-                if self.region in [
-                    "Australia and New Zealand",
-                    "Eastern Asia",
-                    "North America",
-                    "Northern Europe",
-                    "Southern Europe",
-                    "Western Europe"
-                ]:
-                    site_type = "Sanitary Landfill"
-                else:
-                    site_type = "Dumpsite"
+            site_type = site_type_defaults.default_site_type(
+                self.iso3, canonical_row.get("income_id")
+            )
         site_type_idx = get_site_type_idx[site_type]
         city_params_dict = baseline.update_cityparams_dict()
         baseline.landfills = []
@@ -2950,6 +3129,7 @@ class City:
                 open_date = MODEL_START_YEAR
             else:
                 open_date = int(open_date)
+        # decision: waste-before-1970-is-zero
         if open_date < MODEL_START_YEAR:
             open_date = MODEL_START_YEAR
         if open_date == 20007:
@@ -2974,6 +3154,7 @@ class City:
         # (see site_only_estimate_trace). Applies to both the single- and multi-city
         # landfill constructors below. Local import avoids the dst_common import cycle.
         from SWEET_python.dst_common import DEFAULT_FLARE_EFFICIENCY
+        # decision: flaring-uniform
         flaring_series = pd.Series(DEFAULT_FLARE_EFFICIENCY, index=self.years_range)
         baseline._singapore_k(advanced_baseline=True)
         if (citysite_rows is None) or (isinstance(citysite_rows, pd.Series)):
@@ -2981,6 +3162,7 @@ class City:
                     0.0, index=self.years_range
                 )
             # Sites accept waste in open years but not the closure year.
+            # decision: intake-ends-before-close-year
             fraction_of_waste_vector.loc[open_date:close_date-1] = 1.0
             new_landfill = Landfill(
                 open_date=open_date,
@@ -3080,6 +3262,7 @@ class City:
             # per-city fractions are the only deposition gate for the virtual
             # landfills below, so zero them outside the operating window.
             operating_years = pd.Series(False, index=self.years_range)
+            # decision: intake-ends-before-close-year
             operating_years.loc[open_date:close_date-1] = True
             fraction_of_waste_df.loc[~operating_years] = 0.0
             baseline.fraction_of_waste_df = fraction_of_waste_df
@@ -3392,6 +3575,7 @@ class City:
             general_reference_year = current_year - 1
 
             # Check if row is a single row or multiple rows
+            # decision: intake-follows-population
             if (time_series_rows is None) or isinstance(time_series_rows, pd.Series):
                 # Single row - use old method
                 year_of_data_msw = canonical_row['incoming_waste_year']
@@ -3431,6 +3615,7 @@ class City:
                         waste_per_capita = waste_mass * 1000 / population / 365
                     
             else:
+                # decision: intake-follows-population
                 # Multiple rows - create time series
                 waste_mass_defaults = False
                 year_of_data_msw = time_series_rows['incoming_waste_year'].max()
@@ -3694,6 +3879,7 @@ class City:
 
             # Normalize waste fractions to sum to 1
             wf_norm = waste_fractions / waste_fractions.sum()
+            # decision: waste-composition
             waste_fractions = pd.DataFrame(
                 np.repeat(wf_norm.values[np.newaxis, :], len(self.years_range), axis=0),
                 index=self.years_range,
@@ -4727,40 +4913,11 @@ class City:
             textiles=pd.Series(ks.get("textiles", 0.0), index=years),
         )
 
-        # Determine waste split fractions using .get() method
-        dumpsite_frac = defaults_2019.fraction_open_dumped_country.get(
-            iso3, defaults_2019.fraction_open_dumped.get(region, 0)
+        # Determine waste split fractions, as the cities table does for a city
+        # with no landfill data
+        split_fractions = SplitFractions(
+            **defaults_2019.disposal_split_for(iso3, region)
         )
-        landfill_wo_capture_frac = defaults_2019.fraction_landfilled_country.get(
-            iso3, defaults_2019.fraction_landfilled.get(region, 0)
-        )
-        landfill_w_capture_frac = 0.0  # Default as per original function
-
-        try:
-            split_fractions = SplitFractions(
-                dumpsite=dumpsite_frac,
-                landfill_wo_capture=landfill_wo_capture_frac,
-                landfill_w_capture=landfill_w_capture_frac,
-            )
-        except KeyError:
-            if self.region in defaults_2019.landfill_default_regions:
-                split_fractions = SplitFractions(
-                    landfill_w_capture=0.0, landfill_wo_capture=1.0, dumpsite=0.0
-                )
-            else:
-                split_fractions = SplitFractions(
-                    landfill_w_capture=0.0, landfill_wo_capture=0.0, dumpsite=1.0
-                )
-
-        # Normalize split fractions
-        split_total = sum(split_fractions.model_dump().values())
-        if split_total > 0:
-            split_fractions = SplitFractions(
-                **{
-                    site: frac / split_total
-                    for site, frac in split_fractions.model_dump().items()
-                }
-            )
 
         # Instantiate landfill objects
         years_range = range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
@@ -7203,21 +7360,25 @@ class City:
                     mcf_defaults.MCF_UNCATEGORISED,
                     index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1),
                 )
+                # Keep these oxidation factors: Landfill.estimate_emissions would
+                # reset them from gas_capture, which is still False for the two
+                # converted sites, to 0.1 and 0.
                 skip_ox = True
 
             if move_gas:
-                original_gas_pct = (
-                    scenario_parameters.split_fractions.landfill_w_capture
+                scenario_parameters.split_fractions = _move_to_existing_gas_capture(
+                    scenario_parameters.split_fractions, existing_gas_pct
                 )
-                scenario_parameters.split_fractions.landfill_w_capture = (
-                    existing_gas_pct
+                # Each landfill's waste comes from its own fraction_of_waste
+                # (LandfillWasteMassDF.create below), not from split_fractions.
+                split = scenario_parameters.split_fractions
+                scenario_parameters.landfills[0].fraction_of_waste = (
+                    split.landfill_w_capture
                 )
-                if original_gas_pct > 0:
-                    ratio = existing_gas_pct / original_gas_pct
-                else:
-                    ratio = 0
-                scenario_parameters.split_fractions.landfill_wo_capture *= ratio
-                scenario_parameters.split_fractions.dumpsite *= ratio
+                scenario_parameters.landfills[1].fraction_of_waste = (
+                    split.landfill_wo_capture
+                )
+                scenario_parameters.landfills[2].fraction_of_waste = split.dumpsite
 
             if new_gas_pct > 0:
                 scenario_parameters.landfills.append(
@@ -7234,7 +7395,8 @@ class City:
                 total = sum(scenario_parameters.split_fractions.model_dump().values())
                 if abs(total - 1.0) > 1e-3:
                     raise CustomError(
-                        f"Invalid split fractions: {scenario_parameters.split_fractions}"
+                        "INVALID_PARAMETERS",
+                        f"Invalid split fractions: {scenario_parameters.split_fractions}",
                     )
                 scenario_parameters.landfills[0].fraction_of_waste = (
                     scenario_parameters.split_fractions.landfill_w_capture
@@ -7253,6 +7415,7 @@ class City:
                 lf.scenario = 1
 
         else:
+            skip_ox = True
             if add_gas:
                 for lf in scenario_parameters.landfills:
                     if lf.site_type == "Sanitary Landfill":
@@ -7540,7 +7703,7 @@ class City:
                     )
 
         # scenario_parameters.repopulate_attr_dicts() # does this need to come sooner? Does anything in the above functions rely on the attr dicts?
-        skip_ox = scenario_parameters.sites_method
+        # skip_ox comes from the branch above, so the oxidation it set is kept.
         for landfill in scenario_parameters.landfills:
             landfill.estimate_emissions(skip_ox=skip_ox)
             # print(landfill.emissions)
@@ -9069,18 +9232,26 @@ class City:
                 raise ValueError(f"Region for ISO3 code '{iso3}' not found.")
         else:
             location = geolocator.reverse((latlon[0], latlon[1]), language="en")
-            country = location.raw["address"].get("country")
+            # geopy gives None where Nominatim can't place the point (open sea), and
+            # an address can lack a country (Antarctica).
+            address = location.raw.get("address", {}) if location is not None else {}
+            country = address.get("country")
             try:
-                iso3 = _iso3_for(country)
+                iso3 = _iso3_at(address)
             except LookupError:
+                if country is None:
+                    raise ValueError(f"No country at {latlon[0]}, {latlon[1]}.")
                 raise ValueError(f"Country '{country}' not found.")
             region = defaults_2019.region_lookup_iso3.get(iso3)
             if region is None:
                 raise ValueError(f"Region for ISO3 code '{iso3}' not found.")
-            if region in defaults_2019.landfill_default_regions:
+            if site_type_defaults.landfill_is_default(iso3):
                 site_type = "Landfill"
             else:
                 site_type = "Dumpsite"
+        # A site in the sites list with no recorded type takes the same rule.
+        if pd.isna(site_type) or site_type == "":
+            site_type = site_type_defaults.default_site_type(iso3)
 
         if site_type in ["Landfill", "Sanitary Landfill"]:
             site_type = 0
