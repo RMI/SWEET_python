@@ -123,6 +123,7 @@ class SWEET:
             mcf_values = mcf.loc[year_range].values[:, None]
             ch4_produce = (
                 ks_values
+                # decision: methane-potential-by-waste-type
                 * defaults_2019.L_0[waste]
                 * waste_masses
                 * exp_term
@@ -241,6 +242,7 @@ class SWEET:
         # Month length in years (variable by month and leap years)
         month_days = monthly_dates.days_in_month.values
         year_days = np.array([366 if calendar.isleap(y) else 365 for y in years])
+        # decision: monthly-from-decay-model
         month_fracs = month_days / year_days
 
         # Expand annual factors to monthly arrays
@@ -268,6 +270,7 @@ class SWEET:
 
         for i, waste in enumerate(components):
             # Get constants
+            # decision: methane-potential-by-waste-type
             L0 = defaults_2019.L_0[waste]
 
             # Monthly series
@@ -348,6 +351,7 @@ class SWEET:
         # because flare_values represents destruction efficiency.
         try:
             flared_destroyed_m3 = captured_df.sum(axis=1).fillna(0.0)
+            # decision: particulate-factors
             self.pm2p5_kg_monthly = (flared_destroyed_m3 * PM2P5_KG_PER_M3_CH4_FLARED).astype(float)
             self.pm10_kg_monthly = (flared_destroyed_m3 * PM10_KG_PER_M3_CH4_FLARED).astype(float)
         except Exception:
