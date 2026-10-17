@@ -2,12 +2,13 @@
 
 SWEET grows a place's waste with its country's population, year by year: the factor
 for a year is P(year) / P(anchor year) (see class_defs.growth_factors_for_years).
-Climate TRACE's pipeline hands SWEET the same numbers through ``pop_data``; the
-WasteMAP tools, which have no ``pop_data``, read them here.
+The WasteMAP tools, which have no ``pop_data``, read them here. Climate TRACE's
+pipeline reads this same file (1970 onward, in its ``util/population.py``) and hands
+SWEET those numbers through ``pop_data``, so there is one copy of the table, versioned
+with this package.
 
-``pops_yearly.csv`` is Climate TRACE's ``static_data/pops_yearly.csv`` (1970-2050)
-unchanged, extended back to 1950 from the same source, because the site tool models
-a landfill from its real opening year. Built with Climate TRACE's
+``pops_yearly.csv`` runs from 1950 because the site tool models a landfill from its
+real opening year. Built with Climate TRACE's
 ``diagnostic_scripts/generate_pops_yearly.py`` from
 ``WPP2024_GEN_F01_DEMOGRAPHIC_INDICATORS_COMPACT.xlsx``, "Total Population, as of 1
 January (thousands)": estimates to 2023, medium variant after.
