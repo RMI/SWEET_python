@@ -1295,8 +1295,10 @@ def disposal_split_for(iso3, region):
 
     Returns the shares of disposed waste sent to ``landfill_w_capture``,
     ``landfill_wo_capture`` and ``dumpsite``, summing to 1. The country's row is
-    used when it sends waste to a landfill or a dump, else the region's; a place
-    with neither is all landfill in ``landfill_default_regions`` and all dumpsite
+    used when it sends waste to a landfill or a dump, else the region's. A place
+    with neither is all landfill where a site of unknown type is assumed a
+    sanitary landfill (``site_type_defaults.landfill_is_default``, Climate TRACE's
+    rule: high income, or a region or country it names), and all dumpsite
     elsewhere.
 
     Southern Asia, South-Eastern Asia and Southern Africa have no regional row
@@ -1322,7 +1324,10 @@ def disposal_split_for(iso3, region):
                 "landfill_wo_capture": landfill / total,
                 "dumpsite": dumpsite / total,
             }
-    landfills = region in landfill_default_regions
+    # Imported here: site_type_defaults imports this module.
+    from SWEET_python.site_type_defaults import landfill_is_default
+
+    landfills = landfill_is_default(iso3)
     return {
         "landfill_w_capture": 0.0,
         "landfill_wo_capture": 1.0 if landfills else 0.0,

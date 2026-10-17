@@ -17,10 +17,10 @@ in 2040, against 28,745 t for Mexico. The `except KeyError` fallback written for
 this never ran, because `.get` never raises.
 
 The cities table (`City.load_andre_params`) handles both gaps. A region with no
-row falls back to all landfill or all dumpsite by `landfill_default_regions`, and
-the three zero-row countries are landfilled. Custom Location now takes the split
-the cities table gives a city with no landfill data
-(`defaults_2019.disposal_split_for`).
+row falls back to all landfill or all dumpsite by Climate TRACE's site-type rule
+(`site_type_defaults.landfill_is_default`), and the three zero-row countries are
+landfilled. Custom Location now takes the split the cities table gives a city
+with no landfill data (`defaults_2019.disposal_split_for`).
 """
 
 import numpy as np
@@ -133,13 +133,25 @@ def test_a_custom_location_models_methane_from_the_waste_it_disposes_of(iso3):
 
 @pytest.mark.parametrize("iso3", ["PAK", "PHL", "ZAF"])
 def test_a_country_in_a_region_with_no_row_dumps_its_waste(iso3):
-    # None of the three regions is in `landfill_default_regions`.
+    # None of the three regions makes a country a landfill one, and none of these
+    # three is high income.
     split = _custom_location(iso3).split_fractions
 
     assert (split.landfill_w_capture, split.landfill_wo_capture, split.dumpsite) == (
         0.0,
         0.0,
         1.0,
+    )
+
+
+def test_a_high_income_country_in_a_region_with_no_row_landfills_its_waste():
+    # Brunei, by Climate TRACE's site-type rule, as its cities-table rows do.
+    split = _custom_location("BRN").split_fractions
+
+    assert (split.landfill_w_capture, split.landfill_wo_capture, split.dumpsite) == (
+        0.0,
+        1.0,
+        0.0,
     )
 
 
