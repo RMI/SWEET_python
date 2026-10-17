@@ -380,6 +380,7 @@ def _create_series(kc, tf, fm, implement_year=None, advanced_baseline=False,
     # Floor the decomposition rate at the IPCC dry-boreal low-end default.
     # Cold/dry sites can otherwise drive k toward 0 (tf -> 0 near ambient
     # -10 C); clip leaves any genuine NaN entries untouched. See K_MIN_PER_YEAR.
+    # decision: decay-rate-from-climate
     years = years.clip(lower=K_MIN_PER_YEAR)
 
     return years
