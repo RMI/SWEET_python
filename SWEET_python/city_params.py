@@ -390,8 +390,10 @@ def country_population_trajectory(iso3):
     years = np.arange(MODEL_START_YEAR, MODEL_END_YEAR + 1)
     series = country_population_series(iso3)
     if series is not None:
-        people = (series.reindex(years) * 1000).round()  # the table is in thousands
-        return people.astype(float), COUNTRY_CURVE
+        # The table is in thousands. Not rounded to whole people: a few small places
+        # carry interpolated fractions (Svalbard's 2,591.78 in 2022), and rounding
+        # them would bend the curve a Custom Location there grows by.
+        return series.reindex(years).astype(float) * 1000, COUNTRY_CURVE
     factors = growth_factors_for_years(
         years,
         CUSTOM_LOCATION_POPULATION_YEAR,
