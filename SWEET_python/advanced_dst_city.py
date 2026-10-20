@@ -737,7 +737,10 @@ def _with_other_landfills(request: AdvancedDSTCityRequest) -> AdvancedDSTCityReq
     rows: Dict[str, Dict[int, List[float]]] = {}
     for variant in variants:
         _validate_share_range(splits[variant], variant)
-        listed = splits[variant].where(accepting[variant], 0.0)
+        # The range check tolerates a share a rounding error outside [0, 1]. Used
+        # as given, -0.01 would bury negative waste at that site and hand other
+        # landfills 101% of the rest.
+        listed = splits[variant].where(accepting[variant], 0.0).clip(lower=0.0, upper=1.0)
         claimed = listed.sum(axis=1)
         over = claimed > 1.0
         listed.loc[over] = listed.loc[over].div(claimed[over], axis=0)

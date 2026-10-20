@@ -214,6 +214,18 @@ def test_shares_over_one_are_scaled_down_and_other_landfills_take_nothing():
     assert shares[2].to_numpy() == pytest.approx(0.0)
 
 
+def test_a_tolerated_negative_share_sends_no_negative_waste_anywhere():
+    """-0.01 passes the range check as a rounding error. Used as given, it buried
+    negative waste at the listed site and gave other landfills 101% of the rest."""
+    result = _run(_request([_site()], [-0.01], other=_other()))
+
+    for variant in ("baseline", "scenario"):
+        shares = _site_shares(result, variant)
+        assert shares[0].to_numpy() == pytest.approx(0.0)
+        assert shares[1].to_numpy() == pytest.approx(1.0)
+        assert (pd.concat(result["mass_flow"][variant]["sites"], axis=1) >= 0).all().all()
+
+
 def test_other_landfills_open_with_a_listed_site_that_opens_before_the_model():
     early = MODEL_START_YEAR - 10
     shares = _site_shares(
