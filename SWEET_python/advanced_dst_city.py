@@ -710,7 +710,12 @@ def _with_other_landfills(request: AdvancedDSTCityRequest) -> AdvancedDSTCityReq
     accepting: Dict[str, pd.DataFrame] = {}
     for variant in variants:
         if n_listed:
-            timeline = common.variant_get(request.landfill_split_timeline, variant)
+            # An empty scenario split means the baseline's, as in
+            # `run_advanced_dst_city`; `variant_get` falls back only on None.
+            timeline = (
+                request.landfill_split_timeline[variant]
+                or request.landfill_split_timeline["baseline"]
+            )
             splits[variant] = _split_timeline_to_df(timeline, years, n_listed)
             accepting[variant] = _accepting_mask(
                 _accepting_windows(request, variant), splits[variant].columns, years
