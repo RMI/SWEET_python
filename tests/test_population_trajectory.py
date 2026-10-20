@@ -82,6 +82,19 @@ def test_a_country_trajectory_is_its_un_population_in_people():
     assert country_population_trajectory("XKX")[1] == "country curve"
 
 
+def test_a_small_countrys_trajectory_keeps_the_uns_fractions():
+    """Svalbard and Jan Mayen's row carries interpolated fractions of a thousand
+    (2,591.78 people in 2022). Rounded to whole people its curve moved by 0.03%."""
+    trajectory, _ = country_population_trajectory("SJM")
+    svalbard = country_population_series("SJM")
+
+    np.testing.assert_allclose(
+        (trajectory / trajectory.loc[2022]).to_numpy(),
+        (svalbard / svalbard.loc[2022]).loc[YEARS].to_numpy(),
+        rtol=1e-14,
+    )
+
+
 def test_a_country_without_a_un_population_grows_as_a_custom_location_there_does():
     trajectory, source = country_population_trajectory("ATA")
     city = City("custom")
