@@ -4936,7 +4936,12 @@ class City:
         parameters.divs = divs
 
     def dst_baseline_blank(
-        self, country: str, population: int, precipitation: float, temperature: float
+        self,
+        country: str,
+        population: int,
+        precipitation: float,
+        temperature: float,
+        population_series: Optional[pd.Series] = None,
     ) -> None:
         """
         Initializes the baseline scenario with given parameters for a blank/custom city.
@@ -4945,6 +4950,10 @@ class City:
             country (str): The country name.
             population (int): Population of the city.
             precipitation (float): Average annual precipitation in mm/year.
+            population_series (pd.Series): the country's population by year, worked
+                out once by country_population_trajectory and stored. The city's waste
+                grows along it instead of along SWEET's own table. Only its shape
+                counts: the city's waste is set by ``population``.
 
         Returns:
             None
@@ -5119,9 +5128,13 @@ class City:
         waste_masses_df = waste_fractions_df * waste_mass
         # The country's population, year by year. The constants above are one rate for
         # every country; they stand only for a country SWEET has no series for.
+        stored_series = population_series
         population_series, growth_rate_historic, growth_rate_future = _country_growth(
             iso3, year_of_data_pop, growth_rate_historic, growth_rate_future
         )
+        if stored_series is not None:
+            # The two rates stay the ones a person reads; the stored series is the growth.
+            population_series = stored_series
         waste_generated_df = WasteGeneratedDF.create(
             waste_masses_df,
             MODEL_START_YEAR,
