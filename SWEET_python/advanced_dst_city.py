@@ -31,6 +31,10 @@ live in a list, one dict per landfill:
 * a facility may set ``combusts``: it burns the waste routed to it instead of
   depositing it, and only the unburnable reject is deposited. See
   :class:`CityLandfillSpec`.
+* ``other_landfills`` (optional) is where the rest goes. With it, each year's
+  fractions may sum to less than 1, a listed landfill's share goes to other
+  landfills in the years it is shut, and ``landfills`` may be empty. See
+  :class:`OtherLandfillsSpec`.
 
 Diversion math, reject rates, the per-landfill split, and emissions aggregation
 mirror the tested ``City`` machinery (``_calculate_diverted_masses``,
@@ -42,16 +46,22 @@ from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 import SWEET_python.defaults_2019 as defaults_2019
 from SWEET_python.city_params import City, CityParameters, CustomError
 from SWEET_python.class_defs import DivsDF, LandfillType, LandfillWasteMassDF, Variant
+from SWEET_python.constants import MODEL_START_YEAR
 from SWEET_python import dst_common as common
 from SWEET_python import site_inflow
 from SWEET_python.dst_common import YearlyFloat, YearlyFractions, YearlyOptionalFloat
 
-__all__ = ["AdvancedDSTCityRequest", "CityLandfillSpec", "run_advanced_dst_city"]
+__all__ = [
+    "AdvancedDSTCityRequest",
+    "CityLandfillSpec",
+    "OtherLandfillsSpec",
+    "run_advanced_dst_city",
+]
 
 #: The diversion pathways `DivsDF` carries, in the order the mass flow reports.
 DIVERSION_PATHWAYS: tuple[str, ...] = ("compost", "anaerobic", "combustion", "recycling")
@@ -155,6 +165,44 @@ class CityLandfillSpec(BaseModel):
     )
 
 
+class OtherLandfillsSpec(CityLandfillSpec):
+    """Where the city's landfilled waste goes when no listed landfill takes it.
+
+    Each year, other landfills take whatever share of the city's landfilled
+    waste the listed landfills leave: what their shares fall short of 1 by, and
+    the share of any listed landfill that is shut that year. So a caller can
+    state the sites it knows about and leave the rest here, without balancing
+    the shares to 1 first.
+
+    They are modelled as one more landfill, with every per-site field a listed
+    one has. Two fields are not taken. Other landfills accept waste in every
+    model year, so they have no open or close years. They take only the city's
+    own waste, so they have no gate total.
+    """
+
+    landfill_open_close: Optional[Variant[tuple[int, int]]] = Field(
+        None,
+        description=(
+            "Not taken: other landfills accept waste from the model's first year "
+            "and never close, so every year's leftover has somewhere to go."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _take_the_city_s_leftover_every_year(self) -> "OtherLandfillsSpec":
+        if self.landfill_open_close is not None:
+            raise ValueError(
+                "other_landfills take no landfill_open_close: they accept waste "
+                "in every model year."
+            )
+        if self.accepted_waste_mass is not None:
+            raise ValueError(
+                "other_landfills take no accepted_waste_mass: they take only the "
+                "city's own waste."
+            )
+        return self
+
+
 class AdvancedDSTCityRequest(BaseModel):
     """Request body for the city-level advanced DST endpoint."""
 
@@ -173,15 +221,22 @@ class AdvancedDSTCityRequest(BaseModel):
         ),
     )
     landfills: List[CityLandfillSpec] = Field(
-        ..., min_length=1, description="One entry per landfill in the city."
+        default_factory=list,
+        description=(
+            "One entry per landfill in the city. It may be empty when "
+            "`other_landfills` is given, which then takes all of the city's "
+            "landfilled waste."
+        ),
     )
-    landfill_split_timeline: Variant[Dict[int, List[float]]] = Field(
-        ...,
+    landfill_split_timeline: Optional[Variant[Dict[int, List[float]]]] = Field(
+        None,
         description=(
             "Fraction of the city's landfilled (net-of-diversion) waste sent to "
             "each landfill per year: {year: [frac_landfill_0, frac_landfill_1, ...]}. "
-            "The list order matches the `landfills` list, and each year's fractions "
-            "should sum to ~1."
+            "The list order matches the `landfills` list. Required whenever "
+            "`landfills` lists any. Without `other_landfills`, each year's "
+            "fractions should sum to ~1. With it, they may sum to less, and "
+            "other landfills take the rest."
         ),
     )
     diversion_fractions: Optional[Variant[Dict[str, YearlyFloat]]] = Field(
@@ -206,6 +261,34 @@ class AdvancedDSTCityRequest(BaseModel):
     temperature: float = Field(10.0, description="Average annual temperature, deg C.")
     country: Optional[str] = Field(None, description="ISO3 country code (identity).")
     rmi_id: Optional[int] = Field(None, description="City/site identifier (identity).")
+    other_landfills: Optional[OtherLandfillsSpec] = Field(
+        None,
+        description=(
+            "Where the city's landfilled waste goes when no listed landfill takes "
+            "it. Each year, other landfills take 1 minus the shares of the listed "
+            "landfills open that year. That includes the share of a listed "
+            "landfill that is shut that year, which without this field is spread "
+            "over the open ones instead. A year whose open listed landfills "
+            "claim more than 1 is scaled down to 1, and other landfills take "
+            "nothing that year. They are reported after the listed landfills, "
+            "as the last entry of `site_emissions` and of the mass flow's "
+            "`sites`. Omit (the default) and the shares must sum to ~1, as "
+            "before."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _the_waste_has_somewhere_to_go(self) -> "AdvancedDSTCityRequest":
+        if not self.landfills and self.other_landfills is None:
+            raise ValueError(
+                "landfills must list at least one landfill unless other_landfills "
+                "is given."
+            )
+        if self.landfills and self.landfill_split_timeline is None:
+            raise ValueError(
+                "landfill_split_timeline is required when landfills lists any."
+            )
+        return self
 
 
 # --------------------------------------------------------------------------- #
@@ -279,9 +362,11 @@ def _mass_flow(
     the total quietly composts metal and glass.
 
     ``sites`` is per landfill in request order, already windowed by each one's
-    open/close years. It sums to ``landfilled`` in every year that has at least
-    one open landfill, because the split is renormalized over whichever ones are
-    accepting waste (see ``_renormalize_over_open``). The one case where the two
+    open/close years, with other landfills last when the request has them. It
+    sums to ``landfilled`` in every year that has at least one open landfill,
+    because the split is renormalized over whichever ones are accepting waste
+    (see ``_renormalize_over_open``) -- and other landfills are open in every
+    year. The one case where the two
     differ is a year with *no* landfill open at all: that city's post-diversion
     waste has nowhere to go, and the gap is reported rather than hidden —
     ``landfilled`` is what the city disposed of, ``sites`` is what arrived
@@ -563,6 +648,118 @@ def _renormalize_over_open(
     return renormalized
 
 
+def _validate_share_range(checked: pd.DataFrame, label: str) -> None:
+    """Every share in ``checked`` must be a fraction, within the share tolerance."""
+    out_of_range = (checked < -SHARE_SUM_TOLERANCE) | (
+        checked > 1.0 + SHARE_SUM_TOLERANCE
+    )
+    if bool(out_of_range.to_numpy().any()):
+        rows = out_of_range.any(axis=1)
+        first_year = int(rows[rows].index[0])
+        column = int(out_of_range.loc[first_year].idxmax())
+        raise CustomError(
+            "invalid_parameters",
+            f"{label} landfill waste_share fractions must each be between 0 and 1 "
+            f"(year {first_year}, landfill {column} is "
+            f"{float(checked.loc[first_year, column]):.3f}).",
+        )
+
+
+def _with_other_landfills(request: AdvancedDSTCityRequest) -> AdvancedDSTCityRequest:
+    """The request with its other landfills listed as one more landfill.
+
+    Every entry point calls this first, so the rest of the module only ever
+    sees listed landfills whose shares sum to 1. Other landfills become the
+    last landfill: open from the model's first year, never closed, and holding
+    each year's leftover. The run is the same, bit for bit, as one where the
+    caller listed that landfill itself at those shares, because it *is* that
+    run.
+
+    For each variant and each year:
+
+    * a listed landfill keeps the share it was given in the years it accepts
+      waste. In the years it is shut (not yet open, or closed by its own dates
+      or by a scenario's), that share goes to other landfills instead of being
+      spread over the listed landfills still open;
+    * other landfills take 1 minus what the open listed landfills claim;
+    * a year whose open listed landfills claim more than 1 is scaled down to 1,
+      and other landfills take nothing that year.
+
+    Each listed share is checked to be a fraction as submitted, so the scaling
+    can't hide a negative share or one above 1.
+    """
+    other = request.other_landfills
+    if other is None:
+        return request
+
+    # Other landfills open with the model, so that every modelled year's
+    # leftover has a destination: at MODEL_START_YEAR, or with a listed
+    # landfill that states an earlier opening. `validate_years` checks the
+    # listed dates and returns that earliest open year.
+    pairs = [(MODEL_START_YEAR, common.NEVER_CLOSES)]
+    for spec in request.landfills:
+        baseline_dates = spec.landfill_open_close["baseline"]
+        scenario_dates = spec.landfill_open_close["scenario"] or baseline_dates
+        pairs += [tuple(baseline_dates), tuple(scenario_dates)]
+    open_year = common.validate_years(pairs, int(request.implement_year))
+    years = pd.Index(range(open_year, common.MODEL_YEAR_MAX + 1), name="year")
+
+    n_listed = len(request.landfills)
+    variants = ("baseline", "scenario")
+    splits: Dict[str, pd.DataFrame] = {}
+    accepting: Dict[str, pd.DataFrame] = {}
+    for variant in variants:
+        if n_listed:
+            timeline = common.variant_get(request.landfill_split_timeline, variant)
+            splits[variant] = _split_timeline_to_df(timeline, years, n_listed)
+            accepting[variant] = _accepting_mask(
+                _accepting_windows(request, variant), splits[variant].columns, years
+            )
+        else:
+            splits[variant] = pd.DataFrame(index=years)
+            accepting[variant] = pd.DataFrame(index=years)
+    # The scenario tracks the baseline before changes take effect. Spliced
+    # before the check, as `run_advanced_dst_city` does, so a pre-implement
+    # scenario row the model discards can't get the request refused.
+    implement_year = int(request.implement_year)
+    splits["scenario"].loc[: implement_year - 1, :] = splits["baseline"].loc[
+        : implement_year - 1, :
+    ]
+    accepting["scenario"].loc[: implement_year - 1, :] = accepting["baseline"].loc[
+        : implement_year - 1, :
+    ]
+
+    rows: Dict[str, Dict[int, List[float]]] = {}
+    for variant in variants:
+        _validate_share_range(splits[variant], variant)
+        listed = splits[variant].where(accepting[variant], 0.0)
+        claimed = listed.sum(axis=1)
+        over = claimed > 1.0
+        listed.loc[over] = listed.loc[over].div(claimed[over], axis=0)
+        leftover = (1.0 - listed.sum(axis=1)).clip(lower=0.0)
+        rows[variant] = {
+            int(year): [float(x) for x in listed.loc[year]] + [float(leftover.loc[year])]
+            for year in years
+        }
+
+    always_open = (open_year, common.NEVER_CLOSES)
+    listed_other = CityLandfillSpec.model_validate(
+        {
+            **other.model_dump(exclude={"landfill_open_close", "accepted_waste_mass"}),
+            "landfill_open_close": {"baseline": always_open, "scenario": always_open},
+        }
+    )
+    return request.model_copy(
+        update={
+            "landfills": [*request.landfills, listed_other],
+            "landfill_split_timeline": Variant[Dict[int, List[float]]](
+                baseline=rows["baseline"], scenario=rows["scenario"]
+            ),
+            "other_landfills": None,
+        }
+    )
+
+
 def _validate_shares(split: pd.DataFrame, accepting: pd.DataFrame, label: str) -> None:
     """Each year's landfill shares must be fractions, and must sum to ~1.
 
@@ -582,21 +779,7 @@ def _validate_shares(split: pd.DataFrame, accepting: pd.DataFrame, label: str) -
     that waste to go, so no set of shares can account for it, and whatever was
     submitted is discarded either way.
     """
-    somewhere_open_rows = accepting.any(axis=1)
-    checked = split.loc[somewhere_open_rows]
-    out_of_range = (checked < -SHARE_SUM_TOLERANCE) | (
-        checked > 1.0 + SHARE_SUM_TOLERANCE
-    )
-    if bool(out_of_range.to_numpy().any()):
-        rows = out_of_range.any(axis=1)
-        first_year = int(rows[rows].index[0])
-        column = int(out_of_range.loc[first_year].idxmax())
-        raise CustomError(
-            "invalid_parameters",
-            f"{label} landfill waste_share fractions must each be between 0 and 1 "
-            f"(year {first_year}, landfill {column} is "
-            f"{float(checked.loc[first_year, column]):.3f}).",
-        )
+    _validate_share_range(split.loc[accepting.any(axis=1)], label)
 
     total = split.sum(axis=1)
     somewhere_open = accepting.any(axis=1)
@@ -836,6 +1019,7 @@ def run_advanced_dst_city_limits(
     All of it reflects the prevention already in the request; a caller asking
     "how much further could I go" gets an answer consistent with where it is.
     """
+    request = _with_other_landfills(request)
     implement_year = int(request.implement_year)
     years = _model_years(request)
 
@@ -1022,7 +1206,8 @@ def run_advanced_dst_city_defaults(
     """The rates the model uses at each site that does not state its own.
 
     Returns ``{"baseline": [...], "scenario": [...]}``, one entry per landfill
-    in request order, each ``{"k", "oxidation"}`` indexed by year:
+    in request order, with the request's ``other_landfills`` last when it has
+    them, each ``{"k", "oxidation"}`` indexed by year:
 
     * ``k`` -- the decomposition rate (1/yr) derived from the city's
       temperature, precipitation and composition after food waste prevention.
@@ -1038,6 +1223,7 @@ def run_advanced_dst_city_defaults(
     Nothing here runs the decay model, so it is cheap enough to call on every
     edit.
     """
+    request = _with_other_landfills(request)
     implement_year = int(request.implement_year)
     years = _model_years(request)
 
@@ -1123,7 +1309,13 @@ def run_advanced_dst_city(
     through the decay kernel, summed -- never a ratio applied to one of them,
     which is wrong by tens of percent wherever the city's share of a site moves
     over time. Asking for them changes no emissions.
+
+    A request with ``other_landfills`` has them modelled as one more landfill,
+    after the listed ones: they are the last entry of ``site_emissions`` and of
+    the mass flow's ``sites``. See ``_with_other_landfills`` for the shares they
+    take.
     """
+    request = _with_other_landfills(request)
     implement_year = int(request.implement_year)
 
     # --- Years: validate every landfill's open/close window ---
