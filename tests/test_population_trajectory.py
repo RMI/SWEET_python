@@ -137,3 +137,64 @@ def test_load_csv_new_grows_a_city_along_the_trajectory_it_is_handed():
         worked_out.growth_rate_historic,
         worked_out.growth_rate_future,
     )
+
+
+def _custom_location(country, population_series=None):
+    """A Custom Location, as WasteMAP's city DST builds one."""
+    city = City("custom")
+    city.dst_baseline_blank(country, 100_000, 800.0, 15.0, population_series=population_series)
+    return city
+
+
+def test_a_custom_location_grows_along_the_country_trajectory_it_is_handed():
+    stored, _ = country_population_trajectory("USA")
+    flat = pd.Series(331_000_000.0, index=YEARS)
+
+    worked_out, along_stored, along_flat = (
+        _custom_location("United States", series).baseline_parameters
+        for series in (None, stored, flat)
+    )
+
+    waste = lambda p: p.waste_generated_df.sum(axis=1)  # noqa: E731
+    np.testing.assert_allclose(waste(along_stored), waste(worked_out), rtol=1e-14)
+    np.testing.assert_allclose(
+        (waste(along_stored) / waste(along_stored).loc[2022]).loc[YEARS],
+        stored / stored.loc[city_params.CUSTOM_LOCATION_POPULATION_YEAR],
+        rtol=1e-14,
+    )
+    # Only the shape counts: the waste is the caller's population's, in every case.
+    assert waste(along_flat).loc[2022] == waste(worked_out).loc[2022]
+    assert waste(along_flat).loc[2050] == pytest.approx(waste(along_flat).loc[2022], rel=1e-12)
+    assert waste(along_flat).loc[2050] != pytest.approx(waste(worked_out).loc[2050], rel=1e-3)
+    # The two rates a person reads are still the country's.
+    assert (along_flat.growth_rate_historic, along_flat.growth_rate_future) == (
+        worked_out.growth_rate_historic,
+        worked_out.growth_rate_future,
+    )
+
+
+def test_a_custom_location_with_its_fallback_trajectory_is_unchanged():
+    stored, source = country_population_trajectory("ATA")
+    assert source == city_params.COUNTRY_FALLBACK_RATES
+
+    worked_out = _custom_location("Antarctica").baseline_parameters
+    along_stored = _custom_location("Antarctica", stored).baseline_parameters
+
+    pd.testing.assert_frame_equal(along_stored.waste_generated_df, worked_out.waste_generated_df)
+    assert (along_stored.growth_rate_historic, along_stored.growth_rate_future) == (
+        city_params.FALLBACK_GROWTH_RATE_HISTORIC,
+        city_params.FALLBACK_GROWTH_RATE_FUTURE,
+    )
+
+
+def test_a_custom_location_scenario_grows_along_the_trajectory_it_is_handed():
+    flat = pd.Series(331_000_000.0, index=YEARS)
+    city = _custom_location("United States", flat)
+    for landfill in city.baseline_parameters.landfills:
+        landfill.estimate_emissions()
+
+    divs = city_params.DiversionFractions(compost=0.1, anaerobic=0.0, combustion=0.0, recycling=0.1)
+    city.implement_dst_changes_simple_v1_5(divs, False, False, 0.0, 0.0, 2030, 1, 0.0)
+    waste = city.scenario_parameters[0].waste_generated_df.df.sum(axis=1)
+
+    assert waste.loc[2050] == pytest.approx(waste.loc[2030], rel=1e-12)
