@@ -243,6 +243,16 @@ def test_defaults_report_other_landfills_last():
             )
 
 
+def test_an_empty_scenario_split_is_the_baseline_s_with_other_landfills():
+    """`scenario: {}` means the baseline's shares, as it does without other landfills."""
+    empty = _request([_site()], [0.25], other=_other(), scenario_shares={})
+    stated = _request([_site()], [0.25], other=_other())
+
+    _assert_same_run(_run(empty), _run(stated))
+    for entry_point in (run_advanced_dst_city_limits, run_advanced_dst_city_defaults):
+        entry_point(empty)  # refused before, as "landfill_split_timeline is required"
+
+
 def test_limits_take_a_request_with_only_other_landfills():
     with_other = run_advanced_dst_city_limits(_request([], other=_other()))
     listed = run_advanced_dst_city_limits(_request([_site()], [1.0]))
