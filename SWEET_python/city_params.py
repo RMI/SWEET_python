@@ -311,6 +311,98 @@ def _city_growth(iso3, anchor_year, population, city_historic, city_future):
     return _country_growth(iso3, anchor_year, city_historic, city_future)
 
 
+# What a population trajectory's shape comes from. WasteMAP publishes one of these with
+# each trajectory its map-data build stores.
+UN_CITY_RATES = "UN city rates"
+UN_CITY_TRAJECTORY = "UN city trajectory"
+COUNTRY_CURVE = "country curve"
+COUNTRY_FALLBACK_RATES = "country fallback rates"
+
+#: The growth a Custom Location gets in a country SWEET has no population series for:
+#: the world's urban population, 751 million in 1950, 4.3 billion in 2020 and 5.3
+#: billion projected for 2035, either side of CUSTOM_LOCATION_POPULATION_YEAR.
+FALLBACK_GROWTH_RATE_HISTORIC = (4_300_000_000 / 751_000_000) ** (1 / (2020 - 1950))
+FALLBACK_GROWTH_RATE_FUTURE = (5_300_000_000 / 4_300_000_000) ** (1 / (2035 - 2020))
+#: The year a Custom Location's population describes (City.dst_baseline_blank).
+CUSTOM_LOCATION_POPULATION_YEAR = 2022
+
+
+def _log_linear(points, years):
+    """``points`` ({year: people}) at each of ``years``, growing at a constant rate between
+    neighbouring points and at the nearest pair's rate beyond the first or last."""
+    known = pd.Series(points, dtype=float).dropna()
+    known = known[known > 0].sort_index()
+    if len(known) < 2:
+        raise ValueError("A city's UN points need at least two years with a population.")
+    x = known.index.to_numpy(dtype=float)
+    y = np.log(known.to_numpy())
+    years = np.asarray(years, dtype=float)
+    out = np.interp(years, x, y)
+    before, after = years < x[0], years > x[-1]
+    out[before] = y[0] + (years[before] - x[0]) * (y[1] - y[0]) / (x[1] - x[0])
+    out[after] = y[-1] + (years[after] - x[-1]) * (y[-1] - y[-2]) / (x[-1] - x[-2])
+    return np.exp(out)
+
+
+def city_population_trajectory(
+    iso3, population_year, population, city_historic, city_future, city_points=None
+):
+    """A city's population in every model year, and what its shape comes from.
+
+    Returns ``(trajectory, source)``: people by year, MODEL_START_YEAR to
+    MODEL_END_YEAR, passing through ``population`` in ``population_year``. The shape is
+    the one SWEET grows the city's waste by (_city_growth): a UN-listed city's own two
+    rates, compounded either side of its population year (UN_CITY_RATES), or its
+    country's UN population year by year (COUNTRY_CURVE). So the trajectory, handed back
+    to SWEET as ``population_series``, grows the waste as SWEET would have. The rates
+    are a ratio, not a percent: 1.02 for 2% a year.
+
+    ``city_points`` ({year: people}, the UN's own points for this city) replaces that
+    shape (UN_CITY_TRAJECTORY): constant growth between neighbouring points, the nearest
+    pair's beyond them. It is where full UN city trajectories come in, so no default
+    uses it. Pass only a city's own points: below 300,000 people the cities table's UN
+    figures are the nearest listed city's (UN_LISTED_CITY_MIN_POPULATION).
+    """
+    years = np.arange(MODEL_START_YEAR, MODEL_END_YEAR + 1)
+    if city_points is not None:
+        shape = _log_linear(city_points, np.append(years, population_year))
+        factors = shape[:-1] / shape[-1]
+        source = UN_CITY_TRAJECTORY
+    else:
+        series, historic, future = _city_growth(
+            iso3, population_year, population, city_historic, city_future
+        )
+        factors = growth_factors_for_years(years, population_year, historic, future, series)
+        source = COUNTRY_CURVE if series is not None else UN_CITY_RATES
+    return pd.Series(population * factors, index=years, dtype=float), source
+
+
+def country_population_trajectory(iso3):
+    """A country's population in every model year, and what it comes from.
+
+    Returns ``(trajectory, source)``. With a UN WPP2024 series (population.py) it is
+    that, in people (COUNTRY_CURVE). Without one it is FALLBACK_GROWTH_RATE_*
+    compounded either side of CUSTOM_LOCATION_POPULATION_YEAR, which is how a Custom
+    Location there grows (COUNTRY_FALLBACK_RATES). SWEET has no population for such a
+    place, so that trajectory is 1.0 in CUSTOM_LOCATION_POPULATION_YEAR: its shape is
+    real and its level is not.
+    """
+    years = np.arange(MODEL_START_YEAR, MODEL_END_YEAR + 1)
+    series = country_population_series(iso3)
+    if series is not None:
+        # The table is in thousands. Not rounded to whole people: a few small places
+        # carry interpolated fractions (Svalbard's 2,591.78 in 2022), and rounding
+        # them would bend the curve a Custom Location there grows by.
+        return series.reindex(years).astype(float) * 1000, COUNTRY_CURVE
+    factors = growth_factors_for_years(
+        years,
+        CUSTOM_LOCATION_POPULATION_YEAR,
+        FALLBACK_GROWTH_RATE_HISTORIC,
+        FALLBACK_GROWTH_RATE_FUTURE,
+    )
+    return pd.Series(factors, index=years, dtype=float), COUNTRY_FALLBACK_RATES
+
+
 #: SWEET's own country names, lower-cased, to the codes its defaults are keyed by.
 _ISO3_BY_NAME = {name.lower(): iso3 for name, iso3 in defaults_2019.country_to_iso3.items()}
 
@@ -967,7 +1059,13 @@ class City:
 
         self.baseline_parameters = city_parameters
 
-    def load_csv_new(self, db: pd.DataFrame, scenario: int = 0, dst: bool = False) -> None:
+    def load_csv_new(
+        self,
+        db: pd.DataFrame,
+        scenario: int = 0,
+        dst: bool = False,
+        population_series: Optional[pd.Series] = None,
+    ) -> None:
         """
         Loads model parameters from the RMI WasteMAP GitHub repo data file.
         This replaces the deprecated load_from_csv method.
@@ -975,6 +1073,9 @@ class City:
         Args:
             db (pd.DataFrame): DataFrame containing model parameters for all cities.
             scenario (str): The scenario name, defaults to 'baseline'.
+            population_series (pd.Series): the city's population by year, worked out
+                once by city_population_trajectory and stored. The city's waste grows
+                along it instead of along the shape _city_growth would choose now.
 
         Returns:
             None
@@ -1131,6 +1232,7 @@ class City:
         # population, year by year (_city_growth).
         city_growth_historic = city_data["Population Growth Rate: Historic (%)"].values[0] / 100 + 1
         city_growth_future = city_data["Population Growth Rate: Future (%)"].values[0] / 100 + 1
+        stored_series = population_series
         population_series, growth_rate_historic, growth_rate_future = _city_growth(
             self.country,
             year_of_data_pop,
@@ -1138,6 +1240,9 @@ class City:
             city_growth_historic,
             city_growth_future,
         )
+        if stored_series is not None:
+            # The two rates stay the ones a person reads; the stored series is the growth.
+            population_series = stored_series
 
         city_instance_attrs = {
             "city_name": self.city_name,
@@ -4858,14 +4963,9 @@ class City:
         precip_zone = defaults_2019.get_precipitation_zone(precipitation)
         years = range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
 
-        # Calculate growth rates
-        population_1950 = 751_000_000
-        population_2020 = 4_300_000_000
-        population_2035 = 5_300_000_000
-        growth_rate_historic = (population_2020 / population_1950) ** (
-            1 / (2020 - 1950)
-        )
-        growth_rate_future = (population_2035 / population_2020) ** (1 / (2035 - 2020))
+        # The rates for a country SWEET has no population series for.
+        growth_rate_historic = FALLBACK_GROWTH_RATE_HISTORIC
+        growth_rate_future = FALLBACK_GROWTH_RATE_FUTURE
 
         # Calculate waste per capita
         waste_per_capita = defaults_2019.msw_per_capita_country.get(
@@ -4884,7 +4984,7 @@ class City:
             [waste_fractions_normalized] * len(years), index=years
         )
 
-        year_of_data_pop = 2022
+        year_of_data_pop = CUSTOM_LOCATION_POPULATION_YEAR
 
         # Calculate MEF for compost
         try:
