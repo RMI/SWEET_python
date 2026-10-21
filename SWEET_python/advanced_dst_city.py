@@ -42,6 +42,7 @@ mirror the tested ``City`` machinery (``_calculate_diverted_masses``,
 ``sum_landfill_emissions``); the leaf primitives are reused directly.
 """
 
+import copy
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -1280,6 +1281,106 @@ def run_advanced_dst_city_defaults(
 
 
 # --------------------------------------------------------------------------- #
+# Where the methane goes, and how much of it is already buried
+# --------------------------------------------------------------------------- #
+def _m3_to_tons_ch4(series: pd.Series) -> pd.Series:
+    """m^3 of methane to tons, through the arithmetic the city's own total uses."""
+    return series.map(City.convert_methane_m3_to_ton_co2e) / 28
+
+
+def _flare_series(landfill, index: pd.Index) -> pd.Series:
+    """The landfill's flare destruction efficiency per year, as the kernel reads it."""
+    flaring = landfill.flaring
+    if flaring is None:
+        return pd.Series(1.0, index=index)
+    if np.isscalar(flaring):
+        return pd.Series(float(flaring), index=index)
+    return pd.Series(flaring, dtype=float).reindex(index)
+
+
+def _methane_budget(parameters: CityParameters) -> pd.DataFrame:
+    """Where the city's methane goes each year, in tons, for one variant.
+
+    At the city's landfills, ``generated = captured + oxidised + emitted``:
+
+    - ``generated``: what the buried waste produces (``Landfill.ch4``), before
+      anything is done about it.
+    - ``captured``: collected and destroyed, i.e. generation x capture efficiency
+      x flare efficiency. The gas a flare fails to destroy is not here; the
+      kernel releases it with everything else (``model_v2.estimate_emissions2``).
+    - ``oxidised``: broken down in the cover on the way out.
+    - ``emitted``: what reaches the air, exactly the landfill part of the city's
+      total (``parameters.landfill_emissions``).
+
+    ``diversion`` is composting and digestion, and ``emitted + diversion`` is
+    the city's ``total``, the series the endpoint's headline is. Only the city's
+    own waste: a site's waste from outside the baseline (``site_inflow``) is not
+    in ``parameters.landfills``, as it is not in the total.
+
+    ``oxidised`` is taken as the remainder, so the identity holds to the last
+    float; the kernel does not keep it separately.
+    """
+    total = parameters.total_emissions["total"]
+    index = total.index
+    generated = pd.Series(0.0, index=index)
+    captured = pd.Series(0.0, index=index)
+    for landfill in parameters.landfills:
+        if landfill is None or landfill.emissions is None:
+            continue
+        generated = generated + _m3_to_tons_ch4(landfill.ch4.sum(axis=1)).reindex(
+            index, fill_value=0.0
+        )
+        destroyed = landfill.captured.sum(axis=1) * _flare_series(
+            landfill, landfill.captured.index
+        )
+        captured = captured + _m3_to_tons_ch4(destroyed).reindex(index, fill_value=0.0)
+    emitted = parameters.landfill_emissions["total"].reindex(index, fill_value=0.0)
+    diversion = parameters.diversion_emissions["total"].reindex(index, fill_value=0.0)
+    return pd.DataFrame(
+        {
+            "generated": generated,
+            "captured": captured,
+            "oxidised": generated - captured - emitted,
+            "emitted": emitted,
+            "diversion": diversion,
+            "total": total,
+        },
+        index=index,
+    )
+
+
+def _committed_emissions(parameters: CityParameters, before_year: int) -> pd.DataFrame:
+    """The city's landfill methane from waste buried before ``before_year``, in tons.
+
+    What its landfills would go on emitting if none of its waste arrived from
+    ``before_year`` on. Each landfill is rerun on a copy with that year's and
+    every later year's deposits removed; capture, flaring and oxidation stay as
+    the run has them, since those act on the gas whenever it is made. Exact,
+    not an estimate: first-order decay is linear in what is buried, so the
+    methane of earlier waste does not depend on what is buried after it. Before
+    ``before_year`` this equals the landfills' own emissions. Composting and
+    digestion are left out: they emit in the year the waste is treated, so none
+    of theirs is ever already buried.
+
+    The copies leave the run's own landfills, and everything read from them,
+    untouched.
+    """
+    total = pd.Series(0.0, index=parameters.total_emissions.index)
+    for landfill in parameters.landfills:
+        if landfill is None or landfill.emissions is None:
+            continue
+        buried = copy.deepcopy(landfill)
+        mass = landfill.waste_mass_df.copy()
+        mass.loc[mass.index >= before_year, :] = 0.0
+        buried.waste_mass_df = mass
+        buried.estimate_emissions(skip_ox=True)
+        total = total + _m3_to_tons_ch4(buried.emissions["total"]).reindex(
+            total.index, fill_value=0.0
+        )
+    return pd.DataFrame({"total": total})
+
+
+# --------------------------------------------------------------------------- #
 # Public entry point
 # --------------------------------------------------------------------------- #
 def run_advanced_dst_city(
@@ -1287,6 +1388,8 @@ def run_advanced_dst_city(
     *,
     with_mass_flow: bool = False,
     with_site_emissions: bool = False,
+    with_methane_budget: bool = False,
+    committed_before: Optional[int] = None,
 ) -> dict:
     """Run the city-level advanced DST.
 
@@ -1318,6 +1421,20 @@ def run_advanced_dst_city(
     which is wrong by tens of percent wherever the city's share of a site moves
     over time. Asking for them changes no emissions.
 
+    With ``with_methane_budget=True`` the result carries a ``"methane_budget"``
+    key: per variant, a frame by year of ``generated``, ``captured``,
+    ``oxidised`` and ``emitted`` at the city's landfills (the first is the sum of
+    the other three), ``diversion`` (composting and digestion) and ``total``
+    (``emitted + diversion``, the same series as the variant's own). Tons of
+    methane; see ``_methane_budget``.
+
+    With ``committed_before=Y`` the result carries a ``"committed"`` key:
+    ``{"before": Y, "baseline": frame, "scenario": frame}``, each frame a
+    ``total`` by year of the methane the city's landfills emit from waste buried
+    before ``Y`` -- what they would still emit if no more of its waste arrived
+    from ``Y`` on. ``Y`` must lie within the model's years, or one past the last.
+    See ``_committed_emissions``. Neither option changes any emissions.
+
     A request with ``other_landfills`` has them modelled as one more landfill,
     after the listed ones: they are the last entry of ``site_emissions`` and of
     the mass flow's ``sites``. See ``_with_other_landfills`` for the shares they
@@ -1328,6 +1445,14 @@ def run_advanced_dst_city(
 
     # --- Years: validate every landfill's open/close window ---
     years = _model_years(request)
+    if committed_before is not None and not (
+        years[0] <= int(committed_before) <= years[-1] + 1
+    ):
+        raise CustomError(
+            "invalid_committed_before",
+            f"committed_before must be between {years[0]} and {years[-1] + 1}; "
+            f"got {committed_before}.",
+        )
 
     # --- City composition + total generated waste, per variant ---
     baseline_fractions = common.fractions_to_df(request.waste_fractions["baseline"], years)
@@ -1702,6 +1827,18 @@ def run_advanced_dst_city(
                 site_inflow.emission_frames(city_stream, surplus)
                 for city_stream, surplus in zip(scenario_landfills, scenario_surplus)
             ],
+        }
+    if with_methane_budget:
+        result["methane_budget"] = {
+            "baseline": _methane_budget(baseline_parameters),
+            "scenario": _methane_budget(scenario_parameters),
+        }
+    if committed_before is not None:
+        before = int(committed_before)
+        result["committed"] = {
+            "before": before,
+            "baseline": _committed_emissions(baseline_parameters, before),
+            "scenario": _committed_emissions(scenario_parameters, before),
         }
     if with_mass_flow:
         result["mass_flow"] = {
