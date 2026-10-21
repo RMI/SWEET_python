@@ -243,3 +243,16 @@ def test_other_landfills_take_an_unstated_efficiency_too():
     _assert_same_run(unstated_request, stated_request)
     defaults = run_advanced_dst_city_defaults(unstated_request)
     assert (defaults["baseline"][-1]["gas_capture_efficiency"] == 0.45).all()
+
+
+def test_the_methane_budget_counts_gas_captured_at_the_default():
+    """The budget reads capture off the run, so an unstated efficiency's gas is
+    captured there too, exactly as if the default were stated."""
+    unstated = run_advanced_dst_city(_request([_landfill()]), with_methane_budget=True)
+    stated = run_advanced_dst_city(
+        _request([_landfill(gas=_constant(0.6))]), with_methane_budget=True
+    )
+    for half in ("baseline", "scenario"):
+        budget = unstated["methane_budget"][half]
+        pd.testing.assert_frame_equal(budget, stated["methane_budget"][half])
+        assert (budget.captured.loc[2001:] > 0).all()
