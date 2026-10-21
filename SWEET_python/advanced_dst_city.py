@@ -273,8 +273,22 @@ def _mass_flow(
 def _mef_compost(fractions_df: pd.DataFrame, ref_year: int) -> float:
     """Per-city compost emission factor, from food/green share at the reference year.
 
-    Mirrors City.cityparams_obj_for_blank_site: weighted CH4 factor for the
-    food/green split, scaled to CO2e (the *1.1023*0.7 is baked in).
+    In **t CO2e per tonne composted** — not methane — which is why
+    `City.estimate_diversion_emissions` adds it without the x28 it gives
+    anaerobic digestion, and `City.sum_landfill_emissions` divides the sum by 28.
+    The same formula as `City.cityparams_obj_for_blank_site`, copied from the
+    SWEET Excel (v4.0.2 and v5.0, Assumptions, "Methane Emission Factor-
+    Composting (Mg CO2e/Mg of organic waste)"):
+
+    - 0.0055 and 0.0139 are fugitive CH4 from composting biowaste and green waste,
+      in MTCO2E per short ton of fresh feedstock (EPA WARM, Composting chapter,
+      after Amlinger et al. 2008), weighted by the food/green split.
+    - x1.1023 converts per short ton to per tonne.
+    - x0.7 is the Excel's "30% mass reduction from evaporation losses to produce
+      compost feedstock".
+
+    Neither multiplier converts methane to CO2e. As methane this is about
+    0.2 kg CH4/t for a typical split, against IPCC 2006's 4 g CH4/kg wet default.
     """
     food = float(fractions_df.loc[ref_year, "food"])
     green = float(fractions_df.loc[ref_year, "green"])

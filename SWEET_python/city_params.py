@@ -5660,6 +5660,10 @@ class City:
         else:
             parameters = self.scenario_parameters[scenario - 1]
 
+        # Two units on purpose, as in the SWEET Excel: mef_compost is already
+        # t CO2e per tonne (see advanced_dst_city._mef_compost), mef_anaerobic is
+        # t CH4 per tonne and takes the GWP here. sum_landfill_emissions divides
+        # the total by 28, so both come out as methane.
         compost_emissions = parameters.divs_df.compost * parameters.mef_compost
         anaerobic_emissions = (
             parameters.divs_df.anaerobic

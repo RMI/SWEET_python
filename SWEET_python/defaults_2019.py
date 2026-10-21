@@ -985,7 +985,10 @@ oxidation_factor = {
     },
 }
 
-mef_anaerobic = 0.26 / 1000 * 1.1023  
+# t CH4 per tonne digested (0.26 kg per short ton, EPA WARM AD chapter, 100% food
+# waste, via the SWEET Excel). Methane, unlike the compost factor, which is CO2e.
+# The Excel notes it leaves out methane leakage from the AD plant itself.
+mef_anaerobic = 0.26 / 1000 * 1.1023
 ch4_to_co2e = 28
 gas_capture_efficiency = {"landfill": 0.6, "controlled_dumpsite": 0.45, "dumpsite": 0}
 landfill_default_regions = set(
