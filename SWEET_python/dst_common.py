@@ -16,7 +16,7 @@ import pandas as pd
 
 import SWEET_python.defaults_2019 as defaults_2019
 import SWEET_python.mcf as mcf_defaults
-from SWEET_python.city_params import City, CustomError
+from SWEET_python.city_params import GAS_EFF_OPTIONS, City, CustomError
 from SWEET_python.class_defs import DecompositionRates
 from SWEET_python.constants import MODEL_END_YEAR
 from SWEET_python.landfill import Landfill
@@ -81,6 +81,15 @@ OX_CAP: Dict[str, float] = {"landfill": 0.22, "controlled_dumpsite": 0.1, "dumps
 # A dump upgraded ("ameliorated") to an engineered landfill with gas capture gets
 # a higher oxidation factor than a landfill that always existed.
 OX_REMEDIATED_TO_LANDFILL = 0.18
+# Capture efficiency for a site that collects gas at an efficiency nobody stated:
+# the site-type defaults SWEET's city model and Climate TRACE's pipeline use
+# (``city_params.GAS_EFF_OPTIONS``), keyed by this module's type names. An open
+# dump's is 0, so one with a collection system still captures nothing.
+GAS_CAPTURE_DEFAULT: Dict[str, float] = {
+    "landfill": GAS_EFF_OPTIONS["Sanitary Landfill"],
+    "controlled_dumpsite": GAS_EFF_OPTIONS["Controlled Dumpsite"],
+    "dumpsite": GAS_EFF_OPTIONS["Dumpsite"],
+}
 
 DEFAULT_FLARE_EFFICIENCY = 0.98
 LANDFILL_LANDFILL_TYPE = 0  # LandfillType.landfill
@@ -171,6 +180,7 @@ def variant_series(
 def optional_yearly_to_series(
     mapping: Optional[Dict[int, Optional[float]]],
     years: pd.Index,
+    default: Optional[float] = None,
 ) -> pd.Series:
     """Turn a ``{year: value or None}`` map into a series aligned to ``years``.
 
@@ -178,9 +188,12 @@ def optional_yearly_to_series(
     the latest earlier year that has one (the first entry, before any). The
     difference is that a ``None`` entry is carried as NaN rather than filled
     over -- "stated in 2020, not stated from 2030" has to survive as two things.
+    An empty map is ``default`` in every year, and needs one, as there.
     """
     if not mapping:
-        raise CustomError("invalid_parameters", "Missing required yearly time series.")
+        if default is None:
+            raise CustomError("invalid_parameters", "Missing required yearly time series.")
+        return pd.Series(float(default), index=years, dtype=float)
     entries = sorted((int(year), value) for year, value in mapping.items())
     keys = pd.Index([year for year, _ in entries])
     values = pd.Series(
@@ -195,16 +208,17 @@ def optional_variant_series(
     variant,
     years: pd.Index,
     implement_year: int,
+    default: Optional[float] = None,
 ) -> Tuple[pd.Series, pd.Series]:
     """``variant_series`` for a :data:`YearlyOptionalFloat` input, NaN where nothing is stated."""
-    baseline = optional_yearly_to_series(variant_get(variant, "baseline"), years)
+    baseline = optional_yearly_to_series(variant_get(variant, "baseline"), years, default)
     scenario_map = variant["scenario"]
     if scenario_map is None:
         return baseline, baseline.copy()
     scenario = baseline.copy()
-    scenario.loc[implement_year:] = optional_yearly_to_series(scenario_map, years).loc[
-        implement_year:
-    ]
+    scenario.loc[implement_year:] = optional_yearly_to_series(
+        scenario_map, years, default
+    ).loc[implement_year:]
     return baseline, scenario
 
 
@@ -336,6 +350,25 @@ def oxidation_series(
             value = OX_NOCAP[scenario_name]
         values.append(max(value, float(biocover.loc[year])))
     return pd.Series(values, index=years, dtype=float)
+
+
+def gas_capture_default_series(
+    baseline_type: int,
+    scenario_type: int,
+    implement_year: int,
+    years: pd.Index,
+) -> pd.Series:
+    """Per-year capture efficiency of a site that collects gas at an unstated efficiency.
+
+    The type's :data:`GAS_CAPTURE_DEFAULT`: ``baseline_type``'s before
+    ``implement_year`` and ``scenario_type``'s from it, the switch ``mcf_series``
+    makes, so a dump upgraded to a landfill captures at the landfill's default.
+    """
+    series = pd.Series(
+        GAS_CAPTURE_DEFAULT[SITE_TYPE_NAMES[baseline_type]], index=years, dtype=float
+    )
+    series.loc[implement_year:] = GAS_CAPTURE_DEFAULT[SITE_TYPE_NAMES[scenario_type]]
+    return series
 
 
 def _mcf_for_type(site_type_idx: int, depth: Optional[float]) -> float:
