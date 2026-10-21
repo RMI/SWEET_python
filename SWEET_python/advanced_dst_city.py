@@ -88,8 +88,17 @@ class CityLandfillSpec(BaseModel):
     landfill_open_close: Variant[tuple[int, int]] = Field(
         ..., description="(open_year, close_year) of this site."
     )
-    gas_capture_efficiency: Variant[YearlyFloat] = Field(
-        ..., description="Fraction of gas captured per year; 0 means no capture."
+    gas_capture_efficiency: Variant[YearlyOptionalFloat] = Field(
+        ...,
+        description=(
+            "Fraction of the site's methane its collection system captures, per "
+            "year; 0 is a site with no collection system. Null is a year the "
+            "site collects gas at an efficiency nobody stated: it captures at "
+            "its type's default for that year -- 60% for a landfill, 45% for a "
+            "controlled dump, 0 for an open dump, the defaults SWEET's city "
+            "model gives a site with a collection system and no measured "
+            "efficiency. `run_advanced_dst_city_defaults` reports it."
+        ),
     )
     flaring: Optional[Variant[YearlyFloat]] = Field(
         None, description="Flare destruction efficiency per year (defaults to 0.98)."
@@ -1130,12 +1139,38 @@ def _site_types(spec: CityLandfillSpec) -> tuple[int, int]:
     return base_type, scen_type
 
 
+def _gas_capture_defaults(
+    spec: CityLandfillSpec, years: pd.Index, implement_year: int
+) -> tuple[pd.Series, pd.Series]:
+    """The (baseline, scenario) capture a null year of the site's efficiency gets.
+
+    Its type's default (``common.GAS_CAPTURE_DEFAULT``) for the type it is that
+    year, as ``mcf_series`` and ``oxidation_series`` switch it.
+    """
+    base_type, scen_type = _site_types(spec)
+    return (
+        common.gas_capture_default_series(base_type, base_type, implement_year, years),
+        common.gas_capture_default_series(base_type, scen_type, implement_year, years),
+    )
+
+
 def _gas_capture(
     spec: CityLandfillSpec, years: pd.Index, implement_year: int
 ) -> tuple[pd.Series, pd.Series]:
-    gas_base, gas_scen = common.variant_series(
+    """A site's (baseline, scenario) capture efficiency per year, defaults filled in.
+
+    A null year is a site with a collection system and no stated efficiency.
+    It captures at its type's default rather than at nothing, the rule
+    ``city_params._resolve_gas_capture`` applies to a site with a system and no
+    measured efficiency. Before this, a caller that knew a site collects gas but
+    not how well had to send 0, which modelled a site that captures nothing.
+    """
+    gas_base, gas_scen = common.optional_variant_series(
         spec.gas_capture_efficiency, years, implement_year, default=0.0
     )
+    default_base, default_scen = _gas_capture_defaults(spec, years, implement_year)
+    gas_base = gas_base.fillna(default_base)
+    gas_scen = gas_scen.fillna(default_scen)
     # A capture efficiency is a fraction of generated methane, so it cannot
     # exceed 1. Nothing downstream bounds it -- the field is typed as a bare
     # float map and the engine multiplies straight through -- so an out-of-range
@@ -1215,7 +1250,7 @@ def run_advanced_dst_city_defaults(
 
     Returns ``{"baseline": [...], "scenario": [...]}``, one entry per landfill
     in request order, with the request's ``other_landfills`` last when it has
-    them, each ``{"k", "oxidation"}`` indexed by year:
+    them, each ``{"k", "oxidation", "gas_capture_efficiency"}`` indexed by year:
 
     * ``k`` -- the decomposition rate (1/yr) derived from the city's
       temperature, precipitation and composition after food waste prevention.
@@ -1224,12 +1259,16 @@ def run_advanced_dst_city_defaults(
     * ``oxidation`` -- the factor looked up from the site's type and whether it
       captures gas, raised to the ``biocover`` floor in the years the request
       has one. That is exactly the number a year of ``oxidation_override``
-      replaces.
+      replaces. A null year of ``gas_capture_efficiency`` counts as capturing
+      at the type's default, which is above 0 except at an open dump.
+    * ``gas_capture_efficiency`` -- the capture efficiency (0-1) of the site's
+      type that year: what a null year of its ``gas_capture_efficiency``
+      becomes. Reported whether or not the site collects gas.
 
-    Neither reflects an override in the request: this is what an override
-    stands in for, so a caller can show it beside the box a user types into.
-    Nothing here runs the decay model, so it is cheap enough to call on every
-    edit.
+    None of them reflects an override or a stated efficiency in the request:
+    this is what those stand in for, so a caller can show it beside the box a
+    user types into. Nothing here runs the decay model, so it is cheap enough
+    to call on every edit.
     """
     request = _with_other_landfills(request)
     implement_year = int(request.implement_year)
@@ -1261,6 +1300,9 @@ def run_advanced_dst_city_defaults(
     for spec in request.landfills:
         base_type, scen_type = _site_types(spec)
         gas_base, gas_scen = _gas_capture(spec, years, implement_year)
+        default_gas_base, default_gas_scen = _gas_capture_defaults(
+            spec, years, implement_year
+        )
         bio_base, bio_scen = common.variant_series(
             spec.biocover, years, implement_year, default=0.0
         )
@@ -1269,12 +1311,14 @@ def run_advanced_dst_city_defaults(
             "oxidation": common.oxidation_series(
                 base_type, base_type, gas_base, bio_base, implement_year, years
             ),
+            "gas_capture_efficiency": default_gas_base,
         })
         result["scenario"].append({
             "k": ks_scenario.food,
             "oxidation": common.oxidation_series(
                 base_type, scen_type, gas_scen, bio_scen, implement_year, years
             ),
+            "gas_capture_efficiency": default_gas_scen,
         })
     return result
 
