@@ -205,6 +205,20 @@ def test_committed_before_the_first_year_is_nothing():
     assert (result["committed"]["baseline"]["total"] == 0).all()
 
 
+def test_committed_before_the_year_after_the_last_is_everything():
+    """One past the last model year is accepted on purpose: every deposit the
+    model has is then already buried, so the series is the landfills' own."""
+    result = run_advanced_dst_city(
+        _request(MIXED), with_methane_budget=True, committed_before=2051
+    )
+    for half in ("baseline", "scenario"):
+        np.testing.assert_allclose(
+            result["committed"][half]["total"],
+            result["methane_budget"][half]["emitted"],
+            rtol=1e-12,
+        )
+
+
 @pytest.mark.parametrize("before", [1999, 2052])
 def test_committed_before_outside_the_model_is_refused(before):
     with pytest.raises(CustomError) as raised:
