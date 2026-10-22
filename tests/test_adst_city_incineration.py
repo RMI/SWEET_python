@@ -2,25 +2,30 @@
 
 ``CityLandfillSpec.combusts`` marks a facility as an incinerator (with or
 without energy recovery): the share of the city's disposed waste routed to it
-still arrives, but only the unburnable reject -- ``City.combustion_reject_rate``,
-10% -- is deposited and left to decay. The burnt 90% is destroyed, producing no
-methane in this model, and is *not* re-routed to another site.
+still arrives, and only the reject -- ``City.combustion_reject_rate`` -- is
+deposited and left to decay. The rest is destroyed, producing no methane in
+this model, and is *not* re-routed to another site.
 
-Before this existed the endpoint had no notion of burning at all, so a caller
-describing an incinerator could only submit it as an ordinary landfill: the
-facility decayed 100% of its intake and reported methane an incinerator cannot
-physically produce. ``City.sdst_v1_5`` has always modeled a waste-to-energy site
-correctly (combustion at 100% of intake for every open year, 10% reject
-landfilled), so this brings the city-level path to parity with it.
+The reject is 0: everything sent to an incinerator stops producing methane.
+It was 10% of the burnable waste, landfilled as the material it was, until
+2026-10. What an incinerator leaves is ash with almost no organic carbon (see
+the comment on ``City.combustion_reject_rate``).
 
-The assertions lean on the engine being exactly linear in deposited mass --
-oxidation, gas capture, flaring and MCF are all multiplicative fractions, and k
-does not depend on mass -- so scaling a site's deposits by 0.1 scales its
-emissions by 0.1 to floating point.
+Before ``combusts`` existed the endpoint had no notion of burning at all, so a
+caller describing an incinerator could only submit it as an ordinary landfill:
+the facility decayed 100% of its intake and reported methane an incinerator
+cannot physically produce.
+
+The tests with a reject set (``with_a_reject``) keep the machinery that deposits
+one honest, in case the rate is ever raised again. They lean on the engine being
+exactly linear in deposited mass -- oxidation, gas capture, flaring and MCF are
+all multiplicative fractions, and k does not depend on mass -- so scaling a
+site's deposits by the rate scales its emissions by the rate to floating point.
 """
 
 import pytest
 
+from SWEET_python import advanced_dst_city
 from SWEET_python.advanced_dst_city import (
     AdvancedDSTCityRequest,
     run_advanced_dst_city,
@@ -32,7 +37,10 @@ FRACTIONS = [0.5, 0.1, 0.05, 0.1, 0.05, 0.1, 0.02, 0.03, 0.0, 0.05]  # sums to 1
 IMPLEMENT_YEAR = 2025
 TOTAL_WASTE = 20_000.0
 
-REJECT_RATE = City("reject_rate_probe").combustion_reject_rate
+#: A reject rate to exercise the deposit path with: the old 10%.
+SET_REJECT = 0.1
+
+BURNS = {"baseline": True, "scenario": True}
 
 
 def _landfill(*, combusts=None, gas=0.0, site_type=2):
@@ -49,9 +57,10 @@ def _landfill(*, combusts=None, gas=0.0, site_type=2):
     return spec
 
 
-def _request(landfills, shares) -> AdvancedDSTCityRequest:
-    """A city with no diversion, so every tonne generated is disposed."""
+def _request(landfills, shares, diversion=None) -> AdvancedDSTCityRequest:
+    """A city with no diversion unless it says, so every tonne generated is disposed."""
     return AdvancedDSTCityRequest(
+        diversion_fractions=diversion,
         city_name="Burnville",
         precipitation=1200.0,
         temperature=20.0,
@@ -77,26 +86,36 @@ def _totals(result, half):
     return result[half]["total"]
 
 
-def test_reject_rate_is_the_documented_ten_percent():
-    """Guards the constant the rest of this module's arithmetic assumes."""
-    assert REJECT_RATE == pytest.approx(0.1)
+@pytest.fixture
+def with_a_reject(monkeypatch):
+    """Every ``City`` the endpoint builds carries ``SET_REJECT``."""
+    original = City.__init__
+
+    def init(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        self.combustion_reject_rate = SET_REJECT
+
+    monkeypatch.setattr(City, "__init__", init)
+    assert advanced_dst_city.City is City
+    return SET_REJECT
 
 
-def test_a_combusting_facility_emits_only_the_rejects_share():
+# --------------------------------------------------------------------------- #
+# The default: nothing sent to an incinerator decays
+# --------------------------------------------------------------------------- #
+def test_the_reject_rate_is_zero():
+    assert City("reject_rate_probe").combustion_reject_rate == 0.0
+
+
+def test_a_combusting_facility_emits_nothing():
     depositing = _totals(run_advanced_dst_city(_request([_landfill()], [1.0])), "baseline")
     burning = _totals(
-        run_advanced_dst_city(
-            _request([_landfill(combusts={"baseline": True, "scenario": True})], [1.0])
-        ),
-        "baseline",
+        run_advanced_dst_city(_request([_landfill(combusts=BURNS)], [1.0])), "baseline"
     )
 
-    # Every year, not just the total: the reject is a flat share of intake.
     assert (depositing > 0).any()
     for year in YEARS:
-        assert burning[year] == pytest.approx(
-            depositing[year] * REJECT_RATE, rel=1e-9, abs=1e-12
-        )
+        assert burning[year] == 0.0
 
 
 def test_omitting_combusts_is_unchanged_behaviour():
@@ -114,9 +133,9 @@ def test_omitting_combusts_is_unchanged_behaviour():
 
 
 def test_the_burnt_share_is_destroyed_not_moved_to_the_other_site():
-    """A city half-served by an incinerator emits 55% of an all-landfill one.
+    """A city half-served by an incinerator emits half of an all-landfill one.
 
-    If the burnt 90% were re-routed to the surviving landfill instead of
+    If the burnt half were re-routed to the surviving landfill instead of
     destroyed, this would come out at 100%.
     """
     all_landfill = _totals(
@@ -125,21 +144,15 @@ def test_the_burnt_share_is_destroyed_not_moved_to_the_other_site():
     )
     one_burns = _totals(
         run_advanced_dst_city(
-            _request(
-                [_landfill(), _landfill(combusts={"baseline": True, "scenario": True})],
-                [0.5, 0.5],
-            )
+            _request([_landfill(), _landfill(combusts=BURNS)], [0.5, 0.5])
         ),
         "baseline",
     )
 
-    expected_ratio = 0.5 + 0.5 * REJECT_RATE
     for year in YEARS:
         if all_landfill[year] == 0:
             continue
-        assert one_burns[year] == pytest.approx(
-            all_landfill[year] * expected_ratio, rel=1e-9
-        )
+        assert one_burns[year] == pytest.approx(all_landfill[year] * 0.5, rel=1e-9)
 
 
 def test_converting_a_landfill_to_an_incinerator_starts_at_implement_year():
@@ -156,32 +169,73 @@ def test_converting_a_landfill_to_an_incinerator_starts_at_implement_year():
     for year in range(2000, IMPLEMENT_YEAR + 1):
         assert scenario[year] == pytest.approx(baseline[year], rel=1e-12)
 
-    # From then on only the reject is deposited — but the tail of everything
-    # buried beforehand keeps decaying, so this is a divergence that widens,
-    # not a step straight down to 10%.
+    # From then on nothing is deposited, but everything buried beforehand keeps
+    # decaying, so the scenario falls away from the baseline rather than to 0.
     for year in range(IMPLEMENT_YEAR + 1, 2051):
-        assert scenario[year] < baseline[year]
+        assert 0 < scenario[year] < baseline[year]
     assert scenario[2050] / baseline[2050] < 0.2
 
 
-def test_the_residue_pile_keeps_its_own_gas_capture():
-    """The reject is deposited *here*, so this site's own kit still applies."""
-    without_capture = _totals(
+def test_the_combustion_pathway_diverts_all_it_takes():
+    """Upstream combustion, the city DST's way, keeps nothing back either."""
+    combustion = {"combustion": {y: 0.4 for y in YEARS}}
+    request = _request(
+        [_landfill()], [1.0], diversion={"baseline": combustion, "scenario": combustion}
+    )
+    flow = run_advanced_dst_city(request, with_mass_flow=True)["mass_flow"]["baseline"]
+
+    generated = flow["generated"].sum(axis=1)
+    burnt = flow["diverted"]["combustion"].sum(axis=1)
+    for year in YEARS:
+        assert burnt[year] == pytest.approx(0.4 * generated[year], rel=1e-12)
+
+
+# --------------------------------------------------------------------------- #
+# With a reject set: what is kept back is deposited at the facility
+# --------------------------------------------------------------------------- #
+def test_a_reject_is_deposited_as_its_share_of_intake(with_a_reject):
+    depositing = _totals(run_advanced_dst_city(_request([_landfill()], [1.0])), "baseline")
+    burning = _totals(
+        run_advanced_dst_city(_request([_landfill(combusts=BURNS)], [1.0])), "baseline"
+    )
+
+    # Every year, not just the total: the reject is a flat share of intake.
+    assert (depositing > 0).any()
+    for year in YEARS:
+        assert burning[year] == pytest.approx(
+            depositing[year] * with_a_reject, rel=1e-9, abs=1e-12
+        )
+
+
+def test_a_reject_is_not_moved_to_the_other_site(with_a_reject):
+    all_landfill = _totals(
+        run_advanced_dst_city(_request([_landfill(), _landfill()], [0.5, 0.5])),
+        "baseline",
+    )
+    one_burns = _totals(
         run_advanced_dst_city(
-            _request(
-                [_landfill(combusts={"baseline": True, "scenario": True}, gas=0.0)],
-                [1.0],
-            )
+            _request([_landfill(), _landfill(combusts=BURNS)], [0.5, 0.5])
         ),
         "baseline",
     )
+
+    expected_ratio = 0.5 + 0.5 * with_a_reject
+    for year in YEARS:
+        if all_landfill[year] == 0:
+            continue
+        assert one_burns[year] == pytest.approx(
+            all_landfill[year] * expected_ratio, rel=1e-9
+        )
+
+
+def test_a_reject_pile_keeps_its_own_gas_capture(with_a_reject):
+    """The reject is deposited *here*, so this site's own kit still applies."""
+    without_capture = _totals(
+        run_advanced_dst_city(_request([_landfill(combusts=BURNS, gas=0.0)], [1.0])),
+        "baseline",
+    )
     with_capture = _totals(
-        run_advanced_dst_city(
-            _request(
-                [_landfill(combusts={"baseline": True, "scenario": True}, gas=0.6)],
-                [1.0],
-            )
-        ),
+        run_advanced_dst_city(_request([_landfill(combusts=BURNS, gas=0.6)], [1.0])),
         "baseline",
     )
 

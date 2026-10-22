@@ -82,13 +82,15 @@ in the Climate TRACE pipeline repo. The entry says what the choice is, why it wa
 sure we are of it. The list lives there, not here, because its ratings are about Climate TRACE's
 published numbers. SWEET keeps no copy.
 
-Seven decisions are tagged in SWEET.
+`grep -rn "# decision:" SWEET_python` lists every tagged line. Among them:
 
-- **Four are shared with WasteMAP's tools**, so changing one moves WasteMAP's numbers too:
+- **Five are shared with WasteMAP's tools**, so changing one moves WasteMAP's numbers too:
   - MCF, in `mcf.py`
   - the guess for a site with no recorded type, in `site_type_defaults.py`
   - waste composition, in `defaults_2019.waste_composition_for`
   - population growth, in `class_defs.growth_factors_for_years`
+  - how much of the waste sent to incineration is landfilled unburned (none),
+    `City.combustion_reject_rate` in `city_params.py`
 - **Three are in the Climate TRACE paths** of `city_params.py`: gas capture, oxidation and
   flaring.
 
