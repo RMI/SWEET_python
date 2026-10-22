@@ -175,6 +175,44 @@ def test_a_request_the_model_refuses_is_visible_in_the_scenario_bounds():
     with pytest.raises(CustomError) as excinfo:
         run_advanced_dst_city(request)
     assert excinfo.value.code == "over_diversion"
+    # Only the scenario overreaches, and the message still does not say
+    # "scenario": the ADST sends one series on both halves, so a variant name
+    # there would only ever read "baseline", whatever the user changed.
+    assert excinfo.value.message == (
+        "More food would be sent to diversion in 2025 than the city generates."
+    )
+
+
+# --------------------------------------------------------------------------- #
+# The refusal names the waste type as the ADST's legend does
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    "fractions, name",
+    [
+        # Paper is the only recyclable, 30% of the stream, against recycling 35%.
+        ([0.7, 0.0, 0.0, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "paper and cardboard"),
+        # Likewise "other", which needs "waste" to be a noun.
+        ([0.7, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3], "other waste"),
+    ],
+)
+def test_over_diversion_names_the_waste_type_in_words(fractions, name):
+    """The message reaches the ADST's user verbatim, after "Could not run the
+    model: ". It used to read "baseline: the diversion pathways are sent more
+    other in 2010 ...", with SWEET's internal key for the waste type."""
+    with pytest.raises(CustomError) as excinfo:
+        run_advanced_dst_city(
+            _request(baseline_fractions=fractions, baseline_diversion={"recycling": 0.35})
+        )
+    assert excinfo.value.code == "over_diversion"
+    assert excinfo.value.message == (
+        f"More {name} would be sent to diversion in 2000 than the city generates."
+    )
+
+
+def test_every_waste_component_has_a_name():
+    """The guard can name any component, so a new one without a name would turn
+    the over-diversion refusal into a KeyError."""
+    assert set(common.WASTE_COMPONENT_NAMES) == set(common.WASTE_COMPONENTS)
 
 
 # --------------------------------------------------------------------------- #

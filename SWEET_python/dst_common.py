@@ -55,6 +55,22 @@ WASTE_COMPONENTS: List[str] = [
     "rubber",
     "other",
 ]
+# What each component is called inside a sentence shown to a user: the advanced
+# DST's composition legend (WasteMAP's ``WASTE_COMPOSITION_FIELDS``), lowercased,
+# so an error names the waste type the way the legend beside it does. "other"
+# gains "waste" because "more other" is not a noun phrase.
+WASTE_COMPONENT_NAMES: Dict[str, str] = {
+    "food": "food",
+    "green": "yard / green waste",
+    "wood": "wood",
+    "paper_cardboard": "paper and cardboard",
+    "textiles": "textiles",
+    "plastic": "plastic",
+    "metal": "metal",
+    "glass": "glass",
+    "rubber": "rubber / leather",
+    "other": "other waste",
+}
 # The SWEET engine only generates landfill methane from the biodegradable
 # components (these are the ones with a k value and an L_0).
 DEGRADABLE_COMPONENTS: List[str] = [
