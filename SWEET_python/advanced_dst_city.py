@@ -29,8 +29,8 @@ live in a list, one dict per landfill:
   ``{year: [frac per landfill]}`` ordered to match the ``landfills`` list, with
   each year's fractions summing to ~1.
 * a facility may set ``combusts``: it burns the waste routed to it instead of
-  depositing it, and only the unburnable reject is deposited. See
-  :class:`CityLandfillSpec`.
+  depositing it, and deposits only the reject, ``City.combustion_reject_rate``,
+  which is 0. See :class:`CityLandfillSpec`.
 
 Diversion math, reject rates, the per-landfill split, and emissions aggregation
 mirror the tested ``City`` machinery (``_calculate_diverted_masses``,
@@ -92,18 +92,15 @@ class CityLandfillSpec(BaseModel):
             "Whether this facility burns the waste routed to it -- incineration, "
             "with or without energy recovery -- instead of depositing it. The "
             "share of the city's disposed waste sent here still arrives here, "
-            "but only the unburnable reject fraction "
-            "(``City.combustion_reject_rate``, 10%) is deposited; the rest is "
-            "destroyed. Combustion produces no methane in this model, so the "
-            "burnt share simply leaves the deposited stream -- it is not "
-            "re-routed to another site. The remaining per-site fields then "
-            "describe the residue: ``landfill_type`` is the residue's disposal "
-            "category, and the gas/biocover fields are the residue pile's, not "
-            "the incinerator's. Omit (the default) for a depositing site.\n\n"
-            "This is the city-level counterpart of ``City.sdst_v1_5``'s "
-            "incineration handling, where a waste-to-energy site combusts 100% "
-            "of its intake for every year it is open and the 10% reject is what "
-            "decays."
+            "and only the reject (``City.combustion_reject_rate``) is "
+            "deposited; the rest is destroyed. The reject is 0, so a burning "
+            "facility deposits nothing and produces no methane: what an "
+            "incinerator leaves is ash with almost no organic carbon. The burnt "
+            "share is not re-routed to another site. Were the reject set above "
+            "0, the remaining per-site fields would describe its pile: "
+            "``landfill_type`` is its disposal category, and the gas/biocover "
+            "fields are the pile's, not the incinerator's. Omit (the default) "
+            "for a depositing site."
         ),
     )
 
@@ -458,9 +455,10 @@ def _deposited_share(combusts: bool, city: City) -> float:
     """Fraction of the waste arriving at a facility that is actually deposited.
 
     A depositing site keeps all of it. A combusting facility keeps only the
-    unburnable reject -- the same ``combustion_reject_rate`` the combustion
-    diversion pathway applies, so an incinerator modeled as a facility and one
-    modeled as upstream combustion leave the same residue behind.
+    reject -- the same ``combustion_reject_rate`` the combustion diversion
+    pathway applies, so an incinerator modeled as a facility and one modeled as
+    upstream combustion leave the same residue behind. The rate is 0, so both
+    leave none.
     """
     return float(city.combustion_reject_rate) if combusts else 1.0
 
@@ -1078,7 +1076,8 @@ def run_advanced_dst_city(
         # Net-of-diversion city waste, scaled to this landfill's per-year share.
         mass_base = LandfillWasteMassDF.create_advanced(wgen_baseline, divs_baseline, share_base.copy()).df
         mass_scen = LandfillWasteMassDF.create_advanced(wgen_scenario, divs_scenario, share_scen.copy()).df
-        # A combusting facility burns its intake and deposits only the reject.
+        # A combusting facility burns its intake and deposits only the reject
+        # (none, at the default rate).
         # Scaled per variant here, ahead of both the window and the pre-implement
         # splice below, so a site that starts combusting at implement_year keeps
         # depositing everything until then -- and one that stops burning starts to.
