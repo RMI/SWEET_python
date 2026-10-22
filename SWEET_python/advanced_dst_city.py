@@ -1560,6 +1560,12 @@ def run_advanced_dst_city(
     # The net residual is kept rather than discarded: it is the landfilled mass
     # per waste type, which is what the mass flow reports and what the
     # per-landfill split is taken from.
+    #
+    # The message reaches the advanced DST's user verbatim, so it names the
+    # waste type as the composition legend does and leaves the variant out. The
+    # ADST sends the same per-year series on both halves, so the baseline always
+    # trips first, even when the diversion that overreached is an intervention;
+    # "baseline" would point the user at the wrong thing. The year says when.
     net_masses: Dict[str, pd.DataFrame] = {}
     for label, wgen, divs, gross in (
         ("baseline", wgen_baseline, divs_baseline, gross_baseline),
@@ -1572,8 +1578,8 @@ def run_advanced_dst_city(
             year = int(demanded[component].idxmin())
             raise CustomError(
                 "over_diversion",
-                f"{label}: the diversion pathways are sent more {component} in "
-                f"{year} than the city generates.",
+                f"More {common.WASTE_COMPONENT_NAMES[component]} would be sent to "
+                f"diversion in {year} than the city generates.",
             )
         net_masses[label] = wgen.sub(divs.sum(), fill_value=0.0)
 
