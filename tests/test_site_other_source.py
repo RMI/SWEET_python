@@ -45,6 +45,7 @@ from SWEET_python.advanced_dst_city import (
     AdvancedDSTCityRequest,
     run_advanced_dst_city,
 )
+from SWEET_python.city_params import City
 
 YEARS = list(range(1990, 2051))
 # Food-heavy, so diversion has something to bite on and the residual
@@ -317,12 +318,8 @@ def test_the_mass_flows_sites_band_is_still_only_the_city():
         assert a["landfilled"].equals(b["landfilled"])
 
 
-def test_a_combusting_site_burns_everything_it_accepts():
-    """The surplus meets the same furnace the city's waste does.
-
-    Compared at the gate but deposited after the burn, so a site stated at
-    150,000 t buries the reject of 150,000 t -- not 150,000 t of residue.
-    """
+def _burnt_and_kept():
+    """The surplus's emissions at a burning site and at the same site depositing."""
     burning = run_advanced_dst_city(
         _request(
             [_spec(accepted=GATE_WITH_NEIGHBOUR, combusts=True)],
@@ -335,12 +332,40 @@ def test_a_combusting_site_burns_everything_it_accepts():
         _request([_spec(accepted=GATE_WITH_NEIGHBOUR)], (1.0,), diversion=0.25),
         with_site_emissions=True,
     )
+    return (
+        _total(burning["site_emissions"]["baseline"][0].other),
+        _total(depositing["site_emissions"]["baseline"][0].other),
+    )
 
-    burnt = _total(burning["site_emissions"]["baseline"][0].other)
-    kept = _total(depositing["site_emissions"]["baseline"][0].other)
+
+def test_a_combusting_site_burns_everything_it_accepts():
+    """The surplus meets the same furnace the city's waste does.
+
+    The reject is 0 (``City.combustion_reject_rate``), so a burning site buries
+    none of its surplus and the surplus makes no methane.
+    """
+    burnt, kept = _burnt_and_kept()
+
+    assert kept.sum() > 0, "nothing was accepted to burn"
+    assert np.allclose(burnt, 0.0, rtol=0, atol=1e-12)
+
+
+def test_a_combusting_site_buries_the_reject_of_its_whole_gate(monkeypatch):
+    """With a reject set, it is taken from everything the site accepted.
+
+    Compared at the gate but deposited after the burn, so a site stated at
+    150,000 t buries the reject of 150,000 t -- not 150,000 t of residue.
+    """
+    original = City.__init__
+
+    def init(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        self.combustion_reject_rate = 0.1
+
+    monkeypatch.setattr(City, "__init__", init)
+    burnt, kept = _burnt_and_kept()
 
     assert burnt.sum() > 0, "an incinerator's residue still decays"
-    # The unburnable reject is 10%, the same rate the combustion pathway uses.
     assert burnt.sum() == pytest.approx(kept.sum() * 0.1, rel=1e-9)
 
 
@@ -442,7 +467,7 @@ def test_a_site_that_starts_burning_still_buries_the_surplus_until_then():
     things are not: the open/close window and ``combusts``, both applied to the
     mass frame afterwards. A site that starts incinerating at the implement year
     must still deposit the surplus in full before then -- and without the splice
-    it deposits only the 10% reject for the whole run, quietly erasing 90% of
+    it deposits only the reject (none) for the whole run, quietly erasing
     decades of history that the scenario is not supposed to be able to rewrite.
     """
     result = run_advanced_dst_city(
