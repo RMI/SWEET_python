@@ -2,13 +2,14 @@
 
 ## What changed
 
-## Does this change a line marked `# decision:`?
+## Does this change a modelling decision?
 
-Those lines are Climate TRACE modelling choices, listed in `docs/MODEL_DECISIONS.md` in
-RMI_Climate_TRACE_Waste_Methane. See "Decision comments" in the README.
+A decision is a choice that changes a reported number: a fallback, a fixed value, a
+simplification, or a choice of method. The list is `SWEET_python/MODEL_DECISIONS.md`, and a
+`# decision: <id>` comment marks where the code applies each one.
 
 - [ ] No
-- [ ] Yes. A Climate TRACE pull request on the same branch name updates the entry:
+- [ ] Yes, and its entry is updated in this PR (Paths included). A replaced decision moves to "Retired" with the date.
 
 ## Do model numbers change?
 

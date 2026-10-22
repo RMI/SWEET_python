@@ -1,1 +1,2 @@
 include SWEET_python/*.csv
+include SWEET_python/MODEL_DECISIONS.md
