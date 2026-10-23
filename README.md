@@ -75,34 +75,30 @@ Where things are:
 # Decision comments
 
 Some lines carry a comment like `# decision: mcf-by-type-and-depth`. Each marks a modelling
-choice that changes the numbers Climate TRACE publishes: a default value, a fallback, or a
-simplification. The id names an entry in
-[`docs/MODEL_DECISIONS.md`](https://github.com/RMI/RMI_Climate_TRACE_Waste_Methane/blob/main/docs/MODEL_DECISIONS.md)
-in the Climate TRACE pipeline repo. The entry says what the choice is, why it was made, and how
-sure we are of it. The list lives there, not here, because its ratings are about Climate TRACE's
-published numbers. SWEET keeps no copy.
+choice that changes a number a tool built on SWEET reports: a default value, a fallback, a
+simplification or a choice of method. The id names an entry in SWEET's own list,
+[`SWEET_python/MODEL_DECISIONS.md`](SWEET_python/MODEL_DECISIONS.md). An entry says what the
+choice is, why, how sure we are, and which **paths** apply it: SWEET serves several tools (the
+city model, Custom Location, the site tool, the advanced DST and Climate TRACE's site
+estimates), and they do not always make the same choice. The list's "Where the paths disagree"
+section collects the differences.
 
-`grep -rn "# decision:" SWEET_python` lists every tagged line. Among them:
-
-- **Five are shared with WasteMAP's tools**, so changing one moves WasteMAP's numbers too:
-  - MCF, in `mcf.py`
-  - the guess for a site with no recorded type, in `site_type_defaults.py`
-  - waste composition, in `defaults_2019.waste_composition_for`
-  - population growth, in `class_defs.growth_factors_for_years`
-  - how much of the waste sent to incineration is landfilled unburned (none),
-    `City.combustion_reject_rate` in `city_params.py`
-- **Three are in the Climate TRACE paths** of `city_params.py`: gas capture, oxidation and
-  flaring.
+The list ships inside the package, so an app reads the list of the release it pins
+(`SWEET_python.model_decisions.load()`). Climate TRACE's `docs/MODEL_DECISIONS.md` and
+WasteMAP's `backend/MODEL_DECISIONS.md` list each app's own decisions, link to the entries here
+that their paths reach, and rate how much each moves their own numbers. SWEET's entries carry no
+impact rating for that reason.
 
 To change a tagged line:
 
-- Open a pull request in the Climate TRACE repo, from a branch with the same name as yours here,
-  that updates the entry. A replaced decision moves to that list's "Retired" section with the date.
+- Update its entry in `SWEET_python/MODEL_DECISIONS.md` in the same pull request. A replaced
+  decision moves to the list's "Retired" section with the date.
 - Keep the comment on the line it marks. Rename or remove it only when the entry changes too.
+- If the change moves an app's numbers, that app updates its own list and impact rating when it
+  moves its pin to the release.
 
-The Climate TRACE pipeline's test checks these comments against its list. It reads them from the
-SWEET release named in that repo's `sweet_python.ref`. A release that drops or renames a comment
-therefore fails that repo's CI when the release is pinned, not this repo's.
+`tests/test_model_decisions.py` checks the comments against the list, in both directions, with
+exact counts. An app's own test checks that the ids it links to exist in the release it pins.
 
 # Releases
 

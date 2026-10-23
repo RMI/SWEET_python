@@ -346,6 +346,7 @@ def _compute_temperature_factor(temperature):
 def _compute_moisture_factor(precip):
     """Compute the moisture factor (fm) based on precipitation."""
     # read more on this to make sure it handles dumpsites correctly.
+    # decision: missing-climate
     if precip < 500:
         fm = 0.1
     elif precip >= 500 and precip < 1000:
