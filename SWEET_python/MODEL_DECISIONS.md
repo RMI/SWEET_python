@@ -45,7 +45,7 @@ Where the code applies a decision, a one-line comment names it:
   | `city-dst-scenario` | `City.implement_dst_changes_simple*` | WasteMAP's city DST scenarios |
   | `custom-location` | `City.dst_baseline_blank` | WasteMAP's Custom Location |
   | `site-tool` | `City.sdst_v1_5`, `City.sdst_prepopulate` | WasteMAP's single-site tool |
-  | `ct-site` | `City.site_only_estimate_trace` | Climate TRACE's site estimates |
+  | `ct-site` | `City.site_only_estimate_trace`, `City.citysite_estimate_trace` | Climate TRACE's site estimates |
   | `adst-site` | `advanced_dst.run_advanced_dst` | the single-site advanced DST |
   | `adst-city` | `advanced_dst_city.run_advanced_dst_city` | WasteMAP's advanced DST |
 
@@ -99,17 +99,19 @@ deliberate; none is decided yet. Each names the entry it belongs to.
 - **Flaring** (`flaring-uniform`): the city paths set no flaring, which the annual engine reads as
   1.0, so their captured gas is wholly destroyed. Every other path uses 0.98.
 - **Decay rate** (`decay-rate-from-climate`): the waste mix is sampled in 2025 (city paths), 2000
-  (`ct-site`, the site tool's prefill) or the implement year (advanced DST), and rubber counts as
-  degradable on some paths and not others. A typed rate skips the 0.04 floor.
+  (`ct-site`, the site tool's prefill) or the implement year (advanced DST). Rubber counts as
+  non-degradable on the city paths and the advanced DST, and is left out of the mix altogether in
+  the 2000 sample. A typed rate skips the 0.04 floor.
 - **First year** (`waste-before-1970-is-zero`): `ct-site` and the city paths start in 1970; the site
-  tool and both advanced DST engines model back to 1950. The same Climate TRACE site has pre-1970
-  waste in WasteMAP's site tool and none in Climate TRACE.
+  tool and both advanced DST engines model back to 1950. A site opened before 1970 gets earlier
+  waste in the site tool unless its caller raises the opening year first.
 - **Unknown close year** (`intake-ends-before-close-year`): `ct-site` and the site tool close it in
-  2050, taking no waste that year; the advanced DST never closes it.
+  2050, taking no waste that year; the advanced DST has no unknown close year: it requires one, and
+  2051 keeps a site open.
 - **Site type** (`site-type-fill`): the city paths use What a Waste's regional landfill/dump shares
   before the rule, and Central Asia's row is 100% dumpsite while the rule calls Central Asia landfill.
   Canada, Switzerland and Germany are hard-coded in `load_andre_params`.
-- **Gas capture** (`gas-capture-efficiency`): the city paths capture a fixed 60% and never read a
+- **Gas capture** (`gas-capture-efficiency`): the city paths capture a fixed 60% and ignore a
   city's reported efficiency; the city DST's converted dump captures 0.3 where the type default is 0.45.
 - **What counts as capturing** (`oxidation`): `ct-site` uses Climate TRACE's capture-system flag, the
   site tool and advanced DST use an efficiency above 0, and the city paths use the capture bucket.
@@ -138,7 +140,7 @@ A site or city with no recorded type is assumed a sanitary landfill or an open d
 - **Paths:**
   - `ct-site`: Climate TRACE fills the type before the call, with its own income groups; SWEET applies the rule again to a blank type.
   - `city-model`, `custom-location`: only for a city's landfill/dump split, after the country's and then the region's What a Waste shares.
-  - `site-tool`: the prefill applies it to a location, or to a blank or unrecognised type; the run takes the type it is given.
+  - `site-tool`: the prefill applies it to a location or a blank type, and makes an unrecognised type a dumpsite; the run takes the type it is given.
 - **Confidence:** low
 - **Better:** Classify each site from its area, intake or imagery, not its country's income, and use one fallback order on every path.
 - **Value:** `SWEET_python.site_type_defaults`: `LANDFILL_DEFAULT_COUNTRIES`, `DUMPSITE_COUNTRIES`, `LANDFILL_DEFAULT_REGIONS`
@@ -158,7 +160,7 @@ A site or city with no usable composition takes its country's mix, else its regi
 - **Paths:**
   - `ct-site`, `custom-location`: always `country`, else `region`. A Climate TRACE site never supplies its own mix.
   - `city-model`: the city's reported mix, unless all blank or summing outside 0.98–1.02 (partial blanks become 0). The city DST baseline renormalises its published mix and never falls back.
-  - `site-tool`: the caller's mix; the location prefill uses `country`, else `region`.
+  - `site-tool`: the caller's mix, except over the years a Climate TRACE series covers, which keep that series' mix (or split a total by the caller's). The location prefill uses `country`, else `region`.
   - `adst-site`, `adst-city`: the caller's mix, which may change by year.
 - **Confidence:** medium
 - **Better:** Use a site's own composition when reported (Climate TRACE issue #146), and let the mix change over time.
@@ -194,7 +196,7 @@ Waste grows with the country's UN population each year. A big UN-listed city kee
 - **Paths:**
   - `city-model`, `city-dst-scenario`: all three; `constant-rate` is the city's own rates. `city_population_trajectory` gives the same answer to a caller that stores it.
   - `custom-location`: `un-population`, else world urban-population rates.
-  - `site-tool`: `un-population`, else an error asking for a rate. A rate the user sets compounds both ways; −100% holds waste flat.
+  - `site-tool`: `un-population`, else an error asking for a rate. A rate the user sets compounds both ways. −100% is meant to hold waste flat but does so only in the baseline; the scenario's waste goes to zero or infinity (a bug).
   - `ct-site`: the series Climate TRACE hands in, gaps held at the nearest year, else Climate TRACE's rates. An anchor year outside 1970–2050 takes the rates.
 - **Confidence:** medium
 - **Better:** Use one fallback on every path, and UN city trajectories rather than two rates for listed cities.
@@ -228,7 +230,7 @@ No waste is deposited before 1970. A site that opened earlier is modelled as ope
   - `city-model`, `city-dst-scenario`, `custom-location`: every series starts in 1970.
 - **Confidence:** medium
 - **Better:** Start each site at its real open year, back to 1950, as the site tool and the advanced DST engines already do.
-- **Value:** `SWEET_python.constants.MODEL_START_YEAR`; the site tool and advanced DST floor at `dst_common.MODEL_YEAR_MIN` (1950)
+- **Value:** `SWEET_python.constants.MODEL_START_YEAR`; the advanced DST floors at `dst_common.MODEL_YEAR_MIN` (1950), the site tool at its own 1950 in `City.sdst_v1_5`
 - **Code:** `SWEET_python/city_params.py` (3 places)
 - **Reviewed:** 2026-10-22
 
@@ -290,7 +292,7 @@ MCF is 1.0 at a sanitary landfill and 0.6 at either kind of dump. A dump with a 
 - **Why:** These are the IPCC 2006 defaults. Depth is unknown at nearly every dump, so dumps take IPCC's value for an uncategorised site.
 - **Paths:**
   - `ct-site`, `site-tool`, `adst-site`, `adst-city`: by type and the depth given. Climate TRACE sends 10 m, 2 m or none.
-  - `city-model`, `city-dst-scenario`, `custom-location`: the same values, written as literals for the three disposal buckets, never with a depth.
+  - `city-model`, `city-dst-scenario`, `custom-location`: the same values, never with a depth: a literal 1 for the two landfill buckets, `MCF_UNCATEGORISED` for the dumpsite bucket.
 - **Confidence:** medium
 - **Better:** Record depth at dumps, and send the city buckets through `mcf_for_site` so a change to the table reaches them.
 - **Value:** `SWEET_python.mcf`: `MCF_BY_TYPE`, `DEEP_SITE_DEPTH_M`
@@ -363,8 +365,9 @@ A site captures its reported efficiency, else a site-type default if it has a ca
   3. `none`: zero, when nothing says the site has a system.
 - **Paths:**
   - `ct-site`: all three; Climate TRACE decides whether a site has a system.
-  - `site-tool`, `adst-site`, `adst-city`: the caller's value, by year where it gives years; none given means 0.
-  - `city-model`, `custom-location`: 0.6 on the share sent to landfills with capture; the cities table's efficiency is never read.
+  - `site-tool`: the caller's value, which it must give.
+  - `adst-site`, `adst-city`: the caller's value, by year where it gives years; none given means 0.
+  - `city-model`, `custom-location`: 0.6 on the share sent to landfills with capture; the cities table's efficiency is read but never used.
   - `city-dst-scenario`: "add gas capture" sets 0.6 at landfills and 0.3 at a dump made a controlled dump, from the year after implementation.
 - **Confidence:** medium
 - **Better:** Use one table and rule on every path, and let the city model read each city's reported efficiency.
