@@ -132,8 +132,8 @@ deliberate; none is decided yet. Each names the entry it belongs to.
 - **Site type** (`site-type-fill`): a city with no split of its own (What a Waste and other city
   sources give one for many cities) takes the IPCC 2019 Refinement's country, then regional,
   open-dump/landfill fractions (Tables 2A.1 and 2.1, Updated) before the rule; the code marks them for
-  review. IPCC gives Central Asia and Rest of Oceania no fractions, so SWEET fills 100% dumpsite, while
-  the rule calls Central Asia landfill.
+  review. IPCC gives Central Asia and Rest of Oceania no fractions, so those places go straight to the
+  rule (until 2026-10-23 they were filled with 100% dumpsite).
   Canada, Switzerland and Germany are hard-coded in `load_andre_params`.
 - **Gas capture** (`gas-capture-efficiency`): the city paths capture a fixed 60% and ignore a
   city's reported efficiency; the city DST's converted dump captures 0.3 where the type default is 0.45.
