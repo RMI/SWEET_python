@@ -75,11 +75,13 @@ Where the code applies a decision, a one-line comment names it:
 |---|---|---|---|
 | [`site-type-fill`](#site-type-fill) | Inputs | fallback | low |
 | [`waste-composition`](#waste-composition) | Inputs | fallback | medium |
+| [`all-city-waste-is-collected`](#all-city-waste-is-collected) | Inputs | simplification | low |
 | [`population-growth`](#population-growth) | Inputs | fallback | medium |
 | [`intake-follows-population`](#intake-follows-population) | Inputs | simplification | low |
 | [`waste-before-1970-is-zero`](#waste-before-1970-is-zero) | Inputs | simplification | medium |
 | [`intake-ends-before-close-year`](#intake-ends-before-close-year) | Inputs | simplification | medium |
 | [`combustion-reject`](#combustion-reject) | Diversion | fixed value | medium |
+| [`other-treatment-shares-landfilled`](#other-treatment-shares-landfilled) | Diversion | simplification | low |
 | [`mcf-by-type-and-depth`](#mcf-by-type-and-depth) | Decay model | fixed value | medium |
 | [`decay-rate-from-climate`](#decay-rate-from-climate) | Decay model | method choice | medium |
 | [`methane-potential-by-waste-type`](#methane-potential-by-waste-type) | Decay model | fixed value | high |
@@ -163,6 +165,21 @@ A site or city with no usable composition takes its country's mix, else its regi
 - **Value:** `SWEET_python.defaults_2019`: `waste_fractions_country`, `waste_fraction_defaults`
 - **Code:** `SWEET_python/defaults_2019.py`, `SWEET_python/city_params.py`
 - **Reviewed:** 2026-10-22
+
+### `all-city-waste-is-collected`
+
+Every tonne a city generates is diverted or disposed of. None is left uncollected, and informal collection is not subtracted.
+
+- **Kind:** simplification
+- **Why:** Neither the cities table nor SWEET holds a collection-coverage figure for a city.
+- **Paths:**
+  - `city-model`: the waste mass is the generated tonnage, else the collected tonnage, else a per-person default. The informal-sector subtraction is commented out.
+  - `custom-location`: a per-person default times population, all of it collected.
+- **Confidence:** low
+- **Better:** Scale by collection coverage, as Climate TRACE's country totals do with What a Waste 3.0. Uncollected waste is mostly burned or scattered and makes far less methane.
+- **Code:** `SWEET_python/city_params.py`
+- **Reviewed:** 2026-10-22
+- **Docs:** [WasteMAP `docs/future_plans/uncollected_city_waste.md`](https://github.com/RMI/WasteMAP/blob/main/docs/future_plans/uncollected_city_waste.md)
 
 ### `population-growth`
 
@@ -248,6 +265,20 @@ None of the waste sent to incineration is landfilled unburned, so incinerated wa
 - **Value:** `SWEET_python.city_params.City.combustion_reject_rate`: 0, and 0.1 through `sweet/2026.10.5`
 - **Code:** `SWEET_python/city_params.py`
 - **Reviewed:** 2026-10-22
+
+### `other-treatment-shares-landfilled`
+
+A city's treatment shares reported as "other" or "unaccounted for" get no destination. The landfill split is scaled to 100%, so that waste is landfilled.
+
+- **Kind:** simplification
+- **Why:** SWEET has no pathway for them, and What a Waste 2.0 records mechanical-biological treatment under "other".
+- **Paths:**
+  - `city-model`: in `load_andre_params`. The city DST then reads the split the cities table publishes.
+- **Confidence:** low
+- **Better:** Route mechanical-biological treatment by what it puts out (recycling, combustion, compost, residue), and treat unaccounted waste through collection coverage.
+- **Code:** `SWEET_python/city_params.py`
+- **Reviewed:** 2026-10-22
+- **Docs:** [WasteMAP `docs/future_plans/mbt_needs_a_destination.md`](https://github.com/RMI/WasteMAP/blob/main/docs/future_plans/mbt_needs_a_destination.md)
 
 ## Decay model
 

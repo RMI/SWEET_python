@@ -1531,6 +1531,7 @@ class City:
             # Subtract mass that is informally collected
             # self.informal_fraction = np.nan_to_num(row['percent_informal_sector_percent_collected_by_informal_sector_percent']) / 100
             # self.waste_mass = self.waste_mass_load * (1 - self.informal_fraction)
+            # decision: all-city-waste-is-collected
             waste_mass = waste_mass_load
 
             # Adjust waste mass to account for difference in reporting years between msw and population
@@ -1688,6 +1689,7 @@ class City:
             div_components["recycling"] = recycling_components
 
             # Determine if we need to use defaults for landfills and diversion fractions
+            # decision: other-treatment-shares-landfilled
             landfill_inputs = [
                 float(row["waste_treatment_sanitary_landfill_landfill_gas_system_percent"]),
                 float(row["waste_treatment_controlled_landfill_percent"]),
