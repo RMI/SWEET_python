@@ -41,13 +41,15 @@ from SWEET_python.constants import (
     DEFAULT_FLARE_EFFICIENCY,
     DEGRADABLE_TYPES,
     DIVERSION_ELIGIBILITY,
-    FLARE_EFFICIENCY_WHEN_UNSET,
     GWP100_CH4,
     MODEL_START_YEAR,
     MODEL_END_YEAR,
     MODEL_YEAR_MIN,
+    NEVER_CLOSES,
     NON_COMPOSTABLE_NOT_TARGETED,
     RECYCLING_YIELD,
+    UNKNOWN_CLIMATE_PRECIPITATION_MM,
+    UNKNOWN_CLIMATE_TEMPERATURE_C,
     UNPROCESSABLE_SHARE,
     WASTE_TYPES,
     WasteTypeSet,
@@ -2915,7 +2917,7 @@ class City:
                 close_date = int(close_date)
         else:
             if pd.isna(close_date) or close_date is None:
-                close_date = MODEL_END_YEAR
+                close_date = NEVER_CLOSES
             else:
                 close_date = int(close_date)
         fraction_of_waste_vector = pd.Series(
@@ -3144,7 +3146,7 @@ class City:
                 close_date = int(close_date)
         else:
             if pd.isna(close_date) or close_date is None:
-                close_date = MODEL_END_YEAR
+                close_date = NEVER_CLOSES
             else:
                 close_date = int(close_date)
 
@@ -7782,7 +7784,7 @@ class City:
         # means the DST caller had no answer, and keeps the uncategorised value.
         gas_capture_efficiencies = {}
         gas_capture_efficiencies["ameliorated"] = list(
-            gas_capture.UPGRADED_SITE_CAPTURE_EFFICIENCY_BY_TYPE
+            gas_capture.REMEDIATED_CAPTURE_EFFICIENCY_BY_TYPE
         )
         gas_capture_efficiencies["not_ameliorated"] = list(
             gas_capture.GAS_CAPTURE_EFFICIENCY_BY_TYPE
@@ -7919,9 +7921,9 @@ class City:
             flaring = {}
             for s in ["baseline", "scenario"]:
                 if new_landfill_flaring[s][i] is None:
-                    flaring[s] = FLARE_EFFICIENCY_WHEN_UNSET
+                    flaring[s] = DEFAULT_FLARE_EFFICIENCY
                 elif new_landfill_flaring[s][i] == 0:
-                    flaring[s] = FLARE_EFFICIENCY_WHEN_UNSET
+                    flaring[s] = DEFAULT_FLARE_EFFICIENCY
                 elif new_landfill_flaring[s][i] > 0:
                     flaring[s] = new_landfill_flaring[s][i]
             flaring_series = pd.Series(index=years)
@@ -8209,10 +8211,17 @@ class City:
                 "INVALID_PARAMETERS",
                 f"Landfill open year must be {model_year_min} or later.",
             )
-        if min(close_years) < model_year_min or max(open_years + close_years) > model_year_max:
+        # A close year of NEVER_CLOSES (2051) means the site is still open in 2050, and
+        # takes that year's waste.
+        if (
+            min(close_years) < model_year_min
+            or max(open_years) > model_year_max
+            or max(close_years) > NEVER_CLOSES
+        ):
             raise CustomError(
                 "INVALID_PARAMETERS",
-                f"Landfill years must be between {model_year_min} and {model_year_max}.",
+                f"Landfill years must be between {model_year_min} and {model_year_max}, "
+                f"or {NEVER_CLOSES} for a site that never closes.",
             )
         for open_year, close_year in zip(open_years, close_years):
             if close_year < open_year:
@@ -8496,13 +8505,6 @@ class City:
         city_params_dict = self.update_cityparams_dict(scenario_parameters)
         # MCF by landfill type index; see SWEET_python.mcf. A depth of None
         # means the DST caller had no answer, and keeps the uncategorised value.
-        gas_capture_efficiencies = {}
-        gas_capture_efficiencies["ameliorated"] = list(
-            gas_capture.UPGRADED_SITE_CAPTURE_EFFICIENCY_BY_TYPE
-        )
-        gas_capture_efficiencies["not_ameliorated"] = list(
-            gas_capture.GAS_CAPTURE_EFFICIENCY_BY_TYPE
-        )
         self.ox_options = oxidation.ox_options()
         landfill_types = ["landfill", "controlled_dumpsite", "dumpsite"]
         scenario_parameters.landfills = []
@@ -8522,66 +8524,31 @@ class City:
         mcf["baseline"] = mcf_defaults.mcf_for_site(old_lf_type, depths["baseline"][0])
         mcf["scenario"] = mcf_defaults.mcf_for_site(new_lf_type, depths["scenario"][0])
 
-        # Handle baseline first
-        if new_gas_efficiency["baseline"][0] == 0.0:
-            ox_value["baseline"] = self.ox_options["ox_nocap"][
-                landfill_types[old_lf_type]
-            ]
-            gas_eff["baseline"] = 0
-        # If there is gas capture, use the number or figure it out
-        elif new_gas_efficiency["baseline"][0] > 0.0:
-            ox_value["baseline"] = self.ox_options["ox_cap"][
-                landfill_types[old_lf_type]
-            ]
-            gas_eff["baseline"] = (
-                new_gas_efficiency["baseline"][0]
-                if new_gas_efficiency["baseline"][0] is not None
-                else gas_capture_efficiencies["not_ameliorated"][old_lf_type]
-            )
-        else:
-            print("invalid gas efficiency value")
+        # Gas capture: the user's efficiency, or, left blank, the default for the
+        # site's type. A site upgraded in the scenario (a lower type number) is
+        # remediated, and takes the remediated value instead: 30% for a dumpsite
+        # made a controlled dumpsite, 50% for a site made a sanitary landfill.
+        # decision: gas-capture-efficiency
+        def _efficiency(label, baseline_type, site_type):
+            stated = new_gas_efficiency[label][0]
+            if stated is None:
+                return gas_capture.default_capture_efficiency(baseline_type, site_type)
+            return stated
 
-        # For scenario, handle no gas capture first
-        if new_gas_efficiency["scenario"][0] == 0:
-            ox_value["scenario"] = self.ox_options["ox_nocap"][
-                landfill_types[new_lf_type]
-            ]
-            gas_eff["scenario"] = 0
-        # If there is gas capture, use the number or figure it out
-        elif new_gas_efficiency["scenario"][0] > 0.0:
-            if (
-                new_landfill_types["scenario"][0]
-                < new_landfill_types["baseline"][0]
-            ):
-                ameliorated = True
-                if new_lf_type == 0:
-                    ox_value["scenario"] = oxidation.OX_REMEDIATED_TO_LANDFILL
-                else:
-                    ox_value["scenario"] = self.ox_options["ox_cap"][
-                        landfill_types[new_lf_type]
-                    ]
-                gas_eff["scenario"] = (
-                    new_gas_efficiency["baseline"][0]
-                    if new_gas_efficiency["baseline"][0] is not None
-                    else gas_capture_efficiencies["ameliorated"][new_lf_type]
-                )
-            else:
-                ameliorated = False
-                ox_value["scenario"] = self.ox_options["ox_cap"][
-                    landfill_types[new_lf_type]
-                ]
-                gas_eff["scenario"] = (
-                    new_gas_efficiency["baseline"][0]
-                    if new_gas_efficiency["baseline"][0] is not None
-                    else gas_capture_efficiencies["not_ameliorated"][new_lf_type]
-                )
-        else:
-            print("invalid gas efficiency value")
+        gas_eff["baseline"] = _efficiency("baseline", old_lf_type, old_lf_type)
+        gas_eff["scenario"] = _efficiency("scenario", old_lf_type, new_lf_type)
 
-        if new_gas_efficiency["baseline"][0] is not None:
-            gas_eff["baseline"] = new_gas_efficiency["baseline"][0]
-        if new_gas_efficiency["scenario"][0] is not None:
-            gas_eff["scenario"] = new_gas_efficiency["scenario"][0]
+        # Oxidation follows capture: the with-capture value for a site capturing
+        # anything, and for a dump upgraded to a landfill with capture, 0.18.
+        ox_value["baseline"] = self.ox_options[
+            "ox_cap" if gas_eff["baseline"] != 0 else "ox_nocap"
+        ][landfill_types[old_lf_type]]
+        if gas_eff["scenario"] == 0:
+            ox_value["scenario"] = self.ox_options["ox_nocap"][landfill_types[new_lf_type]]
+        elif new_lf_type < old_lf_type and new_lf_type == 0:
+            ox_value["scenario"] = oxidation.OX_REMEDIATED_TO_LANDFILL
+        else:
+            ox_value["scenario"] = self.ox_options["ox_cap"][landfill_types[new_lf_type]]
 
         # Create pandas Series for each: mcf, ox_value, and gas_eff
         mcf_series_baseline = pd.Series(mcf["baseline"], index=years)
@@ -8678,7 +8645,7 @@ class City:
             city_instance_attrs=scenario_parameters.city_instance_attrs,
             landfill_index=0,
             # fraction_of_waste=new_landfill_fracs[i],
-            gas_capture=False if new_gas_efficiency["baseline"][0] == 0.0 else True,
+            gas_capture=gas_eff["baseline"] != 0,
             scenario=scenario,
             new_baseline=False,
             gas_capture_efficiency=gas_eff_series_baseline,
@@ -8703,7 +8670,7 @@ class City:
             city_params_dict=city_params_dict,
             city_instance_attrs=scenario_parameters.city_instance_attrs,
             landfill_index=0,
-            gas_capture=False if new_gas_efficiency["scenario"][0] == 0.0 else True,
+            gas_capture=gas_eff["scenario"] != 0,
             scenario=scenario,
             new_baseline=False,
             gas_capture_efficiency=gas_eff_series_scenario,
@@ -8899,7 +8866,7 @@ class City:
         # mcf_options['not_ameliorated']['no_gas_capture'] = [0.1, 0.05, 0]
         gas_capture_efficiencies = {}
         gas_capture_efficiencies["ameliorated"] = list(
-            gas_capture.UPGRADED_SITE_CAPTURE_EFFICIENCY_BY_TYPE
+            gas_capture.REMEDIATED_CAPTURE_EFFICIENCY_BY_TYPE
         )
         gas_capture_efficiencies["not_ameliorated"] = list(
             gas_capture.GAS_CAPTURE_EFFICIENCY_BY_TYPE
@@ -9222,8 +9189,8 @@ class City:
         except IndexError:
             # decision: missing-climate
             weather_data = {
-                "avg_total_precip": 1000,
-                "avg_temperature": 20,
+                "avg_total_precip": UNKNOWN_CLIMATE_PRECIPITATION_MM,
+                "avg_temperature": UNKNOWN_CLIMATE_TEMPERATURE_C,
             }
             # raise HTTPException(
             #     status_code=500,
@@ -9278,7 +9245,7 @@ class City:
             waste_mass = 10_000  # Default value if not provided
             waste_mass_year = 2025
             site_open_year = MODEL_START_YEAR
-            site_close_year = MODEL_END_YEAR
+            site_close_year = NEVER_CLOSES
         
         return {
             "iso3": iso3,
@@ -9293,7 +9260,7 @@ class City:
             "waste_mass": float(waste_mass),
             "waste_mass_year": int(waste_mass_year),
             'site_open_year': int(site_open_year) if pd.notna(site_open_year) else int(2010),
-            'site_close_year': int(site_close_year) if pd.notna(site_close_year) else MODEL_END_YEAR
+            'site_close_year': int(site_close_year) if pd.notna(site_close_year) else NEVER_CLOSES
         }
 
 def create_geolocator(
