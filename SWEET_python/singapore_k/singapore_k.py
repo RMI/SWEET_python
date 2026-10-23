@@ -10,7 +10,12 @@ import numpy as np
 import pandas as pd
 
 from SWEET_python.class_defs import DecompositionRates
-from SWEET_python.constants import MODEL_START_YEAR, MODEL_END_YEAR
+from SWEET_python.constants import (
+    MODEL_START_YEAR,
+    MODEL_END_YEAR,
+    UNKNOWN_CLIMATE_PRECIPITATION_MM,
+    UNKNOWN_CLIMATE_TEMPERATURE_C,
+)
 
 
 # Minimum decomposition rate (1/yr). IPCC (2019 refinement) Vol. 5 Table 3.3
@@ -360,9 +365,9 @@ def _compute_temperature_factor(temperature):
 def _compute_moisture_factor(precip):
     """Compute the moisture factor (fm) based on precipitation."""
     # read more on this to make sure it handles dumpsites correctly.
-    # decision: missing-climate
-    # A missing precipitation (NaN) fails every comparison and takes the wettest
-    # factor, as the if/elif chain this replaced did.
+    # compute_singapore_k replaces a missing precipitation before it gets here.
+    # Called directly with NaN, it fails every comparison and takes the wettest
+    # factor.
     for upper_mm, fm in MOISTURE_FACTOR_BANDS:
         if precip < upper_mm:
             return fm
@@ -393,6 +398,13 @@ def _create_series(kc, tf, fm, implement_year=None, advanced_baseline=False,
     years = years.clip(lower=K_MIN_PER_YEAR)
 
     return years
+
+
+def _known_or(value, fallback):
+    """``value``, or ``fallback`` when it is missing (None or NaN)."""
+    if value is None or (np.ndim(value) == 0 and pd.isna(value)):
+        return fallback
+    return value
 
 
 def compute_singapore_k(waste_fractions, temperature, precip,
@@ -430,6 +442,12 @@ def compute_singapore_k(waste_fractions, temperature, precip,
         for_trace_reported_projections,
     )
 
+    # An unknown climate is 15 C and 1,000 mm, as everywhere else in SWEET. Missing
+    # rainfall used to take the wettest moisture factor (1.0, as if over 2,000 mm),
+    # and a missing temperature a NaN rate, so NaN emissions.
+    # decision: missing-climate
+    temperature = _known_or(temperature, UNKNOWN_CLIMATE_TEMPERATURE_C)
+    precip = _known_or(precip, UNKNOWN_CLIMATE_PRECIPITATION_MM)
     tf = _compute_temperature_factor(temperature)
     fm = _compute_moisture_factor(precip)
 

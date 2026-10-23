@@ -7,7 +7,9 @@
    takes the remediated value: 30% for a dumpsite made a controlled dumpsite, 50% for
    a controlled dumpsite made a sanitary landfill. The site tool used to raise on a
    blank efficiency.
-3. An unknown climate is 15 C and 1,000 mm. The advanced DST defaulted to 10 C.
+3. An unknown climate is 15 C and 1,000 mm. The advanced DST defaulted to 10 C, the
+   site-tool prefill to 20 C, missing rainfall took the wettest moisture class, and a
+   missing temperature gave a NaN decay rate.
 4. An unknown close year means the site never closes (2051), so it takes 2050's
    waste. Climate TRACE's site path closed it in 2050, and the site tool refused 2051.
 """
@@ -160,6 +162,29 @@ def test_the_unknown_climate_is_one_pair():
 @pytest.mark.parametrize("request_model", [AdvancedDSTRequest, AdvancedDSTCityRequest])
 def test_the_advanced_dst_defaults_to_the_unknown_climate_temperature(request_model):
     assert request_model.model_fields["temperature"].default == UNKNOWN_CLIMATE_TEMPERATURE_C
+
+
+def _k(temperature, precip):
+    from SWEET_python.singapore_k import compute_singapore_k
+    city = City("climate")
+    city.dst_baseline_blank("Mexico", 1_000_000, 700.0, 18.0)
+    ks, _ = compute_singapore_k(city.baseline_parameters.waste_fractions, temperature, precip)
+    return ks.food
+
+
+@pytest.mark.parametrize("temperature", [np.nan, None])
+def test_a_missing_temperature_decays_at_15_c_not_nan(temperature):
+    # It gave a NaN rate, and so NaN emissions.
+    k = _k(temperature, 1000.0)
+    assert k.notna().all()
+    pd.testing.assert_series_equal(k, _k(UNKNOWN_CLIMATE_TEMPERATURE_C, 1000.0))
+
+
+@pytest.mark.parametrize("precip", [np.nan, None])
+def test_missing_rainfall_decays_at_1000_mm_not_the_wettest_class(precip):
+    # It took the wettest moisture class, as if over 2,000 mm.
+    pd.testing.assert_series_equal(_k(25.0, precip), _k(25.0, UNKNOWN_CLIMATE_PRECIPITATION_MM))
+    assert (_k(25.0, precip) < _k(25.0, 2500.0)).all()
 
 
 # --------------------------------------------------------------------------- #

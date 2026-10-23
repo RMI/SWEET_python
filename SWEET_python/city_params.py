@@ -659,7 +659,7 @@ class CityParameters(BaseModel):
             asset = (self.city_instance_attrs or {}).get("city_name", self.rmi_id)
             print(
                 f"WARNING: _singapore_k: missing temperature for asset {asset}; "
-                f"decomposition rate k will be NaN (this shouldn't happen)"
+                f"its decay rate uses {UNKNOWN_CLIMATE_TEMPERATURE_C} C (this shouldn't happen)"
             )
         self.ks, self.bf = compute_singapore_k(
             self.waste_fractions,

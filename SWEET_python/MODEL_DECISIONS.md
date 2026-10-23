@@ -150,9 +150,6 @@ the unknown close year (see `flaring-uniform`, `gas-capture-efficiency`, `missin
   refuses the request.
 - **Food prevention** (`food-waste-prevention`): the city DST keeps the baseline's decay rate and compost
   factor; `adst-city` recomputes both from the reduced mix.
-- **Missing climate** (`missing-climate`): missing rainfall in the decay rate takes the wettest
-  moisture class rather than 1,000 mm, and a missing temperature leaves the rate blank rather than
-  15 °C.
 - **Unknown opening year** (`open-year-unknown`): `ct-site` uses 1970; the site-tool prefill 2010 for a
   listed site and 1970 for a location; the advanced DST requires a year.
 - **Dead tags:** one tag each for `waste-before-1970-is-zero` and `intake-ends-before-close-year` sits
@@ -641,19 +638,19 @@ Only food, green, wood, paper and textiles make methane. Rubber is inert, and na
 
 ### `missing-climate`
 
-An unknown climate is 15 °C and 1,000 mm where SWEET fills one in: a missing advanced-DST temperature, and a failed site-tool weather lookup. Missing rainfall in the decay rate takes the wettest moisture class.
+An unknown climate is 15 °C and 1,000 mm on every path: a missing temperature or rainfall in the decay rate, a missing advanced-DST temperature, and a failed site-tool weather lookup.
 
 - **Kind:** fallback
-- **Why:** One pair, so the tools agree on a site whose climate is unknown. 15 °C and 1,000 mm sit near the middle of the sites SWEET models.
+- **Why:** One pair, so the tools agree on a site whose climate is unknown, and never a blank emission. 15 °C and 1,000 mm sit near the middle of the sites SWEET models.
 - **Options, best first:**
   1. `reported`: the caller's or the weather table's value.
-  2. `fallback`: 15 °C and 1,000 mm; for missing rainfall in the decay rate, the wettest moisture class.
+  2. `fallback`: 15 °C and 1,000 mm.
 - **Paths:**
-  - `city-model`, `custom-location`, `ct-site`: missing rainfall gets a moisture factor of 1.0, ten times a dry site's. A missing temperature leaves the decay rate blank.
+  - `city-model`, `custom-location`, `ct-site`: in the decay rate. Until 2026-10-23 missing rainfall took the wettest moisture class and a missing temperature left the rate blank; no city or Climate TRACE site was missing either.
   - `adst-site`, `adst-city`: 15 °C when no temperature is sent.
   - `site-tool`: the prefill's 1,000 mm and 15 °C.
 - **Confidence:** low
-- **Better:** Use the nearest weather cell or the country's climate, and refuse to run without one.
+- **Better:** Use the country's climate before 15 °C and 1,000 mm.
 - **Value:** `SWEET_python.constants`: `UNKNOWN_CLIMATE_TEMPERATURE_C`, `UNKNOWN_CLIMATE_PRECIPITATION_MM`
 - **Code:** `SWEET_python/singapore_k/singapore_k.py`, `SWEET_python/city_params.py`, `SWEET_python/constants.py`, `SWEET_python/advanced_dst.py`, `SWEET_python/advanced_dst_city.py`
 - **Reviewed:** 2026-10-23
