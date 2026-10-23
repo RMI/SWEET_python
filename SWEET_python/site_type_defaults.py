@@ -17,7 +17,7 @@ holds:
 - **It is high income** in the World Bank grouping Climate TRACE reads
   (:mod:`SWEET_python.country_income`).
 - **Its SWEET region is in** :data:`LANDFILL_DEFAULT_REGIONS`. That is
-  ``defaults_2019.landfill_default_regions`` plus Western Asia and Central Asia.
+  ``defaults_2019.LANDFILL_DEFAULT_REGIONS`` plus Western Asia and Central Asia.
   Central Asia joins on the argument that admits Russia: the post-Soviet
   republics inherited one engineered "polygon" standard, so splitting
   Kazakhstan from Russia would be arbitrary.
@@ -50,7 +50,7 @@ SANITARY_LANDFILL = "Sanitary Landfill"
 DUMPSITE = "Dumpsite"
 
 LANDFILL_DEFAULT_REGIONS = frozenset(
-    set(defaults_2019.landfill_default_regions) | {"Western Asia", "Central Asia"}
+    set(defaults_2019.LANDFILL_DEFAULT_REGIONS) | {"Western Asia", "Central Asia"}
 )
 LANDFILL_DEFAULT_COUNTRIES = frozenset({"CHN", "RUS", "MEX", "BRA", "CRI"})
 DUMPSITE_COUNTRIES = frozenset({"MNG", "YEM"})
@@ -89,7 +89,7 @@ def landfill_is_default(iso3: Optional[str], income_id: Optional[str] = None) ->
         income_id = income_for(iso3)
     return (
         income_id == "HIC"
-        or defaults_2019.region_lookup_iso3.get(iso3) in LANDFILL_DEFAULT_REGIONS
+        or defaults_2019.REGION_LOOKUP_ISO3.get(iso3) in LANDFILL_DEFAULT_REGIONS
         or iso3 in LANDFILL_DEFAULT_COUNTRIES
     )
 

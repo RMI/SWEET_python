@@ -33,9 +33,22 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError as SQLAlchemyOperationalError
 from datetime import datetime
 import time
+import SWEET_python.gas_capture as gas_capture
+import SWEET_python.oxidation as oxidation
 from SWEET_python.constants import (
+    CH4_DENSITY_KG_PER_M3,
+    COMBUSTION_REJECT_RATE,
+    DEFAULT_FLARE_EFFICIENCY,
+    DEGRADABLE_TYPES,
+    DIVERSION_ELIGIBILITY,
+    FLARE_EFFICIENCY_WHEN_UNSET,
+    GWP100_CH4,
     MODEL_START_YEAR,
     MODEL_END_YEAR,
+    MODEL_YEAR_MIN,
+    NON_COMPOSTABLE_NOT_TARGETED,
+    RECYCLING_YIELD,
+    UNPROCESSABLE_SHARE,
     WASTE_TYPES,
     WasteTypeSet,
 )
@@ -159,19 +172,14 @@ def _build_oxidation_series(default_value, canonical_row, time_series_rows, year
     return series
 
 
-# Site-type fallbacks for gas capture and oxidation. Single definition, shared by both
-# `_trace` entry points via `_resolve_gas_capture` below. `uncertainty.py` in the TRACE
-# pipeline mirrors these tables (SWEET_GAS_CAPTURE_DEFAULTS /
-# SWEET_OXIDATION_DEFAULTS_*), so a change here must be made there too.
-GAS_EFF_OPTIONS = {
-    "Sanitary Landfill": 0.6,
-    "Controlled Dumpsite": 0.45,
-    "Dumpsite": 0.0,
-}
-OX_OPTIONS = {
-    "ox_nocap": {"Sanitary Landfill": 0.1, "Controlled Dumpsite": 0.05, "Dumpsite": 0.0},
-    "ox_cap": {"Sanitary Landfill": 0.22, "Controlled Dumpsite": 0.1, "Dumpsite": 0.0},
-}
+# Site-type fallbacks for gas capture and oxidation, keyed by the site-type strings the
+# `_trace` entry points carry, and shared by both via `_resolve_gas_capture` below. The
+# tables live in SWEET_python.gas_capture and SWEET_python.oxidation; these names stay
+# because importers read them from here. `uncertainty.py` in the TRACE pipeline mirrors
+# these tables (SWEET_GAS_CAPTURE_DEFAULTS / SWEET_OXIDATION_DEFAULTS_*), so a change
+# there must be made here too.
+GAS_EFF_OPTIONS = gas_capture.GAS_CAPTURE_EFFICIENCY_BY_SITE_TYPE_NAME
+OX_OPTIONS = oxidation.OX_OPTIONS_BY_SITE_TYPE_NAME
 
 
 def _resolve_gas_capture(flag, site_type, canonical_row, time_series_rows, years_range):
@@ -404,7 +412,7 @@ def country_population_trajectory(iso3):
 
 
 #: SWEET's own country names, lower-cased, to the codes its defaults are keyed by.
-_ISO3_BY_NAME = {name.lower(): iso3 for name, iso3 in defaults_2019.country_to_iso3.items()}
+_ISO3_BY_NAME = {name.lower(): iso3 for name, iso3 in defaults_2019.COUNTRY_TO_ISO3.items()}
 
 
 def _fold(text):
@@ -457,7 +465,7 @@ def _iso3_for(country):
     if not isinstance(country, str) or not country.strip():
         raise LookupError(f"No country given: {country!r}")
     country = country.strip()
-    if country.upper() in defaults_2019.region_lookup_iso3:
+    if country.upper() in defaults_2019.REGION_LOOKUP_ISO3:
         return country.upper()
     if country.lower() in _ISO3_BY_NAME:
         return _ISO3_BY_NAME[country.lower()]
@@ -754,73 +762,15 @@ class City:
         self.iso3 = None
         self.baseline_parameters = None
         self.scenario_parameters = {}
-        self.components = WasteTypeSet(
-            {"food", "green", "wood", "paper_cardboard", "textiles"}
-        )
-        self.div_components = {
-            "compost": WasteTypeSet({"food", "green", "wood", "paper_cardboard"}),
-            "anaerobic": WasteTypeSet({"food", "green", "wood", "paper_cardboard"}),
-            "combustion": WasteTypeSet(
-                {
-                    "food",
-                    "green",
-                    "wood",
-                    "paper_cardboard",
-                    "textiles",
-                    "plastic",
-                    "rubber",
-                    "metal",
-                    "glass",
-                    "other",
-                }
-            ),
-            "recycling": WasteTypeSet(
-                {
-                    "wood",
-                    "paper_cardboard",
-                    "textiles",
-                    "plastic",
-                    "rubber",
-                    "metal",
-                    "glass",
-                    "other",
-                }
-            ),
-        }
+        self.components = WasteTypeSet(DEGRADABLE_TYPES)
+        self.div_components = dict(DIVERSION_ELIGIBILITY)
         self.waste_types = list(WASTE_TYPES)
-        self.unprocessable = {
-            "food": 0.0192,
-            "green": 0.042522,
-            "wood": 0.07896,
-            "paper_cardboard": 0.12,
-        }
-        self.non_compostable_not_targeted = {
-            "food": 0.1,
-            "green": 0.05,
-            "wood": 0.05,
-            "paper_cardboard": 0.1,
-        }
-        # The share of the waste sent to incineration that is landfilled unburned,
-        # as the material it was. None: everything sent to an incinerator stops
-        # producing methane. It was 0.1, SWEET's Excel "Reject Rate for
-        # Combustibles", sourced there as best professional judgement, and that
-        # 10% of food and paper was most of the modelled methane of a city that
-        # incinerates heavily. What an incinerator leaves is ash, nearly all of it
-        # mineral: the EU's Industrial Emissions Directive (Art. 50) holds its
-        # organic carbon under 3%, EPA's WARM counts no methane from it, and Japan
-        # landfills under 1% of the waste it processes unburned.
-        # decision: combustion-reject
-        self.combustion_reject_rate = 0.0
-        self.recycling_reject_rates = {
-            "wood": 0.8,
-            "paper_cardboard": 0.775,
-            "textiles": 0.99,
-            "plastic": 0.875,
-            "metal": 0.955,
-            "glass": 0.88,
-            "rubber": 0.78,
-            "other": 0.87,
-        }
+        # Diversion reject rates; see constants.py for each.
+        self.unprocessable = dict(UNPROCESSABLE_SHARE)
+        self.non_compostable_not_targeted = dict(NON_COMPOSTABLE_NOT_TARGETED)
+        self.combustion_reject_rate = COMBUSTION_REJECT_RATE
+        # Yields: the share of each type sent to recycling that is recycled.
+        self.recycling_reject_rates = dict(RECYCLING_YIELD)
         self.latitude = None
         self.longitude = None
         self.years_range = range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
@@ -1358,7 +1308,7 @@ class City:
             data_source = current_row["Data Source (Population)"].iloc[0]
             country = current_row["Country"].iloc[0]
             iso3 = current_row["Country ISO3"].iloc[0]
-            region = defaults_2019.region_lookup_iso3[iso3]
+            region = defaults_2019.REGION_LOOKUP_ISO3[iso3]
             year_of_data_pop = current_row["Year of Data Collection (Population)"].iloc[0]
             year_of_data_msw = current_row["Year of Data Collection (MSW)"].iloc[0]
             waste_mass = row["Waste Generation Rate (tons/year)"]
@@ -1400,7 +1350,7 @@ class City:
                 "recycling": waste_fractions.loc[:, list(self.div_components["recycling"])].div(waste_fractions.loc[:, list(self.div_components["recycling"])].sum(axis=1), axis=0),
             }
             precipitation_zone = defaults_2019.get_precipitation_zone(current_row["Average Annual Precipitation (mm/year)"].iloc[0])
-            mef_compost = ((0.0055 * waste_fractions["food"].values[0] / (waste_fractions["food"].values[0] + waste_fractions["green"].values[0])+ 0.0139 * waste_fractions["green"].values[0] / (waste_fractions["food"].values[0] + waste_fractions["green"].values[0]))* 1.1023 * 0.7)
+            mef_compost = defaults_2019.compost_emission_factor(waste_fractions["food"].values[0], waste_fractions["green"].values[0])
             # A big city keeps its own UN city rates; any other grows with its
             # country's population, year by year (_city_growth).
             city_growth_historic = current_row["Population Growth Rate: Historic (%)"].iloc[0] / 100 + 1
@@ -1440,7 +1390,7 @@ class City:
             self.country = country
             iso3 = row["iso"]
             self.iso3 = iso3
-            region = defaults_2019.region_lookup[country]
+            region = defaults_2019.REGION_LOOKUP[country]
             self.region = region
             year_of_data_pop = row["population_year"]
             assert np.isnan(year_of_data_pop) == False, "Population year is missing"
@@ -1519,10 +1469,10 @@ class City:
             if waste_mass_load != waste_mass_load:
                 # Use per capita default
                 self.waste_mass_defaults = True
-                if iso3 in defaults_2019.msw_per_capita_country:
-                    waste_per_capita = defaults_2019.msw_per_capita_country[iso3]
+                if iso3 in defaults_2019.MSW_PER_CAPITA_COUNTRY:
+                    waste_per_capita = defaults_2019.MSW_PER_CAPITA_COUNTRY[iso3]
                 else:
-                    waste_per_capita = defaults_2019.msw_per_capita_defaults[region]
+                    waste_per_capita = defaults_2019.MSW_PER_CAPITA_DEFAULTS[region]
                 waste_mass_load = waste_per_capita * population / 1000 * 365
                 # A rate times this population is already the population year's
                 # waste, so the year adjustment below must not move it again.
@@ -1591,18 +1541,7 @@ class City:
 
             try:
                 # Calculate MEF for compost -- emissions from composted waste
-                mef_compost = (
-                    (
-                        0.0055
-                        * waste_fractions_dict["food"]
-                        / (waste_fractions_dict["food"] + waste_fractions_dict["green"])
-                        + 0.0139
-                        * waste_fractions_dict["green"]
-                        / (waste_fractions_dict["food"] + waste_fractions_dict["green"])
-                    )
-                    * 1.1023
-                    * 0.7
-                )  # / 28
+                mef_compost = defaults_2019.compost_emission_factor(waste_fractions_dict["food"], waste_fractions_dict["green"])
             except:
                 mef_compost = 0
 
@@ -1614,44 +1553,25 @@ class City:
             temperature = row["mean_yearly_temp_2000_2021"]
 
             # k values, which are decomposition rates
-            # ks = defaults_2019.k_defaults[precip_zone]
+            # ks = defaults_2019.K_DEFAULTS[precip_zone]
 
             # Model components
-            components = WasteTypeSet(
-                ["food", "green", "wood", "paper_cardboard", "textiles"]
-            )
+            components = WasteTypeSet(DEGRADABLE_TYPES)
 
             # Compost params
-            compost_components = WasteTypeSet(
-                ["food", "green", "wood", "paper_cardboard"]
-            )
+            compost_components = DIVERSION_ELIGIBILITY["compost"]
             compost_fraction = float(row["waste_treatment_compost_percent"]) / 100
             if np.isnan(compost_fraction):
                 compost_fraction = 0.0
 
             # Anaerobic digestion params
-            anaerobic_components = WasteTypeSet(
-                ["food", "green", "wood", "paper_cardboard"]
-            )
+            anaerobic_components = DIVERSION_ELIGIBILITY["anaerobic"]
             anaerobic_fraction = (
                 float(row["waste_treatment_anaerobic_digestion_percent"]) / 100
             )
 
             # Combustion params
-            combustion_components = WasteTypeSet(
-                [
-                    "food",
-                    "green",
-                    "wood",
-                    "paper_cardboard",
-                    "textiles",
-                    "plastic",
-                    "rubber",
-                    "metal",
-                    "glass",
-                    "other",
-                ]
-            )
+            combustion_components = DIVERSION_ELIGIBILITY["combustion"]
             value1 = float(row["waste_treatment_incineration_percent"])
             value2 = float(row["waste_treatment_advanced_thermal_treatment_percent"])
             if np.isnan(value1) and np.isnan(value2):
@@ -1660,18 +1580,7 @@ class City:
                 combustion_fraction = (np.nan_to_num(value1) + np.nan_to_num(value2)) / 100
 
             # Recycling params
-            recycling_components = WasteTypeSet(
-                [
-                    "wood",
-                    "paper_cardboard",
-                    "textiles",
-                    "plastic",
-                    "rubber",
-                    "metal",
-                    "glass",
-                    "other",
-                ]
-            )
+            recycling_components = DIVERSION_ELIGIBILITY["recycling"]
             recycling_fraction = float(row["waste_treatment_recycling_percent"]) / 100
 
             # How much waste is diverted to landfill with gas capture
@@ -1710,20 +1619,20 @@ class City:
             self.diversion_defaults = False
             self.landfill_split_defaults = False
             if all_nan_fill and all_nan_div:
-                if iso3 in defaults_2019.fraction_composted_country:
-                    compost_fraction = defaults_2019.fraction_composted_country[iso3]
+                if iso3 in defaults_2019.FRACTION_COMPOSTED_COUNTRY:
+                    compost_fraction = defaults_2019.FRACTION_COMPOSTED_COUNTRY[iso3]
                     self.diversion_defaults = True
-                elif region in defaults_2019.fraction_composted:
-                    compost_fraction = defaults_2019.fraction_composted[region]
+                elif region in defaults_2019.FRACTION_COMPOSTED:
+                    compost_fraction = defaults_2019.FRACTION_COMPOSTED[region]
                     self.diversion_defaults = True
                 else:
                     compost_fraction = 0.0
 
-                if iso3 in defaults_2019.fraction_incinerated_country:
-                    combustion_fraction = defaults_2019.fraction_incinerated_country[iso3]
+                if iso3 in defaults_2019.FRACTION_INCINERATED_COUNTRY:
+                    combustion_fraction = defaults_2019.FRACTION_INCINERATED_COUNTRY[iso3]
                     self.diversion_defaults = True
-                elif region in defaults_2019.fraction_incinerated:
-                    combustion_fraction = defaults_2019.fraction_incinerated[region]
+                elif region in defaults_2019.FRACTION_INCINERATED:
+                    combustion_fraction = defaults_2019.FRACTION_INCINERATED[region]
                     self.diversion_defaults = True
                 else:
                     combustion_fraction = 0.0
@@ -1735,22 +1644,22 @@ class City:
                         "dumpsite": 0.0,
                     }
                 else:
-                    if iso3 in defaults_2019.fraction_open_dumped_country:
+                    if iso3 in defaults_2019.FRACTION_OPEN_DUMPED_COUNTRY:
                         split_fractions = {
                             "landfill_w_capture": 0.0,
-                            "landfill_wo_capture": defaults_2019.fraction_landfilled_country[
+                            "landfill_wo_capture": defaults_2019.FRACTION_LANDFILLED_COUNTRY[
                                 iso3
                             ],
-                            "dumpsite": defaults_2019.fraction_open_dumped_country[iso3],
+                            "dumpsite": defaults_2019.FRACTION_OPEN_DUMPED_COUNTRY[iso3],
                         }
                         self.landfill_split_defaults = True
-                    elif region in defaults_2019.fraction_open_dumped:
+                    elif region in defaults_2019.FRACTION_OPEN_DUMPED:
                         split_fractions = {
                             "landfill_w_capture": 0.0,
-                            "landfill_wo_capture": defaults_2019.fraction_landfilled[
+                            "landfill_wo_capture": defaults_2019.FRACTION_LANDFILLED[
                                 region
                             ],
-                            "dumpsite": defaults_2019.fraction_open_dumped[region],
+                            "dumpsite": defaults_2019.FRACTION_OPEN_DUMPED[region],
                         }
                         self.landfill_split_defaults = True
                     else:
@@ -1785,20 +1694,20 @@ class City:
                     / 100,
                 }
             elif all_nan_div and total_fill < 0.99:
-                if iso3 in defaults_2019.fraction_composted_country:
-                    compost_fraction = defaults_2019.fraction_composted_country[iso3]
+                if iso3 in defaults_2019.FRACTION_COMPOSTED_COUNTRY:
+                    compost_fraction = defaults_2019.FRACTION_COMPOSTED_COUNTRY[iso3]
                     self.diversion_defaults = True
-                elif region in defaults_2019.fraction_composted:
-                    compost_fraction = defaults_2019.fraction_composted[region]
+                elif region in defaults_2019.FRACTION_COMPOSTED:
+                    compost_fraction = defaults_2019.FRACTION_COMPOSTED[region]
                     self.diversion_defaults = True
                 else:
                     compost_fraction = 0.0
 
-                if iso3 in defaults_2019.fraction_incinerated_country:
-                    combustion_fraction = defaults_2019.fraction_incinerated_country[iso3]
+                if iso3 in defaults_2019.FRACTION_INCINERATED_COUNTRY:
+                    combustion_fraction = defaults_2019.FRACTION_INCINERATED_COUNTRY[iso3]
                     self.diversion_defaults = True
-                elif region in defaults_2019.fraction_incinerated:
-                    combustion_fraction = defaults_2019.fraction_incinerated[region]
+                elif region in defaults_2019.FRACTION_INCINERATED:
+                    combustion_fraction = defaults_2019.FRACTION_INCINERATED[region]
                     self.diversion_defaults = True
                 else:
                     combustion_fraction = 0.0
@@ -1826,22 +1735,22 @@ class City:
                         "dumpsite": 0.0,
                     }
                 else:
-                    if iso3 in defaults_2019.fraction_open_dumped_country:
+                    if iso3 in defaults_2019.FRACTION_OPEN_DUMPED_COUNTRY:
                         split_fractions = {
                             "landfill_w_capture": 0.0,
-                            "landfill_wo_capture": defaults_2019.fraction_landfilled_country[
+                            "landfill_wo_capture": defaults_2019.FRACTION_LANDFILLED_COUNTRY[
                                 iso3
                             ],
-                            "dumpsite": defaults_2019.fraction_open_dumped_country[iso3],
+                            "dumpsite": defaults_2019.FRACTION_OPEN_DUMPED_COUNTRY[iso3],
                         }
                         self.landfill_split_defaults = True
-                    elif region in defaults_2019.fraction_open_dumped:
+                    elif region in defaults_2019.FRACTION_OPEN_DUMPED:
                         split_fractions = {
                             "landfill_w_capture": 0.0,
-                            "landfill_wo_capture": defaults_2019.fraction_landfilled[
+                            "landfill_wo_capture": defaults_2019.FRACTION_LANDFILLED[
                                 region
                             ],
-                            "dumpsite": defaults_2019.fraction_open_dumped[region],
+                            "dumpsite": defaults_2019.FRACTION_OPEN_DUMPED[region],
                         }
                         self.landfill_split_defaults = True
                     else:
@@ -2011,7 +1920,9 @@ class City:
             if non_compostable_not_targeted_total.isna().all():
                 non_compostable_not_targeted_total = pd.Series(0, index=years)
 
-            gas_capture_efficiency = pd.Series(0.6, index=years)
+            gas_capture_efficiency = pd.Series(
+                gas_capture.GAS_CAPTURE_EFFICIENCY["landfill"], index=years
+            )
 
             waste_mass = pd.Series(waste_mass, index=years)
 
@@ -2340,23 +2251,8 @@ class City:
         }
         # MCF by site type; see SWEET_python.mcf for the values and the depth rule.
         mcf_options = dict(mcf_defaults.MCF_BY_SITE_TYPE_NAME)
-        ox_options = {
-            "ox_nocap": {
-                "Sanitary Landfill": 0.1,
-                "Controlled Dumpsite": 0.05,
-                "Dumpsite": 0.0,
-            },
-            "ox_cap": {
-                "Sanitary Landfill": 0.22,
-                "Controlled Dumpsite": 0.1,
-                "Dumpsite": 0.0,
-            },
-        }
-        gas_eff_options = {
-            "Sanitary Landfill": 0.6,
-            "Controlled Dumpsite": 0.45,
-            "Dumpsite": 0.0,
-        }
+        ox_options = oxidation.OX_OPTIONS_BY_SITE_TYPE_NAME
+        gas_eff_options = gas_capture.GAS_CAPTURE_EFFICIENCY_BY_SITE_TYPE_NAME
         # No depth is available on this path. None means "unknown", which keeps
         # MCF at the uncategorised per-type value; it is not read as shallow.
         depth = None
@@ -2770,23 +2666,8 @@ class City:
             "Controlled Dumpsite": 1,
             "Dumpsite": 2,
         }
-        ox_options = {
-            "ox_nocap": {
-                "Sanitary Landfill": 0.1,
-                "Controlled Dumpsite": 0.05,
-                "Dumpsite": 0.0,
-            },
-            "ox_cap": {
-                "Sanitary Landfill": 0.22,
-                "Controlled Dumpsite": 0.1,
-                "Dumpsite": 0.0,
-            },
-        }
-        gas_eff_options = {
-            "Sanitary Landfill": 0.6,
-            "Controlled Dumpsite": 0.45,
-            "Dumpsite": 0.0,
-        }
+        ox_options = oxidation.OX_OPTIONS_BY_SITE_TYPE_NAME
+        gas_eff_options = gas_capture.GAS_CAPTURE_EFFICIENCY_BY_SITE_TYPE_NAME
         # No depth is available on this path. None means "unknown", which keeps
         # MCF at the uncategorised per-type value; it is not read as shallow.
         depth = None
@@ -3043,9 +2924,7 @@ class City:
         )
         # Baseline flaring destruction efficiency, set explicitly to the canonical default
         # (was unset -> fell to model_v2's internal default). No per-site source exists;
-        # mitigation raises it to 0.98/0.99 via _gccs_flaring (max/clip). Local import
-        # avoids the dst_common <-> city_params import cycle.
-        from SWEET_python.dst_common import DEFAULT_FLARE_EFFICIENCY
+        # mitigation raises it to 0.98/0.99 via _gccs_flaring (max/clip).
         # decision: flaring-uniform
         flaring_series = pd.Series(DEFAULT_FLARE_EFFICIENCY, index=self.years_range)
         new_landfill = Landfill(
@@ -3090,7 +2969,7 @@ class City:
         self.sum_landfill_emissions(scenario=0, trace_monthly=True)
 
         for landfill in baseline.landfills:
-            landfill.emissions = landfill.emissions.apply(self.convert_methane_m3_to_ton_co2e) / 28
+            landfill.emissions = landfill.emissions.apply(self.convert_methane_m3_to_ton_co2e) / GWP100_CH4
 
     def citysite_estimate_trace(self, canonical_row=None, time_series_rows=None, citysite_rows=None, pop_data=None):
         """
@@ -3269,8 +3148,7 @@ class City:
         )
         # Baseline flaring destruction efficiency, set explicitly to the canonical default
         # (see site_only_estimate_trace). Applies to both the single- and multi-city
-        # landfill constructors below. Local import avoids the dst_common import cycle.
-        from SWEET_python.dst_common import DEFAULT_FLARE_EFFICIENCY
+        # landfill constructors below.
         # decision: flaring-uniform
         flaring_series = pd.Series(DEFAULT_FLARE_EFFICIENCY, index=self.years_range)
         baseline._singapore_k(advanced_baseline=True)
@@ -3427,7 +3305,7 @@ class City:
         self.sum_landfill_emissions(scenario=0, trace_monthly=True)
 
         for landfill in baseline.landfills:
-            landfill.emissions = landfill.emissions.apply(self.convert_methane_m3_to_ton_co2e) / 28
+            landfill.emissions = landfill.emissions.apply(self.convert_methane_m3_to_ton_co2e) / GWP100_CH4
 
     def import_basics(self, row) -> None:
         """
@@ -3443,7 +3321,7 @@ class City:
         data_source = row["population_data_source"]
         self.country = row["country"]
         self.iso3 = row["iso"]
-        self.region = defaults_2019.region_lookup[self.country]
+        self.region = defaults_2019.REGION_LOOKUP[self.country]
         year_of_data_pop = row["population_year"]
         assert np.isnan(year_of_data_pop) == False, "Population year is missing"
         year_of_data_msw = row["msw_collected_year"]
@@ -3488,10 +3366,10 @@ class City:
         if waste_mass_load != waste_mass_load:
             # Use per capita default
             waste_mass_defaults = True
-            if self.iso3 in defaults_2019.msw_per_capita_country:
-                waste_per_capita = defaults_2019.msw_per_capita_country[self.iso3]
+            if self.iso3 in defaults_2019.MSW_PER_CAPITA_COUNTRY:
+                waste_per_capita = defaults_2019.MSW_PER_CAPITA_COUNTRY[self.iso3]
             else:
-                waste_per_capita = defaults_2019.msw_per_capita_defaults[self.region]
+                waste_per_capita = defaults_2019.MSW_PER_CAPITA_DEFAULTS[self.region]
             waste_mass_load = waste_per_capita * population / 1000 * 365
             # A rate times this population is already the population year's
             # waste, so the year adjustment below must not move it again.
@@ -3571,58 +3449,17 @@ class City:
 
         try:
             # Calculate MEF for compost -- emissions from composted waste
-            mef_compost = (
-                (
-                    0.0055
-                    * waste_fractions["food"]
-                    / (waste_fractions["food"] + waste_fractions["green"])
-                    + 0.0139
-                    * waste_fractions["green"]
-                    / (waste_fractions["food"] + waste_fractions["green"])
-                )
-                * 1.1023
-                * 0.7
-            )  # / 28
+            mef_compost = defaults_2019.compost_emission_factor(waste_fractions["food"], waste_fractions["green"])
             mef_compost = mef_compost.at[2000]
         except:
             mef_compost = 0
 
         # Model components
-        self.components = WasteTypeSet(
-            ["food", "green", "wood", "paper_cardboard", "textiles"]
-        )
-        self.compost_components = WasteTypeSet(
-            ["food", "green", "wood", "paper_cardboard"]
-        )  # Double check we don't want to include paper
-        self.anaerobic_components = WasteTypeSet(
-            ["food", "green", "wood", "paper_cardboard"]
-        )
-        self.combustion_components = WasteTypeSet(
-            [
-                "food",
-                "green",
-                "wood",
-                "paper_cardboard",
-                "textiles",
-                "plastic",
-                "rubber",
-                "metal",
-                "glass",
-                "other",
-            ]
-        )
-        self.recycling_components = WasteTypeSet(
-            [
-                "wood",
-                "paper_cardboard",
-                "textiles",
-                "plastic",
-                "rubber",
-                "metal",
-                "glass",
-                "other",
-            ]
-        )
+        self.components = WasteTypeSet(DEGRADABLE_TYPES)
+        self.compost_components = DIVERSION_ELIGIBILITY["compost"]  # Double check we don't want to include paper
+        self.anaerobic_components = DIVERSION_ELIGIBILITY["anaerobic"]
+        self.combustion_components = DIVERSION_ELIGIBILITY["combustion"]
+        self.recycling_components = DIVERSION_ELIGIBILITY["recycling"]
 
         self.div_components = {}
         self.div_components["compost"] = self.compost_components
@@ -3677,7 +3514,7 @@ class City:
             self.iso3 = canonical_row["iso3_country"]
             iso3s = pd.read_csv(defaults_2019._find_iso3_csv())
             self.country = iso3s[iso3s['iso3'] == self.iso3]['name'].values[0]
-            self.region = defaults_2019.region_lookup[self.country]
+            self.region = defaults_2019.REGION_LOOKUP[self.country]
             population = 100
 
             # WPP2024 per-year population series for this country (None -> the
@@ -3711,11 +3548,11 @@ class City:
                 waste_mass_load = float(canonical_row['annual_incoming_waste'])  # unit is tons
                 if np.isnan(waste_mass_load):
                     waste_mass_defaults = True
-                    if self.iso3 in defaults_2019.msw_per_capita_country:
-                        waste_per_capita = defaults_2019.msw_per_capita_country[self.iso3]
+                    if self.iso3 in defaults_2019.MSW_PER_CAPITA_COUNTRY:
+                        waste_per_capita = defaults_2019.MSW_PER_CAPITA_COUNTRY[self.iso3]
                         year_of_data_msw = 2019
                     else:
-                        waste_per_capita = defaults_2019.msw_per_capita_defaults[self.region]
+                        waste_per_capita = defaults_2019.MSW_PER_CAPITA_DEFAULTS[self.region]
                         year_of_data_msw = 2019
                     waste_mass_load = waste_per_capita * population / 1000 * 365
                 waste_per_capita = waste_mass_load * 1000 / population / 365
@@ -4007,58 +3844,17 @@ class City:
 
             try:
                 # Calculate MEF for compost -- emissions from composted waste
-                mef_compost = (
-                    (
-                        0.0055
-                        * waste_fractions["food"]
-                        / (waste_fractions["food"] + waste_fractions["green"])
-                        + 0.0139
-                        * waste_fractions["green"]
-                        / (waste_fractions["food"] + waste_fractions["green"])
-                    )
-                    * 1.1023
-                    * 0.7
-                )  # / 28
+                mef_compost = defaults_2019.compost_emission_factor(waste_fractions["food"], waste_fractions["green"])
                 mef_compost = mef_compost.at[2000]
             except:
                 mef_compost = 0
 
             # Model components
-            self.components = WasteTypeSet(
-                ["food", "green", "wood", "paper_cardboard", "textiles"]
-            )
-            self.compost_components = WasteTypeSet(
-                ["food", "green", "wood", "paper_cardboard"]
-            )  # Double check we don't want to include paper
-            self.anaerobic_components = WasteTypeSet(
-                ["food", "green", "wood", "paper_cardboard"]
-            )
-            self.combustion_components = WasteTypeSet(
-                [
-                    "food",
-                    "green",
-                    "wood",
-                    "paper_cardboard",
-                    "textiles",
-                    "plastic",
-                    "rubber",
-                    "metal",
-                    "glass",
-                    "other",
-                ]
-            )
-            self.recycling_components = WasteTypeSet(
-                [
-                    "wood",
-                    "paper_cardboard",
-                    "textiles",
-                    "plastic",
-                    "rubber",
-                    "metal",
-                    "glass",
-                    "other",
-                ]
-            )
+            self.components = WasteTypeSet(DEGRADABLE_TYPES)
+            self.compost_components = DIVERSION_ELIGIBILITY["compost"]  # Double check we don't want to include paper
+            self.anaerobic_components = DIVERSION_ELIGIBILITY["anaerobic"]
+            self.combustion_components = DIVERSION_ELIGIBILITY["combustion"]
+            self.recycling_components = DIVERSION_ELIGIBILITY["recycling"]
 
             self.div_components = {}
             self.div_components["compost"] = self.compost_components
@@ -4116,7 +3912,7 @@ class City:
             data_source_waste = canonical_row['Data Source: Waste'].values[0]
             self.country = canonical_row["Country"].values[0]
             self.iso3 = canonical_row["Country ISO3"].values[0]
-            self.region = defaults_2019.region_lookup[self.country]
+            self.region = defaults_2019.REGION_LOOKUP[self.country]
             year_of_data_pop = 2025 #row["population_year"]
             assert np.isnan(year_of_data_pop) == False, "Population year is missing"
             try:
@@ -4265,11 +4061,11 @@ class City:
             )  # unit is tons
             if np.isnan(waste_mass_load):
                 waste_mass_defaults = True
-                if self.iso3 in defaults_2019.msw_per_capita_country:
-                    waste_per_capita = defaults_2019.msw_per_capita_country[self.iso3]
+                if self.iso3 in defaults_2019.MSW_PER_CAPITA_COUNTRY:
+                    waste_per_capita = defaults_2019.MSW_PER_CAPITA_COUNTRY[self.iso3]
                     year_of_data_msw = 2019
                 else:
-                    waste_per_capita = defaults_2019.msw_per_capita_defaults[self.region]
+                    waste_per_capita = defaults_2019.MSW_PER_CAPITA_DEFAULTS[self.region]
                     year_of_data_msw = 2019
                 waste_mass_load = waste_per_capita * population / 1000 * 365
             waste_per_capita = waste_mass_load * 1000 / population / 365
@@ -4300,58 +4096,17 @@ class City:
 
             try:
                 # Calculate MEF for compost -- emissions from composted waste
-                mef_compost = (
-                    (
-                        0.0055
-                        * waste_fractions["food"]
-                        / (waste_fractions["food"] + waste_fractions["green"])
-                        + 0.0139
-                        * waste_fractions["green"]
-                        / (waste_fractions["food"] + waste_fractions["green"])
-                    )
-                    * 1.1023
-                    * 0.7
-                )  # / 28
+                mef_compost = defaults_2019.compost_emission_factor(waste_fractions["food"], waste_fractions["green"])
                 mef_compost = mef_compost.at[2000]
             except:
                 mef_compost = 0
 
             # Model components
-            self.components = WasteTypeSet(
-                ["food", "green", "wood", "paper_cardboard", "textiles"]
-            )
-            self.compost_components = WasteTypeSet(
-                ["food", "green", "wood", "paper_cardboard"]
-            )  # Double check we don't want to include paper
-            self.anaerobic_components = WasteTypeSet(
-                ["food", "green", "wood", "paper_cardboard"]
-            )
-            self.combustion_components = WasteTypeSet(
-                [
-                    "food",
-                    "green",
-                    "wood",
-                    "paper_cardboard",
-                    "textiles",
-                    "plastic",
-                    "rubber",
-                    "metal",
-                    "glass",
-                    "other",
-                ]
-            )
-            self.recycling_components = WasteTypeSet(
-                [
-                    "wood",
-                    "paper_cardboard",
-                    "textiles",
-                    "plastic",
-                    "rubber",
-                    "metal",
-                    "glass",
-                    "other",
-                ]
-            )
+            self.components = WasteTypeSet(DEGRADABLE_TYPES)
+            self.compost_components = DIVERSION_ELIGIBILITY["compost"]  # Double check we don't want to include paper
+            self.anaerobic_components = DIVERSION_ELIGIBILITY["anaerobic"]
+            self.combustion_components = DIVERSION_ELIGIBILITY["combustion"]
+            self.recycling_components = DIVERSION_ELIGIBILITY["recycling"]
 
             self.div_components = {}
             self.div_components["compost"] = self.compost_components
@@ -4413,23 +4168,23 @@ class City:
         # First case to check: all diversions and landfills are 0. Use defaults.
         diversion_defaults = False
         if np.isnan(compost_fraction):
-            if self.iso3 in defaults_2019.fraction_composted_country:
-                compost_fraction = defaults_2019.fraction_composted_country[self.iso3]
+            if self.iso3 in defaults_2019.FRACTION_COMPOSTED_COUNTRY:
+                compost_fraction = defaults_2019.FRACTION_COMPOSTED_COUNTRY[self.iso3]
                 diversion_defaults = True
-            elif self.region in defaults_2019.fraction_composted:
-                compost_fraction = defaults_2019.fraction_composted[self.region]
+            elif self.region in defaults_2019.FRACTION_COMPOSTED:
+                compost_fraction = defaults_2019.FRACTION_COMPOSTED[self.region]
                 diversion_defaults = True
             else:
                 compost_fraction = 0.0
 
         if np.isnan(combustion_fraction):
-            if self.iso3 in defaults_2019.fraction_incinerated_country:
-                combustion_fraction = defaults_2019.fraction_incinerated_country[
+            if self.iso3 in defaults_2019.FRACTION_INCINERATED_COUNTRY:
+                combustion_fraction = defaults_2019.FRACTION_INCINERATED_COUNTRY[
                     self.iso3
                 ]
                 diversion_defaults = True
-            elif self.region in defaults_2019.fraction_incinerated:
-                combustion_fraction = defaults_2019.fraction_incinerated[self.region]
+            elif self.region in defaults_2019.FRACTION_INCINERATED:
+                combustion_fraction = defaults_2019.FRACTION_INCINERATED[self.region]
                 diversion_defaults = True
             else:
                 combustion_fraction = 0.0
@@ -4693,7 +4448,7 @@ class City:
                 open_date=MODEL_START_YEAR,
                 close_date=MODEL_END_YEAR,
                 site_type="landfill",
-                mcf=pd.Series(1, index=years),
+                mcf=pd.Series(mcf_defaults.MCF_MANAGED_ANAEROBIC, index=years),
                 city_params_dict=city_params_dict,
                 city_instance_attrs=city_parameters.city_instance_attrs,
                 landfill_index=0,
@@ -4705,7 +4460,7 @@ class City:
                 open_date=MODEL_START_YEAR,
                 close_date=MODEL_END_YEAR,
                 site_type="landfill",
-                mcf=pd.Series(1, index=years),
+                mcf=pd.Series(mcf_defaults.MCF_MANAGED_ANAEROBIC, index=years),
                 city_params_dict=city_params_dict,
                 city_instance_attrs=city_parameters.city_instance_attrs,
                 landfill_index=1,
@@ -4979,7 +4734,7 @@ class City:
         except LookupError:
             raise ValueError(f"Country '{country}' not found.")
 
-        region = defaults_2019.region_lookup_iso3.get(iso3)
+        region = defaults_2019.REGION_LOOKUP_ISO3.get(iso3)
         if region is None:
             raise ValueError(f"Region for ISO3 code '{iso3}' not found.")
 
@@ -4991,8 +4746,8 @@ class City:
         growth_rate_future = FALLBACK_GROWTH_RATE_FUTURE
 
         # Calculate waste per capita
-        waste_per_capita = defaults_2019.msw_per_capita_country.get(
-            iso3, defaults_2019.msw_per_capita_defaults.get(region, 0)
+        waste_per_capita = defaults_2019.MSW_PER_CAPITA_COUNTRY.get(
+            iso3, defaults_2019.MSW_PER_CAPITA_DEFAULTS.get(region, 0)
         )
         waste_mass = waste_per_capita * population / 1000 * 365  # in tons/year
 
@@ -5013,19 +4768,12 @@ class City:
         try:
             food_frac = waste_fractions_normalized["food"]
             green_frac = waste_fractions_normalized["green"]
-            mef_compost = (
-                (
-                    0.0055 * food_frac / (food_frac + green_frac)
-                    + 0.0139 * green_frac / (food_frac + green_frac)
-                )
-                * 1.1023
-                * 0.7
-            )
+            mef_compost = defaults_2019.compost_emission_factor(food_frac, green_frac)
         except:
             mef_compost = 0.0
 
         # Get decomposition rates
-        ks = defaults_2019.k_defaults.get(precip_zone, None)
+        ks = defaults_2019.K_DEFAULTS.get(precip_zone, None)
         ks = DecompositionRates(
             food=pd.Series(ks.get("food", 0.0), index=years),
             green=pd.Series(ks.get("green", 0.0), index=years),
@@ -5056,11 +4804,11 @@ class City:
         city_params_dict = {}  # Define appropriately or pass as needed
 
         # Diversion fractions
-        compost_frac = defaults_2019.fraction_composted_country.get(
-            iso3, defaults_2019.fraction_composted.get(region, 0.0)
+        compost_frac = defaults_2019.FRACTION_COMPOSTED_COUNTRY.get(
+            iso3, defaults_2019.FRACTION_COMPOSTED.get(region, 0.0)
         )
-        combustion_frac = defaults_2019.fraction_incinerated_country.get(
-            iso3, defaults_2019.fraction_incinerated.get(region, 0.0)
+        combustion_frac = defaults_2019.FRACTION_INCINERATED_COUNTRY.get(
+            iso3, defaults_2019.FRACTION_INCINERATED.get(region, 0.0)
         )
 
         # Create DataFrame with the same values for all years
@@ -5131,7 +4879,7 @@ class City:
             non_compostable_not_targeted_total = pd.Series(0, index=years)
 
         # Create gas_capture_efficiency Series
-        gas_capture_efficiency_value = 0.6
+        gas_capture_efficiency_value = gas_capture.GAS_CAPTURE_EFFICIENCY["landfill"]
         gas_capture_efficiency_series = pd.Series(
             gas_capture_efficiency_value, index=years_range
         )
@@ -5321,7 +5069,7 @@ class City:
         except LookupError:
             raise ValueError(f"Country '{country}' not found.")
 
-        region = defaults_2019.region_lookup_iso3.get(iso3)
+        region = defaults_2019.REGION_LOOKUP_ISO3.get(iso3)
         if region is None:
             raise ValueError(f"Region for ISO3 code '{iso3}' not found.")
 
@@ -5365,14 +5113,7 @@ class City:
             # 0 is food, 1 is green
             food_frac = waste_fractions.baseline[0]
             green_frac = waste_fractions.baseline[1]
-            mef_compost = (
-                (
-                    0.0055 * food_frac / (food_frac + green_frac)
-                    + 0.0139 * green_frac / (food_frac + green_frac)
-                )
-                * 1.1023
-                * 0.7
-            )
+            mef_compost = defaults_2019.compost_emission_factor(food_frac, green_frac)
         except:
             mef_compost = 0.0
 
@@ -5429,12 +5170,7 @@ class City:
                 / fraction_compostable_types
                 for x in self.div_components["compost"]
             }
-            non_compostable_not_targeted = {
-                "food": 0.1,
-                "green": 0.05,
-                "wood": 0.05,
-                "paper_cardboard": 0.1,
-            }
+            non_compostable_not_targeted = NON_COMPOSTABLE_NOT_TARGETED
             non_compostable_not_targeted_total = sum(
                 [
                     non_compostable_not_targeted[x] * compost_waste_fractions[x]
@@ -5679,8 +5415,8 @@ class City:
         compost_emissions = parameters.divs_df.compost * parameters.mef_compost
         anaerobic_emissions = (
             parameters.divs_df.anaerobic
-            * defaults_2019.mef_anaerobic
-            * defaults_2019.ch4_to_co2e
+            * defaults_2019.MEF_ANAEROBIC
+            * defaults_2019.CH4_TO_CO2E
         )
 
         parameters.organic_emissions = compost_emissions.add(
@@ -5713,7 +5449,7 @@ class City:
                 x.emissions.reindex(years_union, fill_value=0).map(
                     self.convert_methane_m3_to_ton_co2e
                 )
-                / 28
+                / GWP100_CH4
                 for x in valid_landfills
             ]
         elif simple:
@@ -5728,7 +5464,7 @@ class City:
                 x.emissions.reindex(years_union, fill_value=0).map(
                     self.convert_methane_m3_to_ton_co2e
                 )
-                / 28
+                / GWP100_CH4
                 for x in parameters.landfills
             ]
         else:
@@ -5743,7 +5479,7 @@ class City:
                 x.emissions.reindex(years_union, fill_value=0).map(
                     self.convert_methane_m3_to_ton_co2e
                 )
-                / 28
+                / GWP100_CH4
                 for x in parameters.landfills
             ]
 
@@ -5770,7 +5506,7 @@ class City:
             organic_emissions.reindex(
                 columns=summed_landfill_emissions.columns, fill_value=0
             )
-            / 28
+            / GWP100_CH4
         )
 
         # Repeat with addition of diverted waste emissions
@@ -7105,10 +6841,10 @@ class City:
         Returns:
             float: Equivalent CO2e in tons.
         """
-        density_kg_per_m3 = 0.7168
+        density_kg_per_m3 = CH4_DENSITY_KG_PER_M3
         mass_kg = volume_m3 * density_kg_per_m3
         mass_ton = mass_kg / 1000
-        mass_co2e = mass_ton * 28
+        mass_co2e = mass_ton * GWP100_CH4
         return mass_co2e
 
     @staticmethod
@@ -7122,8 +6858,8 @@ class City:
         Returns:
             float: Equivalent volume of methane in cubic meters.
         """
-        density_kg_per_m3 = 0.7168
-        mass_ton = mass_co2e / 28
+        density_kg_per_m3 = CH4_DENSITY_KG_PER_M3
+        mass_ton = mass_co2e / GWP100_CH4
         mass_kg = mass_ton * 1000
         volume_m3 = mass_kg / density_kg_per_m3
         return volume_m3
@@ -7444,43 +7180,43 @@ class City:
             skip_ox = False
             if add_gas:
                 scenario_parameters.landfills[0].gas_capture_efficiency = pd.Series(
-                    0.6, index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
+                    gas_capture.GAS_CAPTURE_EFFICIENCY["landfill"], index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
                 )
                 scenario_parameters.landfills[0].oxidation_factor = pd.Series(
-                    0.22, index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
+                    oxidation.OX_WITH_CAPTURE["landfill"], index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
                 )
                 scenario_parameters.landfills[0].mcf = pd.Series(
-                    1, index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
+                    mcf_defaults.MCF_MANAGED_ANAEROBIC, index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
                 )
 
                 scenario_parameters.landfills[1].gas_capture_efficiency = pd.Series(
-                    0.6, index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
+                    gas_capture.GAS_CAPTURE_EFFICIENCY["landfill"], index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
                 )
                 scenario_parameters.landfills[1].gas_capture_efficiency.loc[
                     :implement_year
                 ] = 0.0
                 scenario_parameters.landfills[1].oxidation_factor = pd.Series(
-                    0.22, index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
+                    oxidation.OX_WITH_CAPTURE["landfill"], index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
                 )
                 scenario_parameters.landfills[1].oxidation_factor.loc[
                     :implement_year
-                ] = 0.1
+                ] = oxidation.OX_NO_CAPTURE["landfill"]
                 scenario_parameters.landfills[1].mcf = pd.Series(
-                    1, index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
+                    mcf_defaults.MCF_MANAGED_ANAEROBIC, index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
                 )
                 # Here we convert the dumpsite to a controlled dumpsite w gas capture
                 scenario_parameters.landfills[2].gas_capture_efficiency = pd.Series(
-                    0.3, index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
+                    gas_capture.CONVERTED_DUMP_CAPTURE_EFFICIENCY, index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
                 )
                 scenario_parameters.landfills[2].gas_capture_efficiency.loc[
                     :implement_year
                 ] = 0.0
                 scenario_parameters.landfills[2].oxidation_factor = pd.Series(
-                    0.1, index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
+                    oxidation.OX_WITH_CAPTURE["controlled_dumpsite"], index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1)
                 )
                 scenario_parameters.landfills[2].oxidation_factor.loc[
                     :implement_year
-                ] = 0.0
+                ] = oxidation.OX_NO_CAPTURE["dumpsite"]
                 # Converting the dumpsite to a controlled dumpsite leaves MCF
                 # unchanged: both dump types take the uncategorised 0.6 (see
                 # SWEET_python.mcf). The conversion's benefit here comes from the
@@ -7548,9 +7284,13 @@ class City:
             if add_gas:
                 for lf in scenario_parameters.landfills:
                     if lf.site_type == "Sanitary Landfill":
-                        lf.gas_capture_efficiency.loc[implement_year:] = 0.6
-                        lf.oxidation_factor.loc[implement_year:] = 0.22
-                        lf.mcf.loc[implement_year:] = 1
+                        lf.gas_capture_efficiency.loc[implement_year:] = (
+                            gas_capture.GAS_CAPTURE_EFFICIENCY["landfill"]
+                        )
+                        lf.oxidation_factor.loc[implement_year:] = (
+                            oxidation.OX_WITH_CAPTURE["landfill"]
+                        )
+                        lf.mcf.loc[implement_year:] = mcf_defaults.MCF_MANAGED_ANAEROBIC
 
             if move_gas:
                 # 1) grab the 2024 fractions and gas-flags as numpy arrays
@@ -7613,7 +7353,10 @@ class City:
                     open_date=implement_year,
                     close_date=MODEL_END_YEAR,
                     site_type="Sanitary Landfill",
-                    mcf=pd.Series(1, index=range(implement_year, MODEL_END_YEAR + 1)),
+                    mcf=pd.Series(
+                        mcf_defaults.MCF_MANAGED_ANAEROBIC,
+                        index=range(implement_year, MODEL_END_YEAR + 1),
+                    ),
                     city_params_dict=scenario_parameters.landfills[i].city_params_dict,
                     city_instance_attrs=scenario_parameters.landfills[
                         i
@@ -7624,7 +7367,8 @@ class City:
                     scenario=0,
                     new_baseline=False,
                     gas_capture_efficiency=pd.Series(
-                        0.6, index=range(implement_year, MODEL_END_YEAR + 1)
+                        gas_capture.GAS_CAPTURE_EFFICIENCY["landfill"],
+                        index=range(implement_year, MODEL_END_YEAR + 1),
                     ),
                     # flaring=pd.Series(flaring, index=year_range),
                     # leachate_circulate=leachate_circulate[i],
@@ -7632,7 +7376,10 @@ class City:
                     advanced=True,
                     latlon=lf.latlon,
                     ks=scenario_parameters.ks,
-                    oxidation_factor=pd.Series(0.22, index=range(implement_year, MODEL_END_YEAR + 1)),
+                    oxidation_factor=pd.Series(
+                        oxidation.OX_WITH_CAPTURE["landfill"],
+                        index=range(implement_year, MODEL_END_YEAR + 1),
+                    ),
                     rmi_id=999999999,
                 )
                 scenario_parameters.landfills.append(new_landfill)
@@ -8022,12 +7769,13 @@ class City:
         # MCF by landfill type index; see SWEET_python.mcf. A depth of None
         # means the DST caller had no answer, and keeps the uncategorised value.
         gas_capture_efficiencies = {}
-        gas_capture_efficiencies["ameliorated"] = [0.5, 0.3, 0]
-        gas_capture_efficiencies["not_ameliorated"] = [0.6, 0.45, 0]
-        self.ox_options = {
-            "ox_nocap": {"landfill": 0.1, "controlled_dumpsite": 0.05, "dumpsite": 0.0},
-            "ox_cap": {"landfill": 0.22, "controlled_dumpsite": 0.1, "dumpsite": 0.0},
-        }
+        gas_capture_efficiencies["ameliorated"] = list(
+            gas_capture.UPGRADED_SITE_CAPTURE_EFFICIENCY_BY_TYPE
+        )
+        gas_capture_efficiencies["not_ameliorated"] = list(
+            gas_capture.GAS_CAPTURE_EFFICIENCY_BY_TYPE
+        )
+        self.ox_options = oxidation.ox_options()
         landfill_types = ["landfill", "controlled_dumpsite", "dumpsite"]
         scenario_parameters.landfills = []
         for i, lf_type in enumerate(new_landfill_types["scenario"]):
@@ -8080,7 +7828,7 @@ class City:
                 ):
                     ameliorated = True
                     if lf_type == 0:
-                        ox_value["scenario"] = 0.18
+                        ox_value["scenario"] = oxidation.OX_REMEDIATED_TO_LANDFILL
                     else:
                         ox_value["scenario"] = self.ox_options["ox_cap"][
                             landfill_types[lf_type]
@@ -8159,9 +7907,9 @@ class City:
             flaring = {}
             for s in ["baseline", "scenario"]:
                 if new_landfill_flaring[s][i] is None:
-                    flaring[s] = 1
+                    flaring[s] = FLARE_EFFICIENCY_WHEN_UNSET
                 elif new_landfill_flaring[s][i] == 0:
-                    flaring[s] = 1
+                    flaring[s] = FLARE_EFFICIENCY_WHEN_UNSET
                 elif new_landfill_flaring[s][i] > 0:
                     flaring[s] = new_landfill_flaring[s][i]
             flaring_series = pd.Series(index=years)
@@ -8421,7 +8169,7 @@ class City:
 
         scenario_parameters = copy.deepcopy(self.baseline_parameters)
         baseline_parameters = copy.deepcopy(self.baseline_parameters)
-        model_year_min = 1950
+        model_year_min = MODEL_YEAR_MIN
         model_year_max = MODEL_END_YEAR
 
         def _variant_value(value, label):
@@ -8737,12 +8485,13 @@ class City:
         # MCF by landfill type index; see SWEET_python.mcf. A depth of None
         # means the DST caller had no answer, and keeps the uncategorised value.
         gas_capture_efficiencies = {}
-        gas_capture_efficiencies["ameliorated"] = [0.5, 0.3, 0]
-        gas_capture_efficiencies["not_ameliorated"] = [0.6, 0.45, 0]
-        self.ox_options = {
-            "ox_nocap": {"landfill": 0.1, "controlled_dumpsite": 0.05, "dumpsite": 0.0},
-            "ox_cap": {"landfill": 0.22, "controlled_dumpsite": 0.1, "dumpsite": 0.0},
-        }
+        gas_capture_efficiencies["ameliorated"] = list(
+            gas_capture.UPGRADED_SITE_CAPTURE_EFFICIENCY_BY_TYPE
+        )
+        gas_capture_efficiencies["not_ameliorated"] = list(
+            gas_capture.GAS_CAPTURE_EFFICIENCY_BY_TYPE
+        )
+        self.ox_options = oxidation.ox_options()
         landfill_types = ["landfill", "controlled_dumpsite", "dumpsite"]
         scenario_parameters.landfills = []
 
@@ -8794,7 +8543,7 @@ class City:
             ):
                 ameliorated = True
                 if new_lf_type == 0:
-                    ox_value["scenario"] = 0.18
+                    ox_value["scenario"] = oxidation.OX_REMEDIATED_TO_LANDFILL
                 else:
                     ox_value["scenario"] = self.ox_options["ox_cap"][
                         landfill_types[new_lf_type]
@@ -8871,8 +8620,6 @@ class City:
         # `except`, so the user-supplied efficiency was silently ignored and flaring was
         # always forced to the default. Read `new_landfill_flaring`, falling back to the
         # canonical default only when no value is supplied.
-        from SWEET_python.dst_common import DEFAULT_FLARE_EFFICIENCY
-
         flaring = {}
         for scenario_key in ("baseline", "scenario"):
             value = (
@@ -8975,7 +8722,7 @@ class City:
         for landfill in scenario_parameters.landfills:
             landfill.estimate_emissions(skip_ox=True)
 
-        components = ["food", "green", "wood", "paper_cardboard", "textiles"]
+        components = list(DEGRADABLE_TYPES)
         baseline_parameters.organic_emissions = pd.DataFrame(0, index=years, columns=components)
         scenario_parameters.organic_emissions = pd.DataFrame(0, index=years, columns=components)
         self.baseline_parameters = baseline_parameters
@@ -9139,12 +8886,13 @@ class City:
         # mcf_options['not_ameliorated']['gas_capture'] = [0.22, 0.1, 0]
         # mcf_options['not_ameliorated']['no_gas_capture'] = [0.1, 0.05, 0]
         gas_capture_efficiencies = {}
-        gas_capture_efficiencies["ameliorated"] = [0.5, 0.3, 0]
-        gas_capture_efficiencies["not_ameliorated"] = [0.6, 0.45, 0]
-        self.ox_options = {
-            "ox_nocap": {"landfill": 0.1, "controlled_dumpsite": 0.05, "dumpsite": 0.0},
-            "ox_cap": {"landfill": 0.22, "controlled_dumpsite": 0.1, "dumpsite": 0.0},
-        }
+        gas_capture_efficiencies["ameliorated"] = list(
+            gas_capture.UPGRADED_SITE_CAPTURE_EFFICIENCY_BY_TYPE
+        )
+        gas_capture_efficiencies["not_ameliorated"] = list(
+            gas_capture.GAS_CAPTURE_EFFICIENCY_BY_TYPE
+        )
+        self.ox_options = oxidation.ox_options()
         landfill_types = ["landfill", "controlled_dumpsite", "dumpsite"]
         scenario_parameters.landfills = []
         for i, lf_type in enumerate(new_landfill_types):
@@ -9356,7 +9104,7 @@ class City:
             site_type = sites_list.loc[
                 sites_list["RMI ID"] == site_id, "Site Type"
             ].values[0]
-            region = defaults_2019.region_lookup_iso3.get(iso3)
+            region = defaults_2019.REGION_LOOKUP_ISO3.get(iso3)
             if region is None:
                 raise ValueError(f"Region for ISO3 code '{iso3}' not found.")
         else:
@@ -9371,7 +9119,7 @@ class City:
                 if country is None:
                     raise ValueError(f"No country at {latlon[0]}, {latlon[1]}.")
                 raise ValueError(f"Country '{country}' not found.")
-            region = defaults_2019.region_lookup_iso3.get(iso3)
+            region = defaults_2019.REGION_LOOKUP_ISO3.get(iso3)
             if region is None:
                 raise ValueError(f"Region for ISO3 code '{iso3}' not found.")
             if site_type_defaults.landfill_is_default(iso3):
@@ -9494,7 +9242,7 @@ class City:
         if population_series is not None:
             growth_rate = average_growth_rates(population_series, datetime.now().year - 1)[1] - 1
         else:
-            growth_rate = defaults_2019.growth_rate_country[iso3] / 100
+            growth_rate = defaults_2019.GROWTH_RATE_COUNTRY[iso3] / 100
 
         if (not isinstance(latlon, list)) and (not isinstance(latlon, tuple)):
             latlon = latlon.tolist()

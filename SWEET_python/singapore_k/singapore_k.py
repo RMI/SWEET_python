@@ -23,6 +23,20 @@ from SWEET_python.constants import MODEL_START_YEAR, MODEL_END_YEAR
 # should decay slower than this.
 K_MIN_PER_YEAR = 0.04
 
+# The Ratkowsky temperature response's limits, in degrees C of landfill
+# temperature (Wang et al. 2024): no decay at or beyond the two ends, fastest at
+# the optimum.
+LANDFILL_T_MIN_C = 0
+LANDFILL_T_MAX_C = 55
+LANDFILL_T_OPT_C = 35
+# A landfill's interior is taken to be this much warmer than the air.
+LANDFILL_WARMER_THAN_AMBIENT_C = 10
+
+# Moisture factor by annual precipitation: (upper bound in mm/yr, factor), driest
+# first. Precipitation at or above the last bound takes MOISTURE_FACTOR_WETTEST.
+MOISTURE_FACTOR_BANDS = ((500, 0.1), (1000, 0.3), (1500, 0.5), (2000, 0.8))
+MOISTURE_FACTOR_WETTEST = 1
+
 
 def _build_lookup_array():
     """Build the 3D composition lookup array (bs, bf, nb) for kc values."""
@@ -312,9 +326,9 @@ def _compute_kc(waste_fractions, lookup_array, advanced_baseline, advanced_dst,
 
 def _compute_temperature_factor(temperature):
     """Compute the temperature factor (tf) for decomposition rate."""
-    tmin = 0
-    tmax = 55
-    topt = 35
+    tmin = LANDFILL_T_MIN_C
+    tmax = LANDFILL_T_MAX_C
+    topt = LANDFILL_T_OPT_C
     # The Ratkowsky response is only fitted for landfill temperatures in
     # [tmin, tmax]. Outside that range it extrapolates nonsensically: below
     # tmin the squared (t - tmin) term makes tf spuriously positive AND
@@ -326,7 +340,7 @@ def _compute_temperature_factor(temperature):
     # cold sites physical. np.clip (unlike max/min) preserves NaN, so a missing
     # temperature stays NaN -> NaN k rather than being silently floored; the
     # caller (_singapore_k) logs which asset is missing a temperature.
-    t = temperature + 10  # landfill is warmer than ambient
+    t = temperature + LANDFILL_WARMER_THAN_AMBIENT_C
     t = np.clip(t, tmin, tmax)
 
     num = (t - tmax) * (t - tmin) ** 2
@@ -346,18 +360,12 @@ def _compute_temperature_factor(temperature):
 def _compute_moisture_factor(precip):
     """Compute the moisture factor (fm) based on precipitation."""
     # read more on this to make sure it handles dumpsites correctly.
-    if precip < 500:
-        fm = 0.1
-    elif precip >= 500 and precip < 1000:
-        fm = 0.3
-    elif precip >= 1000 and precip < 1500:
-        fm = 0.5
-    elif precip >= 1500 and precip < 2000:
-        fm = 0.8
-    else:
-        fm = 1
-
-    return fm
+    # A missing precipitation (NaN) fails every comparison and takes the wettest
+    # factor, as the if/elif chain this replaced did.
+    for upper_mm, fm in MOISTURE_FACTOR_BANDS:
+        if precip < upper_mm:
+            return fm
+    return MOISTURE_FACTOR_WETTEST
 
 
 def _create_series(kc, tf, fm, implement_year=None, advanced_baseline=False,

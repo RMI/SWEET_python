@@ -1,6 +1,12 @@
 """Canonical definitions shared across SWEET_python, the Climate TRACE waste
-methane pipeline, and the WasteMAP backend: the modeling window, and the order
-of the waste types.
+methane pipeline, and the WasteMAP backend: the modeling window, the order of the
+waste types, which types each diversion pathway takes and what it rejects, unit
+conversions, and flaring.
+
+Each number here has one home. A copy of one elsewhere can be changed alone and
+silently disagree with the rest, which is how the oxidation and MCF tables drifted;
+import the name instead of writing the number. Site-type tables live beside this
+module: ``mcf``, ``oxidation`` and ``gas_capture``.
 
 Waste deposited before MODEL_START_YEAR is assumed to be zero everywhere:
 sites with earlier reported opening years keep their true opening year in
@@ -37,6 +43,50 @@ population a run used is fixed by the SWEET commit the run records.
 
 MODEL_START_YEAR: int = 1970
 MODEL_END_YEAR: int = 2050
+
+#: The earliest open year the site tool and the advanced DST accept. An input
+#: floor against accidental giant simulations, not the modelling start: those two
+#: paths model a site from its real open year, back to here, because
+#: pops_yearly.csv starts in 1950.
+MODEL_YEAR_MIN: int = 1950
+
+
+# ---------------------------------------------------------------------------
+# Units
+# ---------------------------------------------------------------------------
+
+#: Global warming potential of methane over 100 years, IPCC AR5 (2013), without
+#: climate-carbon feedbacks. SWEET's compost factor is in CO2e and is divided by
+#: this to give methane; every DST endpoint reports t CH4.
+GWP100_CH4: int = 28
+
+#: Density of methane at 0 C and 1 atm, in kg/m3. landfill.py once carried two
+#: values for it -- this and 0.657 in the `doing_fancy_ox` branch, 9.1% apart,
+#: which is CH4 at 0 C versus at roughly 25 C. Both conversions are between the
+#: same two units on the same quantity, so they cannot legitimately differ. 0.7168
+#: wins because it is the value the rest of SWEET uses and the basis L_0 is
+#: denominated in.
+CH4_DENSITY_KG_PER_M3: float = 0.7168
+
+#: Short tons in a metric tonne. EPA factors are per short ton.
+SHORT_TONS_PER_TONNE: float = 1.1023
+
+
+# ---------------------------------------------------------------------------
+# Flaring
+# ---------------------------------------------------------------------------
+# Here rather than in dst_common, which defines the advanced DST's other
+# defaults, because the annual engine (model_v2) needs one too and dst_common
+# imports city_params -> landfill -> model_v2.
+
+#: Share of captured gas a flare destroys when the caller states none: the site
+#: tool, both advanced DST engines, and Climate TRACE's sites.
+DEFAULT_FLARE_EFFICIENCY: float = 0.98
+
+#: What the annual engine uses for a landfill with no flaring series at all,
+#: which is every city-model landfill: captured gas is wholly destroyed. It
+#: differs from DEFAULT_FLARE_EFFICIENCY; see MODEL_DECISIONS.md, flaring-uniform.
+FLARE_EFFICIENCY_WHEN_UNSET: int = 1
 
 
 # ---------------------------------------------------------------------------
@@ -138,3 +188,89 @@ class WasteTypeSet(frozenset):
 
     def copy(self):
         return self
+
+
+# ---------------------------------------------------------------------------
+# Which waste types decay, and which each diversion pathway takes
+# ---------------------------------------------------------------------------
+
+DEGRADABLE_TYPES: tuple[str, ...] = (
+    "food",
+    "green",
+    "wood",
+    "paper_cardboard",
+    "textiles",
+)
+"""The waste types that make methane: the ones with a decay rate and an L_0.
+In WASTE_TYPES order, so a frame built from it has the model's column order."""
+
+DIVERSION_ELIGIBILITY: dict[str, WasteTypeSet] = {
+    "compost": WasteTypeSet({"food", "green", "wood", "paper_cardboard"}),
+    "anaerobic": WasteTypeSet({"food", "green", "wood", "paper_cardboard"}),
+    "combustion": WasteTypeSet(WASTE_TYPES),
+    "recycling": WasteTypeSet(
+        {
+            "wood",
+            "paper_cardboard",
+            "textiles",
+            "plastic",
+            "rubber",
+            "metal",
+            "glass",
+            "other",
+        }
+    ),
+}
+"""The waste types each diversion pathway can take. ``City.div_components`` is a
+copy of this, and ``dst_allocation.DEFAULT_ELIGIBILITY`` is built from it."""
+
+
+# ---------------------------------------------------------------------------
+# What each diversion pathway rejects
+# ---------------------------------------------------------------------------
+# A rejected share is landfilled as the material it was. These come from SWEET's
+# Excel, Assumptions sheet; City.__init__ copies them onto each city.
+
+#: Share of each type sent to composting or anaerobic digestion that the process
+#: cannot handle.
+UNPROCESSABLE_SHARE: dict[str, float] = {
+    "food": 0.0192,
+    "green": 0.042522,
+    "wood": 0.07896,
+    "paper_cardboard": 0.12,
+}
+
+#: Contamination: the share of each type collected for composting that is not
+#: compostable feedstock.
+NON_COMPOSTABLE_NOT_TARGETED: dict[str, float] = {
+    "food": 0.1,
+    "green": 0.05,
+    "wood": 0.05,
+    "paper_cardboard": 0.1,
+}
+
+# The share of the waste sent to incineration that is landfilled unburned,
+# as the material it was. None: everything sent to an incinerator stops
+# producing methane. It was 0.1, SWEET's Excel "Reject Rate for
+# Combustibles", sourced there as best professional judgement, and that
+# 10% of food and paper was most of the modelled methane of a city that
+# incinerates heavily. What an incinerator leaves is ash, nearly all of it
+# mineral: the EU's Industrial Emissions Directive (Art. 50) holds its
+# organic carbon under 3%, EPA's WARM counts no methane from it, and Japan
+# landfills under 1% of the waste it processes unburned.
+# decision: combustion-reject
+COMBUSTION_REJECT_RATE: float = 0.0
+
+#: Share of each type sent to recycling that IS recycled; the rest is rejected
+#: and landfilled. A yield, not a reject rate, although City carries it as
+#: ``recycling_reject_rates``.
+RECYCLING_YIELD: dict[str, float] = {
+    "wood": 0.8,
+    "paper_cardboard": 0.775,
+    "textiles": 0.99,
+    "plastic": 0.875,
+    "metal": 0.955,
+    "glass": 0.88,
+    "rubber": 0.78,
+    "other": 0.87,
+}

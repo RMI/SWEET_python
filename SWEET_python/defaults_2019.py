@@ -5,6 +5,10 @@ import pycountry
 import os
 from pathlib import Path
 
+import SWEET_python.gas_capture as gas_capture
+import SWEET_python.oxidation as oxidation
+from SWEET_python.constants import GWP100_CH4, SHORT_TONS_PER_TONNE
+
 # The path to the current module's directory
 current_dir = Path(__file__).parent
 
@@ -27,10 +31,10 @@ def _find_iso3_csv() -> Path:
     return pkg_path
 
 
-country_to_iso3 = pd.read_csv(_find_iso3_csv())
-country_to_iso3 = country_to_iso3.set_index("name")["iso3"].to_dict()
+COUNTRY_TO_ISO3 = pd.read_csv(_find_iso3_csv())
+COUNTRY_TO_ISO3 = COUNTRY_TO_ISO3.set_index("name")["iso3"].to_dict()
 # %%
-waste_fraction_defaults = {
+WASTE_FRACTION_DEFAULTS = {
     "Australia and New Zealand": [
         0.259,
         0.122,
@@ -268,8 +272,8 @@ waste_fraction_defaults = {
         1.002,
     ],
 }
-waste_fraction_defaults = pd.DataFrame(waste_fraction_defaults).T
-waste_fraction_defaults.columns = [
+WASTE_FRACTION_DEFAULTS = pd.DataFrame(WASTE_FRACTION_DEFAULTS).T
+WASTE_FRACTION_DEFAULTS.columns = [
     "food",
     "green",
     "wood",
@@ -282,10 +286,10 @@ waste_fraction_defaults.columns = [
     "other",
     "total",
 ]
-waste_fraction_defaults = waste_fraction_defaults.drop("total", axis=1)
-# waste_fraction_defaults.head()
-# waste_fraction_defaults = waste_fraction_defaults.T.to_dict()
-waste_fractions_country = {
+WASTE_FRACTION_DEFAULTS = WASTE_FRACTION_DEFAULTS.drop("total", axis=1)
+# WASTE_FRACTION_DEFAULTS.head()
+# WASTE_FRACTION_DEFAULTS = WASTE_FRACTION_DEFAULTS.T.to_dict()
+WASTE_FRACTIONS_COUNTRY = {
     "Kazakhstan": [21.5, 2.8, 26.5, 0.0, 7.0, 0.0, 0.0, 16.8, 1.5, 11.8, 11.9],
     "Uzbekistan": [38.4, 0.0, 22.8, 4.9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 34.0],
     "China": [59.1, 0.0, 8.5, 1.6, 4.1, 0.0, 0.0, 13.0, 1.1, 4.1, 8.5],
@@ -366,16 +370,16 @@ waste_fractions_country = {
     "New Zealand": [16.8, 7.9, 10.9, 11.9, 5.9, 3.0, 0.0, 0.0, 0.0, 0.0, 43.6],
 }
 # #%%
-# for country, fractions in waste_fractions_country.items():
+# for country, fractions in WASTE_FRACTIONS_COUNTRY.items():
 #     assert len(fractions) == 11
 #     assert country in lut['country'].values, country
 # #%%
-waste_fractions_country = {
-    country_to_iso3[country]: value
-    for country, value in waste_fractions_country.items()
+WASTE_FRACTIONS_COUNTRY = {
+    COUNTRY_TO_ISO3[country]: value
+    for country, value in WASTE_FRACTIONS_COUNTRY.items()
 }
-waste_fractions_country = pd.DataFrame(waste_fractions_country).T
-waste_fractions_country.columns = [
+WASTE_FRACTIONS_COUNTRY = pd.DataFrame(WASTE_FRACTIONS_COUNTRY).T
+WASTE_FRACTIONS_COUNTRY.columns = [
     "food",
     "green",
     "paper_cardboard",
@@ -383,13 +387,13 @@ waste_fractions_country.columns = [
     "textiles",
     "nappies",
     "rubber",
-    "plastic",  # singular to match waste_fraction_defaults and the model components
+    "plastic",  # singular to match WASTE_FRACTION_DEFAULTS and the model components
     "metal",
     "glass",
     "other",
 ]
-waste_fractions_country["other"] += waste_fractions_country["nappies"]
-waste_fractions_country = waste_fractions_country.drop("nappies", axis=1)
+WASTE_FRACTIONS_COUNTRY["other"] += WASTE_FRACTIONS_COUNTRY["nappies"]
+WASTE_FRACTIONS_COUNTRY = WASTE_FRACTIONS_COUNTRY.drop("nappies", axis=1)
 
 
 def waste_composition_for(iso3, region):
@@ -407,19 +411,19 @@ def waste_composition_for(iso3, region):
     model without their own normalization step).
     """
     row = None
-    if iso3 in waste_fractions_country.index:
-        candidate = waste_fractions_country.loc[iso3, :]
+    if iso3 in WASTE_FRACTIONS_COUNTRY.index:
+        candidate = WASTE_FRACTIONS_COUNTRY.loc[iso3, :]
         plastic = candidate.get("plastic")
         if pd.notna(plastic) and plastic > 0:
             row = candidate
     # decision: waste-composition
     if row is None:
-        row = waste_fraction_defaults.loc[region, :]
+        row = WASTE_FRACTION_DEFAULTS.loc[region, :]
     total = row.sum()
     return row / total if total else row
 
 
-region_lookup = {
+REGION_LOOKUP = {
     "China": "Eastern Asia",
     "Japan": "Eastern Asia",
     "South Korea": "Eastern Asia",
@@ -683,12 +687,12 @@ region_lookup = {
     "Mauritius": "Eastern Africa",
     "Antarctica": "South America",
 }
-region_lookup_iso3 = {}
-for country in region_lookup:
-    iso3 = country_to_iso3[country]
-    region_lookup_iso3[iso3] = region_lookup[country]
+REGION_LOOKUP_ISO3 = {}
+for country in REGION_LOOKUP:
+    iso3 = COUNTRY_TO_ISO3[country]
+    REGION_LOOKUP_ISO3[iso3] = REGION_LOOKUP[country]
 # tonnes/cap/yr: IPCC 2019 Refinement, Vol. 5 Ch. 2, Table 2.1 (Updated)
-msw_per_capita_defaults = {
+MSW_PER_CAPITA_DEFAULTS = {
     "Australia and New Zealand": 0.6,
     "Caribbean": 0.78,
     "Central America": 0.58,
@@ -711,11 +715,11 @@ msw_per_capita_defaults = {
     "Western Asia": 0.69,
     "Western Europe": 0.59,
 }
-msw_per_capita_defaults = {
-    key: (value / 365) * 1000 for key, value in msw_per_capita_defaults.items()
+MSW_PER_CAPITA_DEFAULTS = {
+    key: (value / 365) * 1000 for key, value in MSW_PER_CAPITA_DEFAULTS.items()
 }  # convert from tons/year to kg/day
 # tonnes/cap/yr: IPCC 2019 Refinement, Vol. 5 Ch. 2, Table 2A.1 (Updated), 2010 column
-msw_per_capita_country = {
+MSW_PER_CAPITA_COUNTRY = {
     "Tajikistan": 0.32,
     "Turkmenistan": 0.36,
     "China": 0.37,
@@ -886,17 +890,17 @@ msw_per_capita_country = {
     "Macao": 0.62,
 }
 
-msw_per_capita_country = {
-    key: (value / 365) * 1000 for key, value in msw_per_capita_country.items()
+MSW_PER_CAPITA_COUNTRY = {
+    key: (value / 365) * 1000 for key, value in MSW_PER_CAPITA_COUNTRY.items()
 }  # convert from tons/year to kg/day
-msw_per_capita_country = {
-    country_to_iso3[country]: value for country, value in msw_per_capita_country.items()
+MSW_PER_CAPITA_COUNTRY = {
+    COUNTRY_TO_ISO3[country]: value for country, value in MSW_PER_CAPITA_COUNTRY.items()
 }
-msw_per_capita_city = {"Hong Kong": 0.93, "Macao": 0.62}
-msw_per_capita_city = {
-    key: (value / 365) * 1000 for key, value in msw_per_capita_city.items()
+MSW_PER_CAPITA_CITY = {"Hong Kong": 0.93, "Macao": 0.62}
+MSW_PER_CAPITA_CITY = {
+    key: (value / 365) * 1000 for key, value in MSW_PER_CAPITA_CITY.items()
 }  # convert from tons/year to kg/day
-k_defaults = {
+K_DEFAULTS = {
     "Dry": {
         "food": 0.1,
         "diapers": 0.1,
@@ -945,7 +949,7 @@ k_defaults = {
 }
 
 
-# k_defaults = pd.DataFrame(k_defaults).T
+# K_DEFAULTS = pd.DataFrame(K_DEFAULTS).T
 # Function to get precipitation zone from annual rainfall
 def get_precipitation_zone(rainfall):
     # Unit is mm
@@ -970,28 +974,54 @@ L_0 = {
     "wood": 200,
     "rubber": 100,
 }
-oxidation_factor = {
+OXIDATION_FACTOR = {
     "with_lfg": {
-        "landfill": 0.22,
-        "controlled_dumpsite": 0.1,
-        "dumpsite": 0,
-        "remediated_to_landfill": 0.18,
+        **oxidation.OX_WITH_CAPTURE,
+        "remediated_to_landfill": oxidation.OX_REMEDIATED_TO_LANDFILL,
     },
     "without_lfg": {
-        "landfill": 0.1,
-        "controlled_dumpsite": 0.05,
-        "dumpsite": 0,
-        "remediated_to_landfill": 0.1,
+        **oxidation.OX_NO_CAPTURE,
+        # Upgraded to a landfill, but without capture: a landfill's value.
+        "remediated_to_landfill": oxidation.OX_NO_CAPTURE["landfill"],
     },
 }
 
 # t CH4 per tonne digested (0.26 kg per short ton, EPA WARM AD chapter, 100% food
 # waste, via the SWEET Excel). Methane, unlike the compost factor, which is CO2e.
 # The Excel notes it leaves out methane leakage from the AD plant itself.
-mef_anaerobic = 0.26 / 1000 * 1.1023
-ch4_to_co2e = 28
-gas_capture_efficiency = {"landfill": 0.6, "controlled_dumpsite": 0.45, "dumpsite": 0}
-landfill_default_regions = set(
+MEF_ANAEROBIC = 0.26 / 1000 * SHORT_TONS_PER_TONNE
+CH4_TO_CO2E = GWP100_CH4
+GAS_CAPTURE_EFFICIENCY = gas_capture.GAS_CAPTURE_EFFICIENCY
+
+# Fugitive CH4 from composting, in t CO2e per short ton of fresh feedstock (EPA
+# WARM, Composting chapter, after Amlinger et al. 2008), via the SWEET Excel
+# (v4.0.2 and v5.0, Assumptions, "Methane Emission Factor-Composting").
+COMPOST_EF_FOOD = 0.0055
+COMPOST_EF_GREEN = 0.0139
+# The Excel's "30% mass reduction from evaporation losses to produce compost
+# feedstock": the factor applies to the 70% left.
+COMPOST_MASS_AFTER_EVAPORATION = 0.7
+
+
+def compost_emission_factor(food, green):
+    """Compost emission factor, in t CO2e per tonne composted -- not methane.
+
+    The food and green factors weighted by the food/green split, converted from
+    per short ton to per tonne, on the mass left after evaporation. Neither
+    multiplier converts methane to CO2e: ``City.estimate_diversion_emissions``
+    adds it without the x28 it gives anaerobic digestion, and
+    ``City.sum_landfill_emissions`` divides the sum by ``GWP100_CH4``. As methane
+    this is about 0.2 kg CH4/t for a typical split, against IPCC 2006's 4 g CH4/kg
+    wet default.
+
+    ``food`` and ``green`` are shares (any common scale), as scalars or Series.
+    The caller handles a zero sum, as each did before this was one function.
+    """
+    return (
+        COMPOST_EF_FOOD * food / (food + green)
+        + COMPOST_EF_GREEN * green / (food + green)
+    ) * SHORT_TONS_PER_TONNE * COMPOST_MASS_AFTER_EVAPORATION
+LANDFILL_DEFAULT_REGIONS = set(
     [
         "Eastern Asia",
         "Eastern Europe",
@@ -1005,7 +1035,7 @@ landfill_default_regions = set(
 # Does this mean...waste that isn't diverted? But also is landfilled, as opposed to untracked?
 # These are from IPCC. SWEET has Central and Southern Asia, while IPCC has south central and western; using south central for western here.
 # Africa is a single average and rest of oceania is from aus/nz
-fraction_open_dumped = {
+FRACTION_OPEN_DUMPED = {
     "Australia and New Zealand": 0.0,
     "Caribbean": 0.03,
     "Central America": 0.13,
@@ -1024,7 +1054,7 @@ fraction_open_dumped = {
     "Rest of Oceania": 1.0, # np.nan
     "Central Asia": 1.0, # np.nan
 }
-fraction_landfilled = {
+FRACTION_LANDFILLED = {
     "Australia and New Zealand": 0.69,
     "Caribbean": 0.78,
     "Central America": 0.62,
@@ -1043,7 +1073,7 @@ fraction_landfilled = {
     "Rest of Oceania": 0.0,  # np.nan
     "Central Asia": 0.0,  # np.nan
 }
-fraction_incinerated = {
+FRACTION_INCINERATED = {
     "Australia and New Zealand": 0.04,
     "Caribbean": 0.0,
     "Central America": 0.0,
@@ -1064,7 +1094,7 @@ fraction_incinerated = {
     "Western Europe": 0.40,
     "Southern Asia": 0.0,  # np.nan
 }
-fraction_composted = {
+FRACTION_COMPOSTED = {
     "Australia and New Zealand": 0.0,
     "Caribbean": 0.01,
     "Central America": 0.0,
@@ -1087,7 +1117,7 @@ fraction_composted = {
     "Southern Asia": 0.0,  # np.nan
 }
 # Includes recycling...sometimes, seems like junk. Also, don't try adding this stuff to 100.
-fraction_unspecified = {
+FRACTION_UNSPECIFIED = {
     "Australia and New Zealand": 0.27,
     "Caribbean": 0.18,
     "Central America": 0.25,
@@ -1109,7 +1139,7 @@ fraction_unspecified = {
     "Western Europe": 0.31,
     "Southern Asia": 0.0,  # np.nan
 }
-fraction_open_dumped_country = {
+FRACTION_OPEN_DUMPED_COUNTRY = {
     "Japan": 0.0,
     "South Korea": 0.0,
     "Singapore": 0.0,
@@ -1196,11 +1226,11 @@ fraction_open_dumped_country = {
     "New Zealand": 0.0,
     "Nigeria": 1.0,
 }
-fraction_open_dumped_country = {
-    country_to_iso3[country]: value
-    for country, value in fraction_open_dumped_country.items()
+FRACTION_OPEN_DUMPED_COUNTRY = {
+    COUNTRY_TO_ISO3[country]: value
+    for country, value in FRACTION_OPEN_DUMPED_COUNTRY.items()
 }
-fraction_landfilled_country = {
+FRACTION_LANDFILLED_COUNTRY = {
     "Japan": 0.01,
     "South Korea": 0.18,
     "Singapore": 0.03,
@@ -1287,9 +1317,9 @@ fraction_landfilled_country = {
     "New Zealand": 0.85,
     "Nigeria": 0.0,
 }
-fraction_landfilled_country = {
-    country_to_iso3[country]: value
-    for country, value in fraction_landfilled_country.items()
+FRACTION_LANDFILLED_COUNTRY = {
+    COUNTRY_TO_ISO3[country]: value
+    for country, value in FRACTION_LANDFILLED_COUNTRY.items()
 }
 
 
@@ -1315,8 +1345,8 @@ def disposal_split_for(iso3, region):
     city in the same country.
     """
     for key, dumped, landfilled in (
-        (iso3, fraction_open_dumped_country, fraction_landfilled_country),
-        (region, fraction_open_dumped, fraction_landfilled),
+        (iso3, FRACTION_OPEN_DUMPED_COUNTRY, FRACTION_LANDFILLED_COUNTRY),
+        (region, FRACTION_OPEN_DUMPED, FRACTION_LANDFILLED),
     ):
         dumpsite = dumped.get(key, 0.0)
         landfill = landfilled.get(key, 0.0)
@@ -1338,7 +1368,7 @@ def disposal_split_for(iso3, region):
     }
 
 
-fraction_incinerated_country = {
+FRACTION_INCINERATED_COUNTRY = {
     "Japan": 0.76,
     "South Korea": 0.22,
     "Singapore": 0.4,
@@ -1424,11 +1454,11 @@ fraction_incinerated_country = {
     "Australia": 0.08,
     "New Zealand": 0.0,
 }
-fraction_incinerated_country = {
-    country_to_iso3[country]: value
-    for country, value in fraction_incinerated_country.items()
+FRACTION_INCINERATED_COUNTRY = {
+    COUNTRY_TO_ISO3[country]: value
+    for country, value in FRACTION_INCINERATED_COUNTRY.items()
 }
-fraction_composted_country = {
+FRACTION_COMPOSTED_COUNTRY = {
     "Japan": 0.0,
     "South Korea": 0.0,
     "Singapore": 0.0,
@@ -1514,11 +1544,11 @@ fraction_composted_country = {
     "Australia": 0.0,
     "New Zealand": 0.0,
 }
-fraction_composted_country = {
-    country_to_iso3[country]: value
-    for country, value in fraction_composted_country.items()
+FRACTION_COMPOSTED_COUNTRY = {
+    COUNTRY_TO_ISO3[country]: value
+    for country, value in FRACTION_COMPOSTED_COUNTRY.items()
 }
-fraction_unspecified_country = {
+FRACTION_UNSPECIFIED_COUNTRY = {
     "Japan": 0.22,
     "South Korea": 0.61,
     "Singapore": 0.57,
@@ -1604,12 +1634,12 @@ fraction_unspecified_country = {
     "Australia": 0.4,
     "New Zealand": 0.15,
 }
-fraction_unspecified_country = {
-    country_to_iso3[country]: value
-    for country, value in fraction_unspecified_country.items()
+FRACTION_UNSPECIFIED_COUNTRY = {
+    COUNTRY_TO_ISO3[country]: value
+    for country, value in FRACTION_UNSPECIFIED_COUNTRY.items()
 }
 
-growth_rate_country = {
+GROWTH_RATE_COUNTRY = {
     "ABW": 0.3935,
     "AFE": 2.7121,
     "AFG": 2.9404,
@@ -1883,40 +1913,72 @@ growth_rate_country = {
 # for key in dicts check if in the csv
 # for name in iso3 check if in the region lookup
 
+# The names these tables had before they were UPPER_CASE. Climate TRACE imports
+# region_lookup_iso3, waste_composition_for, waste_fraction_defaults,
+# landfill_default_regions, gas_capture_efficiency and oxidation_factor, and
+# WasteMAP imports waste_fractions_country and country_to_iso3, so they stay as
+# aliases to the same objects. New code uses the UPPER_CASE names.
+country_to_iso3 = COUNTRY_TO_ISO3
+waste_fraction_defaults = WASTE_FRACTION_DEFAULTS
+waste_fractions_country = WASTE_FRACTIONS_COUNTRY
+region_lookup = REGION_LOOKUP
+region_lookup_iso3 = REGION_LOOKUP_ISO3
+msw_per_capita_defaults = MSW_PER_CAPITA_DEFAULTS
+msw_per_capita_country = MSW_PER_CAPITA_COUNTRY
+msw_per_capita_city = MSW_PER_CAPITA_CITY
+k_defaults = K_DEFAULTS
+oxidation_factor = OXIDATION_FACTOR
+mef_anaerobic = MEF_ANAEROBIC
+ch4_to_co2e = CH4_TO_CO2E
+gas_capture_efficiency = GAS_CAPTURE_EFFICIENCY
+landfill_default_regions = LANDFILL_DEFAULT_REGIONS
+fraction_open_dumped = FRACTION_OPEN_DUMPED
+fraction_landfilled = FRACTION_LANDFILLED
+fraction_incinerated = FRACTION_INCINERATED
+fraction_composted = FRACTION_COMPOSTED
+fraction_unspecified = FRACTION_UNSPECIFIED
+fraction_open_dumped_country = FRACTION_OPEN_DUMPED_COUNTRY
+fraction_landfilled_country = FRACTION_LANDFILLED_COUNTRY
+fraction_incinerated_country = FRACTION_INCINERATED_COUNTRY
+fraction_composted_country = FRACTION_COMPOSTED_COUNTRY
+fraction_unspecified_country = FRACTION_UNSPECIFIED_COUNTRY
+growth_rate_country = GROWTH_RATE_COUNTRY
+
+
 # countries = set(pd.read_csv(current_dir / 'iso3.csv')['name'].to_list())
 # isos = set(pd.read_csv(current_dir / 'iso3.csv')['iso3'].to_list())
-# for c in region_lookup:
+# for c in REGION_LOOKUP:
 #     if c not in countries:
 #         print(c)
 # for c in countries:
-#     if c not in region_lookup:
+#     if c not in REGION_LOOKUP:
 #         print(c)
 
-# for c in waste_fractions_country.index:
+# for c in WASTE_FRACTIONS_COUNTRY.index:
 #     if c not in isos:
 #         print(c)
 
-# for c in fraction_open_dumped_country:
+# for c in FRACTION_OPEN_DUMPED_COUNTRY:
 #     if c not in isos:
 #         print(c)
 
-# for c in fraction_landfilled_country:
+# for c in FRACTION_LANDFILLED_COUNTRY:
 #     if c not in isos:
 #         print(c)
 
-# for c in fraction_incinerated_country:
+# for c in FRACTION_INCINERATED_COUNTRY:
 #     if c not in isos:
 #         print(c)
 
-# for c in fraction_composted_country:
+# for c in FRACTION_COMPOSTED_COUNTRY:
 #     if c not in isos:
 #         print(c)
 
-# for c in fraction_unspecified_country:
+# for c in FRACTION_UNSPECIFIED_COUNTRY:
 #     if c not in isos:
 #         print(c)
 
-# for c in msw_per_capita_country:
+# for c in MSW_PER_CAPITA_COUNTRY:
 #     if c not in isos:
 #         print(c)
 

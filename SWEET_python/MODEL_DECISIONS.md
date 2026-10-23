@@ -164,7 +164,7 @@ A site or city with no usable composition takes its country's mix, else its regi
   - `adst-site`, `adst-city`: the caller's mix, which may change by year.
 - **Confidence:** medium
 - **Better:** Use a site's own composition when reported (Climate TRACE issue #146), and let the mix change over time.
-- **Value:** `SWEET_python.defaults_2019`: `waste_fractions_country`, `waste_fraction_defaults`
+- **Value:** `SWEET_python.defaults_2019`: `WASTE_FRACTIONS_COUNTRY`, `WASTE_FRACTION_DEFAULTS`
 - **Code:** `SWEET_python/defaults_2019.py`, `SWEET_python/city_params.py`
 - **Reviewed:** 2026-10-22
 
@@ -230,7 +230,7 @@ No waste is deposited before 1970. A site that opened earlier is modelled as ope
   - `city-model`, `city-dst-scenario`, `custom-location`: every series starts in 1970.
 - **Confidence:** medium
 - **Better:** Start each site at its real open year, back to 1950, as the site tool and the advanced DST engines already do.
-- **Value:** `SWEET_python.constants.MODEL_START_YEAR`; the advanced DST floors at `dst_common.MODEL_YEAR_MIN` (1950), the site tool at its own 1950 in `City.sdst_v1_5`
+- **Value:** `SWEET_python.constants.MODEL_START_YEAR`; the site tool and the advanced DST floor at `constants.MODEL_YEAR_MIN` (1950)
 - **Code:** `SWEET_python/city_params.py` (3 places)
 - **Reviewed:** 2026-10-22
 
@@ -264,8 +264,8 @@ None of the waste sent to incineration is landfilled unburned, so incinerated wa
   - `ct-site`: multiplies an incineration share hard-coded to 0, so it changes nothing.
 - **Confidence:** medium
 - **Better:** Where a plant reports the unburned organic content of its bottom ash, use that.
-- **Value:** `SWEET_python.city_params.City.combustion_reject_rate`: 0, and 0.1 through `sweet/2026.10.5`
-- **Code:** `SWEET_python/city_params.py`
+- **Value:** `SWEET_python.constants.COMBUSTION_REJECT_RATE`: 0, and 0.1 through `sweet/2026.10.5`
+- **Code:** `SWEET_python/constants.py`
 - **Reviewed:** 2026-10-22
 
 ### `other-treatment-shares-landfilled`
@@ -292,7 +292,7 @@ MCF is 1.0 at a sanitary landfill and 0.6 at either kind of dump. A dump with a 
 - **Why:** These are the IPCC 2006 defaults. Depth is unknown at nearly every dump, so dumps take IPCC's value for an uncategorised site.
 - **Paths:**
   - `ct-site`, `site-tool`, `adst-site`, `adst-city`: by type and the depth given. Climate TRACE sends 10 m, 2 m or none.
-  - `city-model`, `city-dst-scenario`, `custom-location`: the same values, never with a depth: a literal 1 for the two landfill buckets, `MCF_UNCATEGORISED` for the dumpsite bucket.
+  - `city-model`, `city-dst-scenario`, `custom-location`: the same values, never with a depth: `MCF_MANAGED_ANAEROBIC` for the two landfill buckets, `MCF_UNCATEGORISED` for the dumpsite bucket.
 - **Confidence:** medium
 - **Better:** Record depth at dumps, and send the city buckets through `mcf_for_site` so a change to the table reaches them.
 - **Value:** `SWEET_python.mcf`: `MCF_BY_TYPE`, `DEEP_SITE_DEPTH_M`
@@ -314,7 +314,7 @@ Each site or city gets one decay rate from its temperature, rainfall and waste m
   - `site-tool`: takes the caller's rate, not floored; its prefill computes one from the mix in 2000.
 - **Confidence:** medium
 - **Better:** Use a separate rate for each waste type, as the IPCC model does, and one rule for which year's mix to use.
-- **Value:** `SWEET_python.singapore_k.singapore_k.K_MIN_PER_YEAR`
+- **Value:** `SWEET_python.singapore_k.singapore_k`: `K_MIN_PER_YEAR`, `MOISTURE_FACTOR_BANDS`, `LANDFILL_T_OPT_C`
 - **Code:** `SWEET_python/singapore_k/singapore_k.py`
 - **Reviewed:** 2026-10-22
 
@@ -348,8 +348,8 @@ A site's oxidation is its reported value by year, else a default set by its type
   - `adst-site`, `adst-city`: `type-default` chosen by an efficiency above 0, an upgraded dump 0.18, with biocover's floor.
   - `city-model`, `city-dst-scenario`, `custom-location`: `type-default`, chosen by disposal bucket.
 - **Confidence:** medium
-- **Better:** Keep one oxidation table instead of the copies, chosen the same way on every path, and let the city tools use reported values.
-- **Value:** `SWEET_python.city_params.OX_OPTIONS`, with copies in `landfill.py`, `dst_common.py` and `City.sdst_v1_5`
+- **Better:** Choose the default the same way on every path, and let the city tools use reported values.
+- **Value:** `SWEET_python.oxidation`: `OX_NO_CAPTURE`, `OX_WITH_CAPTURE`, `OX_REMEDIATED_TO_LANDFILL`
 - **Code:** `SWEET_python/city_params.py` (2 places)
 - **Reviewed:** 2026-10-22
 
@@ -371,7 +371,7 @@ A site captures its reported efficiency, else a site-type default if it has a ca
   - `city-dst-scenario`: "add gas capture" sets 0.6 at landfills and 0.3 at a dump made a controlled dump, from the year after implementation.
 - **Confidence:** medium
 - **Better:** Use one table and rule on every path, and let the city model read each city's reported efficiency.
-- **Value:** `SWEET_python.city_params.GAS_EFF_OPTIONS`; the city paths use `defaults_2019.gas_capture_efficiency`
+- **Value:** `SWEET_python.gas_capture`: `GAS_CAPTURE_EFFICIENCY`; the city DST's converted dump, `CONVERTED_DUMP_CAPTURE_EFFICIENCY`
 - **Code:** `SWEET_python/city_params.py`
 - **Reviewed:** 2026-10-22
 
@@ -387,7 +387,7 @@ Captured gas is burned at 0.98 efficiency in every year, unless the caller state
   - `city-model`, `city-dst-scenario`, `custom-location`: none is set, and the annual engine reads that as 1.0: captured gas is wholly destroyed.
 - **Confidence:** medium
 - **Better:** Read flare efficiency per site where operators report it, and give the city paths 0.98 so no path treats flaring as perfect.
-- **Value:** `SWEET_python.dst_common.DEFAULT_FLARE_EFFICIENCY`
+- **Value:** `SWEET_python.constants`: `DEFAULT_FLARE_EFFICIENCY`; the city paths' 1.0 is `FLARE_EFFICIENCY_WHEN_UNSET`
 - **Code:** `SWEET_python/city_params.py` (2 places)
 - **Reviewed:** 2026-10-22
 
