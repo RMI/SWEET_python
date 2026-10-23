@@ -906,6 +906,7 @@ def run_advanced_dst_city(
     # else reads it. Everything downstream (per-component masses, diversion,
     # k-values, the compost emission factor) is then derived from the prevented
     # composition and total, which is what keeps the two in step. ---
+    # decision: food-waste-prevention
     prevented_baseline, prevented_scenario = common.variant_series(
         request.food_waste_prevention, years, implement_year, default=0.0
     )

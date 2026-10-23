@@ -204,6 +204,7 @@ DEGRADABLE_TYPES: tuple[str, ...] = (
 """The waste types that make methane: the ones with a decay rate and an L_0.
 In WASTE_TYPES order, so a frame built from it has the model's column order."""
 
+# decision: diversion-eligibility
 DIVERSION_ELIGIBILITY: dict[str, WasteTypeSet] = {
     "compost": WasteTypeSet({"food", "green", "wood", "paper_cardboard"}),
     "anaerobic": WasteTypeSet({"food", "green", "wood", "paper_cardboard"}),
@@ -233,6 +234,7 @@ copy of this, and ``dst_allocation.DEFAULT_ELIGIBILITY`` is built from it."""
 
 #: Share of each type sent to composting or anaerobic digestion that the process
 #: cannot handle.
+# decision: diversion-rejects
 UNPROCESSABLE_SHARE: dict[str, float] = {
     "food": 0.0192,
     "green": 0.042522,

@@ -34,8 +34,8 @@ PATHS = {
     "city-model": "City.load_csv_new / load_andre_params: WasteMAP's cities table and city DST baseline",
     "city-dst-scenario": "City.implement_dst_changes_simple*: WasteMAP's city DST scenarios",
     "custom-location": "City.dst_baseline_blank: WasteMAP's Custom Location",
-    "site-tool": "City.sdst_v1_5: WasteMAP's single-site tool",
-    "ct-site": "City.site_only_estimate_trace: Climate TRACE's site estimates",
+    "site-tool": "City.sdst_v1_5 / sdst_prepopulate: WasteMAP's single-site tool",
+    "ct-site": "City.site_only_estimate_trace / citysite_estimate_trace: Climate TRACE's site estimates",
     "adst-site": "advanced_dst.run_advanced_dst: the single-site advanced DST",
     "adst-city": "advanced_dst_city.run_advanced_dst_city: WasteMAP's advanced DST",
 }

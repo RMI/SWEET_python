@@ -1469,6 +1469,7 @@ class City:
             if waste_mass_load != waste_mass_load:
                 # Use per capita default
                 self.waste_mass_defaults = True
+                # decision: waste-per-capita-default
                 if iso3 in defaults_2019.MSW_PER_CAPITA_COUNTRY:
                     waste_per_capita = defaults_2019.MSW_PER_CAPITA_COUNTRY[iso3]
                 else:
@@ -1540,6 +1541,7 @@ class City:
             waste_fractions = pd.DataFrame(waste_fractions, index=years)
 
             try:
+                # decision: diversion-emission-factors
                 # Calculate MEF for compost -- emissions from composted waste
                 mef_compost = defaults_2019.compost_emission_factor(waste_fractions_dict["food"], waste_fractions_dict["green"])
             except:
@@ -1618,6 +1620,7 @@ class City:
             # First case to check: all diversions and landfills are 0. Use defaults.
             self.diversion_defaults = False
             self.landfill_split_defaults = False
+            # decision: diversion-defaults
             if all_nan_fill and all_nan_div:
                 if iso3 in defaults_2019.FRACTION_COMPOSTED_COUNTRY:
                     compost_fraction = defaults_2019.FRACTION_COMPOSTED_COUNTRY[iso3]
@@ -1767,6 +1770,7 @@ class City:
                                 "dumpsite": 1.0,
                             }
 
+            # decision: city-treatment-buckets
             # Fourth case to check: imported non-nan values in both landfills and diversions. Use the values.
             else:
                 split_fractions = {
@@ -2888,6 +2892,7 @@ class City:
         if isinstance(open_date, str):
             if open_date[-2:] == '.0':
                 open_date = int(open_date[:-2])
+            # decision: open-year-unknown
             elif open_date in ['NS', 'NSNSNSNS', 'NSNS', 'NO SABE', 'NO SUPO']:
                 open_date = MODEL_START_YEAR
             else:
@@ -3116,6 +3121,7 @@ class City:
         if isinstance(open_date, str):
             if open_date[-2:] == '.0':
                 open_date = int(open_date[:-2])
+            # decision: open-year-unknown
             elif open_date in ['NS', 'NSNSNSNS', 'NSNS', 'NO SABE', 'NO SUPO']:
                 open_date = MODEL_START_YEAR
             else:
@@ -3216,6 +3222,7 @@ class City:
             #     fraction_of_waste_df.loc[pct_sent_annual.index, city_id] += diffs.values * population_weight
             #     fraction_of_waste_df.loc[pct_sent_annual.index, ~city_id] -= diffs.values * population_weight
 
+            # decision: multi-city-site-split
             # 1) Population weights per city (pick how you choose the city population)
             # If you have city_population_year, use the latest per city:
             pop = (citysite_rows.sort_values('city_population_year')
@@ -4444,6 +4451,7 @@ class City:
         city_params_dict = self.update_cityparams_dict(city_parameters)
 
         if not advanced_baseline and not advanced_dst:
+            # decision: city-shares-constant
             landfill_w_capture = Landfill(
                 open_date=MODEL_START_YEAR,
                 close_date=MODEL_END_YEAR,
@@ -4746,6 +4754,7 @@ class City:
         growth_rate_future = FALLBACK_GROWTH_RATE_FUTURE
 
         # Calculate waste per capita
+        # decision: waste-per-capita-default
         waste_per_capita = defaults_2019.MSW_PER_CAPITA_COUNTRY.get(
             iso3, defaults_2019.MSW_PER_CAPITA_DEFAULTS.get(region, 0)
         )
@@ -4804,6 +4813,7 @@ class City:
         city_params_dict = {}  # Define appropriately or pass as needed
 
         # Diversion fractions
+        # decision: diversion-defaults
         compost_frac = defaults_2019.FRACTION_COMPOSTED_COUNTRY.get(
             iso3, defaults_2019.FRACTION_COMPOSTED.get(region, 0.0)
         )
@@ -6021,6 +6031,7 @@ class City:
 
             return
 
+    # decision: diversion-split
     def mass_checker_math(
         self,
         div_fractions: DiversionFractions,
@@ -7132,6 +7143,7 @@ class City:
         scenario_parameters.div_fractions = new_div_fractions
         waste_fractions_sum = scenario_parameters.waste_fractions.sum(axis=1).iat[0]
         food_fraction = scenario_parameters.waste_fractions["food"].iat[0]
+        # decision: food-waste-prevention
         food_waste_prevented = (
             food_waste_prevention * food_fraction * scenario_parameters.waste_mass
         ).iat[0]
@@ -9208,6 +9220,7 @@ class City:
         try:
             weather_data = [dict(row) for row in rows][0]
         except IndexError:
+            # decision: missing-climate
             weather_data = {
                 "avg_total_precip": 1000,
                 "avg_temperature": 20,
@@ -9247,6 +9260,7 @@ class City:
         if (not isinstance(latlon, list)) and (not isinstance(latlon, tuple)):
             latlon = latlon.tolist()
 
+        # decision: site-tool-prefill-defaults
         if site_id is not None:
             waste_mass = sites_list.loc[
                     sites_list["RMI ID"] == site_id, "Waste Accepted (tons/year)"

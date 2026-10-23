@@ -392,6 +392,7 @@ WASTE_FRACTIONS_COUNTRY.columns = [
     "glass",
     "other",
 ]
+# decision: inert-waste-types
 WASTE_FRACTIONS_COUNTRY["other"] += WASTE_FRACTIONS_COUNTRY["nappies"]
 WASTE_FRACTIONS_COUNTRY = WASTE_FRACTIONS_COUNTRY.drop("nappies", axis=1)
 
@@ -989,6 +990,7 @@ OXIDATION_FACTOR = {
 # t CH4 per tonne digested (0.26 kg per short ton, EPA WARM AD chapter, 100% food
 # waste, via the SWEET Excel). Methane, unlike the compost factor, which is CO2e.
 # The Excel notes it leaves out methane leakage from the AD plant itself.
+# decision: diversion-emission-factors
 MEF_ANAEROBIC = 0.26 / 1000 * SHORT_TONS_PER_TONNE
 CH4_TO_CO2E = GWP100_CH4
 GAS_CAPTURE_EFFICIENCY = gas_capture.GAS_CAPTURE_EFFICIENCY
@@ -1021,6 +1023,8 @@ def compost_emission_factor(food, green):
         COMPOST_EF_FOOD * food / (food + green)
         + COMPOST_EF_GREEN * green / (food + green)
     ) * SHORT_TONS_PER_TONNE * COMPOST_MASS_AFTER_EVAPORATION
+
+
 LANDFILL_DEFAULT_REGIONS = set(
     [
         "Eastern Asia",
