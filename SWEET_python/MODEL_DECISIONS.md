@@ -129,10 +129,11 @@ deliberate; none is decided yet. Each names the entry it belongs to.
 - **Unknown close year** (`intake-ends-before-close-year`): `ct-site` and the site tool close it in
   2050, taking no waste that year; the advanced DST has no unknown close year: it requires one, and
   2051 keeps a site open.
-- **Site type** (`site-type-fill`): the city paths use the country's, then the region's, landfill/dump
-  shares before the rule. The code calls those shares IPCC's and marks them for review; Central Asia's
-  and Rest of Oceania's rows fill a missing value with 100% dumpsite, while the rule calls Central Asia
-  landfill.
+- **Site type** (`site-type-fill`): a city with no split of its own (What a Waste and other city
+  sources give one for many cities) takes the IPCC 2019 Refinement's country, then regional,
+  open-dump/landfill fractions (Tables 2A.1 and 2.1, Updated) before the rule; the code marks them for
+  review. IPCC gives Central Asia and Rest of Oceania no fractions, so SWEET fills 100% dumpsite, while
+  the rule calls Central Asia landfill.
   Canada, Switzerland and Germany are hard-coded in `load_andre_params`.
 - **Gas capture** (`gas-capture-efficiency`): the city paths capture a fixed 60% and ignore a
   city's reported efficiency; the city DST's converted dump captures 0.3 where the type default is 0.45.
@@ -173,7 +174,7 @@ A site or city with no recorded type is assumed a sanitary landfill or an open d
   3. `dumpsite`: open dump otherwise, including a missing or unplaceable country. Never a controlled dump.
 - **Paths:**
   - `ct-site`: Climate TRACE fills the type before the call, with its own income groups; SWEET applies the rule again to a blank type.
-  - `city-model`, `custom-location`: only for a city's landfill/dump split, after the country's and then the region's shares, which the code calls IPCC's and marks for review.
+  - `city-model`, `custom-location`: only for a city with no split of its own, after IPCC 2019's country and then regional open-dump/landfill fractions (Tables 2A.1, 2.1).
   - `site-tool`: the prefill applies it to a location or a blank type, and makes an unrecognised type a dumpsite; the run takes the type it is given.
 - **Confidence:** low
 - **Better:** Classify each site from its area, intake or imagery, not its country's income, and use one fallback order on every path.
@@ -420,10 +421,10 @@ A city or place with no treatment data takes its country's, else its region's, c
 
 ### `city-treatment-buckets`
 
-A city's reported treatment maps onto three buckets: sanitary landfill with gas collection is "with capture"; controlled and unspecified landfill are "without capture"; advanced thermal treatment counts as incineration.
+A city's reported treatment shares map onto three buckets: sanitary landfill with gas collection is "with capture"; controlled landfill and unspecified landfill are "without capture"; advanced thermal treatment counts as incineration.
 
 - **Kind:** method choice
-- **Why:** SWEET's city model has only three disposal buckets, and reports rarely say how a landfill is run.
+- **Why:** A controlled landfill is engineered, so it takes a sanitary landfill's MCF; an unspecified landfill is assumed to be one too, not typed by the country's rule.
 - **Paths:**
   - `city-model`: in `load_andre_params`; diversion shares above 100% are scaled down. The city DST reads the split the cities table publishes.
 - **Confidence:** low
