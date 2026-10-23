@@ -120,7 +120,10 @@ def test_text_stays_short(decisions):
     """Long reasoning goes in a linked doc. The entry says what and why in a sentence."""
     long = []
     for d in decisions:
-        texts = {"what": d.what, "Why": d.fields.get("Why", ""), "Better": d.fields.get("Better", "")}
+        texts = {
+            name: d.fields.get(name, "") for name in ("Why", "Better", "Known problem")
+        }
+        texts["what"] = d.what
         texts.update({f"option {n}": t for n, t in d.options})
         texts.update({f"path {', '.join(n)}": t for n, t in d.paths})
         long += [
