@@ -192,7 +192,38 @@ def test_the_summary_table_matches_the_entries(active):
     )
 
 
-def test_the_list_reads_from_the_installed_package():
-    """What an app calls: no path, the copy beside the module."""
-    assert {d.id for d in md.load()} == {d.id for d in md.load(md.DOC)}
+def test_the_wheel_carries_the_list(tmp_path):
+    """An app reads the list from the release it installs, so the wheel must carry it.
+
+    Builds the wheel and loads the list from inside it, the copy an app installs; the
+    checkout's own copy would pass even if packaging dropped the file. The build runs on a
+    copy without `build/` or `*.egg-info`, whose stale file lists setuptools would reuse.
+    """
+    import shutil
+    import subprocess
+    import sys
+    import zipfile
+
+    pytest.importorskip("pip", reason="building the wheel needs pip, as CI has")
+    source = tmp_path / "src"
+    shutil.copytree(
+        REPO_ROOT, source,
+        ignore=shutil.ignore_patterns(
+            ".git", ".venv", "build", "dist", "*.egg-info", "__pycache__", ".pytest_cache"
+        ),
+    )
+    wheels = tmp_path / "wheels"
+    subprocess.run(
+        [sys.executable, "-m", "pip", "wheel", "--no-deps", "--quiet",
+         "--wheel-dir", str(wheels), str(source)],
+        check=True,
+    )
+    (wheel,) = wheels.glob("*.whl")
+    with zipfile.ZipFile(wheel) as zf:
+        names = zf.namelist()
+        assert "SWEET_python/model_decisions.py" in names
+        assert "SWEET_python/MODEL_DECISIONS.md" in names, "the wheel lacks the list"
+        shipped = tmp_path / "MODEL_DECISIONS.md"
+        shipped.write_bytes(zf.read("SWEET_python/MODEL_DECISIONS.md"))
+    assert {d.id for d in md.load(shipped)} == {d.id for d in md.load()}
     assert md.by_id()  # not empty
