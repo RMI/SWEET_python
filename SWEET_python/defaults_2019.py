@@ -1007,6 +1007,9 @@ landfill_default_regions = set(
 # Does this mean...waste that isn't diverted? But also is landfilled, as opposed to untracked?
 # These are from IPCC. SWEET has Central and Southern Asia, while IPCC has south central and western; using south central for western here.
 # Africa is a single average and rest of oceania is from aus/nz
+# IPCC 2019 Table 2.1 (Updated) gives Central Asia and Rest of Oceania no split. They have no
+# row here (they used to be filled with 100% dumped), so a place there with no split of its own
+# falls through to site_type_defaults, the rule every other unknown site type uses.
 fraction_open_dumped = {
     "Australia and New Zealand": 0.0,
     "Caribbean": 0.03,
@@ -1023,8 +1026,6 @@ fraction_open_dumped = {
     "Western Africa": 0.0,
     "Western Asia": 0.11,
     "Western Europe": 0.0,
-    "Rest of Oceania": 1.0, # np.nan
-    "Central Asia": 1.0, # np.nan
 }
 fraction_landfilled = {
     "Australia and New Zealand": 0.69,
@@ -1042,8 +1043,6 @@ fraction_landfilled = {
     "Western Africa": 0.64,
     "Western Asia": 0.68,
     "Western Europe": 0.08,
-    "Rest of Oceania": 0.0,  # np.nan
-    "Central Asia": 0.0,  # np.nan
 }
 fraction_incinerated = {
     "Australia and New Zealand": 0.04,
