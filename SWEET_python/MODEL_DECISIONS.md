@@ -127,10 +127,11 @@ the unknown close year (see `flaring-uniform`, `gas-capture-efficiency`, `missin
 - **First year** (`waste-before-1970-is-zero`): `ct-site` and the city paths start in 1970; the site
   tool and both advanced DST engines model back to 1950. A site opened before 1970 gets earlier
   waste in the site tool unless its caller raises the opening year first.
-- **Site type** (`site-type-fill`): the city paths use the country's, then the region's, landfill/dump
-  shares before the rule. The code calls those shares IPCC's and marks them for review; Central Asia's
-  and Rest of Oceania's rows fill a missing value with 100% dumpsite, while the rule calls Central Asia
-  landfill.
+- **Site type** (`site-type-fill`): a city with no split of its own (What a Waste and other city
+  sources give one for many cities) takes the IPCC 2019 Refinement's country, then regional,
+  open-dump/landfill fractions (Tables 2A.1 and 2.1, Updated) before the rule; the code marks them for
+  review. IPCC gives Central Asia and Rest of Oceania no fractions, so those places go straight to the
+  rule (until 2026-10-23 they were filled with 100% dumpsite).
   Canada, Switzerland and Germany are hard-coded in `load_andre_params`.
 - **Gas capture** (`gas-capture-efficiency`): the city paths capture a fixed 60% and ignore a
   city's reported efficiency.
@@ -143,9 +144,9 @@ the unknown close year (see `flaring-uniform`, `gas-capture-efficiency`, `missin
 - **Two engines** (`monthly-from-decay-model`): `ct-site` runs the monthly engine; every other path
   runs the annual one. They differ in timing, and in which year's decay rate and MCF apply when those
   change over time.
-- **Diversion defaults** (`diversion-defaults`): a Custom Location takes its country's composting and
-  incineration shares; a city with no treatment data takes none, because the city model's default
-  branch never runs.
+- **Diversion defaults** (`diversion-defaults`): a Custom Location always takes its country's
+  composting and incineration shares; a city takes them only when it reports no diversion and its
+  landfill shares add up to under 99%.
 - **Over-drawn diversion** (`diversion-split`): the city paths re-split by min-cost max-flow; `adst-city`
   refuses the request.
 - **Food prevention** (`food-waste-prevention`): the city DST keeps the baseline's decay rate and compost
@@ -169,7 +170,7 @@ A site or city with no recorded type is assumed a sanitary landfill or an open d
   3. `dumpsite`: open dump otherwise, including a missing or unplaceable country. Never a controlled dump.
 - **Paths:**
   - `ct-site`: Climate TRACE fills the type before the call, with its own income groups; SWEET applies the rule again to a blank type.
-  - `city-model`, `custom-location`: only for a city's landfill/dump split, after the country's and then the region's shares, which the code calls IPCC's and marks for review.
+  - `city-model`, `custom-location`: only for a city with no split of its own, after IPCC 2019's country and then regional open-dump/landfill fractions (Tables 2A.1, 2.1).
   - `site-tool`: the prefill applies it to a location or a blank type, and makes an unrecognised type a dumpsite; the run takes the type it is given.
 - **Confidence:** low
 - **Better:** Classify each site from its area, intake or imagery, not its country's income, and use one fallback order on every path.
@@ -368,7 +369,7 @@ None of the waste sent to incineration is landfilled unburned, so incinerated wa
 - **Kind:** fixed value
 - **Why:** Incinerator ash is nearly all mineral: the EU's Industrial Emissions Directive holds its organic carbon under 3%, and Japan landfills under 1% of its waste unburned. The old 0.1 had no source.
 - **Paths:**
-  - `city-model`: on the reported incineration share; its default share never applies (see `diversion-defaults`).
+  - `city-model`: on the reported, else the default, incineration share (see `diversion-defaults`).
   - `city-dst-scenario`: on the scenario's chosen share.
   - `custom-location`: on the country's default share.
   - `adst-city`: on the combustion pathway, and on a facility marked `combusts`, which would deposit that share of its intake.
@@ -398,7 +399,7 @@ A city's treatment shares reported as "other" or "unaccounted for" get no destin
 A city or place with no treatment data takes its country's, else its region's, composting and incineration shares, and none for digestion or recycling.
 
 - **Kind:** fallback
-- **Why:** Not recorded; the tables ship with SWEET's defaults, beside the landfill/dump shares.
+- **Why:** A city with no treatment data most likely treats its waste as its country does; Hugh, 2026-10-23.
 - **Options, best first:**
   1. `reported`: the city's own shares.
   2. `country`: the country's composting and incineration shares.
@@ -406,20 +407,19 @@ A city or place with no treatment data takes its country's, else its region's, c
   4. `none`: no diversion.
 - **Paths:**
   - `custom-location`: `country`, else `region`, else `none`.
-  - `city-model`: `reported`, else in effect `none` (see Known problem).
-- **Known problem:** on `city-model`, a blank compost share becomes 0 before the all-blank check, so the default branch never runs. In the June 2026 cities table no city uses diversion defaults.
+  - `city-model`: `reported`; with every diversion blank and landfill shares under 99%, `country`, else `region`, else `none`. Before this release the defaults never applied.
 - **Confidence:** low
-- **Better:** Decide whether a city with no treatment data should take its country's shares, make the city model do so, and flag it in the published table.
+- **Better:** Review the default tables, which the code marks as needing review: Palestine's 69% incineration, for one, is doubtful.
 - **Value:** `SWEET_python.defaults_2019`: `FRACTION_COMPOSTED_COUNTRY`, `FRACTION_COMPOSTED`, `FRACTION_INCINERATED_COUNTRY`, `FRACTION_INCINERATED`
 - **Code:** `SWEET_python/city_params.py` (2 places)
 - **Reviewed:** 2026-10-23
 
 ### `city-treatment-buckets`
 
-A city's reported treatment maps onto three buckets: sanitary landfill with gas collection is "with capture"; controlled and unspecified landfill are "without capture"; advanced thermal treatment counts as incineration.
+A city's reported treatment shares map onto three buckets: sanitary landfill with gas collection is "with capture"; controlled landfill and unspecified landfill are "without capture"; advanced thermal treatment counts as incineration.
 
 - **Kind:** method choice
-- **Why:** SWEET's city model has only three disposal buckets, and reports rarely say how a landfill is run.
+- **Why:** A controlled landfill is engineered, so it takes a sanitary landfill's MCF; an unspecified landfill is assumed to be one too, not typed by the country's rule.
 - **Paths:**
   - `city-model`: in `load_andre_params`; diversion shares above 100% are scaled down. The city DST reads the split the cities table publishes.
 - **Confidence:** low

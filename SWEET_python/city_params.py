@@ -1564,9 +1564,10 @@ class City:
 
             # Compost params
             compost_components = DIVERSION_ELIGIBILITY["compost"]
+            # A blank share stays NaN until the default checks below have seen it; the
+            # shares are zero-filled after them. Zeroing compost here made every city look
+            # as if it reported diversion, so no city ever took the country defaults.
             compost_fraction = float(row["waste_treatment_compost_percent"]) / 100
-            if np.isnan(compost_fraction):
-                compost_fraction = 0.0
 
             # Anaerobic digestion params
             anaerobic_components = DIVERSION_ELIGIBILITY["anaerobic"]
