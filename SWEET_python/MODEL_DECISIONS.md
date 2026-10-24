@@ -115,10 +115,11 @@ Where the code applies a decision, a one-line comment names it:
 ## Where the paths disagree
 
 Tracing each decision through every path, on 2026-10-22, found these differences. Some may be
-deliberate; none is decided yet. Each names the entry it belongs to.
+deliberate; none is decided yet. Each names the entry it belongs to. Four were decided on
+2026-10-23 and left this list: flaring, the remediated capture values, the unknown-climate pair and
+the unknown close year (see `flaring-uniform`, `gas-capture-efficiency`, `missing-climate` and
+`intake-ends-before-close-year`).
 
-- **Flaring** (`flaring-uniform`): the city paths set no flaring, which the annual engine reads as
-  1.0, so their captured gas is wholly destroyed. Every other path uses 0.98.
 - **Decay rate** (`decay-rate-from-climate`): the waste mix is sampled in 2025 (city paths), 2000
   (`ct-site`, the site tool's prefill) or the implement year (advanced DST). Rubber counts as
   non-degradable on the city paths and the advanced DST, and is left out of the mix altogether in
@@ -126,9 +127,6 @@ deliberate; none is decided yet. Each names the entry it belongs to.
 - **First year** (`waste-before-1970-is-zero`): `ct-site` and the city paths start in 1970; the site
   tool and both advanced DST engines model back to 1950. A site opened before 1970 gets earlier
   waste in the site tool unless its caller raises the opening year first.
-- **Unknown close year** (`intake-ends-before-close-year`): `ct-site` and the site tool close it in
-  2050, taking no waste that year; the advanced DST has no unknown close year: it requires one, and
-  2051 keeps a site open.
 - **Site type** (`site-type-fill`): a city with no split of its own (What a Waste and other city
   sources give one for many cities) takes the IPCC 2019 Refinement's country, then regional,
   open-dump/landfill fractions (Tables 2A.1 and 2.1, Updated) before the rule; the code marks them for
@@ -136,7 +134,7 @@ deliberate; none is decided yet. Each names the entry it belongs to.
   rule (until 2026-10-23 they were filled with 100% dumpsite).
   Canada, Switzerland and Germany are hard-coded in `load_andre_params`.
 - **Gas capture** (`gas-capture-efficiency`): the city paths capture a fixed 60% and ignore a
-  city's reported efficiency; the city DST's converted dump captures 0.3 where the type default is 0.45.
+  city's reported efficiency.
 - **What counts as capturing** (`oxidation`): `ct-site` uses Climate TRACE's capture-system flag, the
   site tool and advanced DST use an efficiency above 0, and the city paths use the capture bucket.
 - **MCF** (`mcf-by-type-and-depth`): a city's controlled-landfill share is modelled as a landfill
@@ -153,8 +151,6 @@ deliberate; none is decided yet. Each names the entry it belongs to.
   refuses the request.
 - **Food prevention** (`food-waste-prevention`): the city DST keeps the baseline's decay rate and compost
   factor; `adst-city` recomputes both from the reduced mix.
-- **Missing climate** (`missing-climate`): the advanced DST assumes 10 °C, the site-tool prefill 20 °C
-  and 1,000 mm.
 - **Unknown opening year** (`open-year-unknown`): `ct-site` uses 1970; the site-tool prefill 2010 for a
   listed site and 1970 for a location; the advanced DST requires a year.
 - **Dead tags:** one tag each for `waste-before-1970-is-zero` and `intake-ends-before-close-year` sits
@@ -272,19 +268,19 @@ No waste is deposited before 1970. A site that opened earlier is modelled as ope
 
 ### `intake-ends-before-close-year`
 
-A site takes its last waste in the year before its close year, not in the close year itself.
+A site takes its last waste in the year before its close year, not in the close year itself. An unknown close year means the site never closes.
 
 - **Kind:** simplification
 - **Why:** A close year is when operations stop, so a full year of waste then would overstate it.
 - **Paths:**
-  - `ct-site`: a site with no close year is closed in 2050, so takes no waste that year.
-  - `site-tool`: the same rule; years after 2050 are refused, so an open site also closes in 2050.
-  - `adst-site`, `adst-city`: the same rule; 2051 means never closing, so an open site takes 2050's waste. `adst-city` gives a closed site's share to the open ones.
+  - `ct-site`: a site with no close year never closes (2051), so takes 2050's waste.
+  - `site-tool`: the same rule; 2051 means never closing, and the prefill gives it to a site with no close year.
+  - `adst-site`, `adst-city`: the same rule; 2051 means never closing. `adst-city` gives a closed site's share to the open ones.
 - **Confidence:** medium
-- **Better:** Treat an unknown close year as never closing on every path.
-- **Value:** `SWEET_python.dst_common.NEVER_CLOSES` (2051) in the advanced DST
-- **Code:** `SWEET_python/city_params.py` (4 places)
-- **Reviewed:** 2026-10-22
+- **Better:** Record more close years; most sites in the data carry none.
+- **Value:** `SWEET_python.constants.NEVER_CLOSES` (2051)
+- **Code:** `SWEET_python/city_params.py` (4 places), `SWEET_python/constants.py`
+- **Reviewed:** 2026-10-23
 
 ### `waste-per-capita-default`
 
@@ -574,26 +570,27 @@ A site's oxidation is its reported value by year, else a default set by its type
 
 ### `gas-capture-efficiency`
 
-A site captures its reported efficiency, else a site-type default if it has a capture system, else nothing.
+A site captures its reported efficiency, else a default: the remediated value for a site upgraded in a scenario, the site-type value if it has a capture system, else nothing.
 
 - **Kind:** fallback
-- **Why:** Few sites report an efficiency, but many report having a system.
+- **Why:** Few sites report an efficiency, but many report having a system. A system retrofitted into waste already in place captures less than one built with the site.
 - **Options, best first:**
   1. `reported`: the reported or user-stated efficiency.
-  2. `type-default`: 0.6 at a sanitary landfill, 0.45 at a controlled dump, 0 at a dumpsite, for a site with a capture system.
-  3. `none`: zero, when nothing says the site has a system.
+  2. `remediated`: for a site upgraded in a scenario, 30% for a dumpsite made a controlled dumpsite, 50% for a site made a sanitary landfill.
+  3. `type-default`: 0.6 at a sanitary landfill, 0.45 at a controlled dump, 0 at a dumpsite, for a site with a capture system.
+  4. `none`: zero, when nothing says the site has a system.
 - **Paths:**
-  - `ct-site`: all three; Climate TRACE decides whether a site has a system.
-  - `site-tool`: the caller's value, which it must give.
+  - `ct-site`: `reported`, `type-default` and `none`; Climate TRACE decides whether a site has a system.
+  - `site-tool`: `reported`; left blank, `remediated` for a site upgraded in the scenario, else `type-default`.
   - `adst-site`, `adst-city`: the caller's value, by year where it gives years; none given means 0.
   - `city-model`: 0.6 on the share sent to landfills with capture; the cities table's efficiency is read but never used.
   - `custom-location`: 0.6 on a capture share, but the default split has none, so a Custom Location captures nothing.
-  - `city-dst-scenario`: "add gas capture" sets 0.6 on both landfill shares, including the one without capture, and 0.3 on a dump made a controlled dump, from the year after implementation.
+  - `city-dst-scenario`: "add gas capture" sets 0.6 on both landfill shares, and `remediated` (30%) on the dumpsite, which it makes a controlled dumpsite, from the year after implementation.
 - **Confidence:** medium
-- **Better:** Use one table and rule on every path, and let the city model read each city's reported efficiency.
-- **Value:** `SWEET_python.gas_capture`: `GAS_CAPTURE_EFFICIENCY`; the city DST's converted dump, `CONVERTED_DUMP_CAPTURE_EFFICIENCY`
-- **Code:** `SWEET_python/city_params.py`
-- **Reviewed:** 2026-10-22
+- **Better:** Let the city model read each city's reported efficiency.
+- **Value:** `SWEET_python.gas_capture`: `GAS_CAPTURE_EFFICIENCY`, `CONVERTED_DUMP_CAPTURE_EFFICIENCY`, `UPGRADED_CONTROLLED_DUMP_CAPTURE_EFFICIENCY`
+- **Code:** `SWEET_python/city_params.py` (2 places)
+- **Reviewed:** 2026-10-23
 
 ### `flaring-uniform`
 
@@ -604,12 +601,12 @@ Captured gas is burned at 0.98 efficiency in every year, unless the caller state
 - **Paths:**
   - `ct-site`: 0.98 in every year.
   - `site-tool`, `adst-site`, `adst-city`: the caller's value, else 0.98.
-  - `city-model`, `city-dst-scenario`, `custom-location`: none is set, and the annual engine reads that as 1.0: captured gas is wholly destroyed.
+  - `city-model`, `city-dst-scenario`, `custom-location`: none is set, and both engines read that as 0.98. Until 2026-10-23 the annual engine read it as 1.0, destroying all captured gas.
 - **Confidence:** medium
-- **Better:** Read flare efficiency per site where operators report it, and give the city paths 0.98 so no path treats flaring as perfect.
-- **Value:** `SWEET_python.constants`: `DEFAULT_FLARE_EFFICIENCY`; the city paths' 1.0 is `FLARE_EFFICIENCY_WHEN_UNSET`
-- **Code:** `SWEET_python/city_params.py` (2 places)
-- **Reviewed:** 2026-10-22
+- **Better:** Read flare efficiency per site where operators report it.
+- **Value:** `SWEET_python.constants.DEFAULT_FLARE_EFFICIENCY`
+- **Code:** `SWEET_python/city_params.py` (2 places), `SWEET_python/model_v2.py`
+- **Reviewed:** 2026-10-23
 
 ### `monthly-from-decay-model`
 
@@ -641,20 +638,21 @@ Only food, green, wood, paper and textiles make methane. Rubber is inert, and na
 
 ### `missing-climate`
 
-A missing climate value takes a fallback: missing rainfall the wettest moisture class, a missing advanced-DST temperature 10 °C, and a failed site-tool weather lookup 1,000 mm and 20 °C.
+An unknown climate is 15 °C and 1,000 mm on every path: a missing temperature or rainfall in the decay rate, a missing advanced-DST temperature, and a failed site-tool weather lookup.
 
 - **Kind:** fallback
-- **Why:** Not recorded.
+- **Why:** One pair, so the tools agree on a site whose climate is unknown, and never a blank emission. 15 °C and 1,000 mm sit near the middle of the sites SWEET models.
 - **Options, best first:**
   1. `reported`: the caller's or the weather table's value.
-  2. `fallback`: the values above.
+  2. `fallback`: 15 °C and 1,000 mm.
 - **Paths:**
-  - `city-model`, `custom-location`, `ct-site`: missing rainfall gets a moisture factor of 1.0, ten times a dry site's.
-  - `adst-site`, `adst-city`: 10 °C when no temperature is sent.
-  - `site-tool`: the prefill's 1,000 mm and 20 °C.
+  - `city-model`, `custom-location`, `ct-site`: in the decay rate. Until 2026-10-23 missing rainfall took the wettest moisture class and a missing temperature left the rate blank; no city or Climate TRACE site was missing either.
+  - `adst-site`, `adst-city`: 15 °C when no temperature is sent.
+  - `site-tool`: the prefill's 1,000 mm and 15 °C.
 - **Confidence:** low
-- **Better:** Use the nearest weather cell, one default pair everywhere, or refuse to run without a climate.
-- **Code:** `SWEET_python/singapore_k/singapore_k.py`, `SWEET_python/city_params.py`
+- **Better:** Use the country's climate before 15 °C and 1,000 mm.
+- **Value:** `SWEET_python.constants`: `UNKNOWN_CLIMATE_TEMPERATURE_C`, `UNKNOWN_CLIMATE_PRECIPITATION_MM`
+- **Code:** `SWEET_python/singapore_k/singapore_k.py`, `SWEET_python/city_params.py`, `SWEET_python/constants.py`, `SWEET_python/advanced_dst.py`, `SWEET_python/advanced_dst_city.py`
 - **Reviewed:** 2026-10-23
 
 ## Outputs

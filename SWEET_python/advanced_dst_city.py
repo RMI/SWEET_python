@@ -45,7 +45,7 @@ import pandas as pd
 from pydantic import BaseModel, Field
 
 import SWEET_python.defaults_2019 as defaults_2019
-from SWEET_python.constants import GWP100_CH4
+from SWEET_python.constants import GWP100_CH4, UNKNOWN_CLIMATE_TEMPERATURE_C
 from SWEET_python.city_params import City, CityParameters, CustomError
 from SWEET_python.class_defs import DivsDF, LandfillType, LandfillWasteMassDF, Variant
 from SWEET_python import dst_common as common
@@ -154,7 +154,10 @@ class AdvancedDSTCityRequest(BaseModel):
             "default) means none. Values outside 0-1 are clamped."
         ),
     )
-    temperature: float = Field(10.0, description="Average annual temperature, deg C.")
+    # decision: missing-climate
+    temperature: float = Field(
+        UNKNOWN_CLIMATE_TEMPERATURE_C, description="Average annual temperature, deg C."
+    )
     country: Optional[str] = Field(None, description="ISO3 country code (identity).")
     rmi_id: Optional[int] = Field(None, description="City/site identifier (identity).")
 

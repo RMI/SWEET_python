@@ -32,7 +32,6 @@ import calendar
 import SWEET_python.defaults_2019 as defaults_2019
 from SWEET_python.constants import (
     DEFAULT_FLARE_EFFICIENCY,
-    FLARE_EFFICIENCY_WHEN_UNSET,
     MODEL_START_YEAR,
     MODEL_END_YEAR,
 )
@@ -103,9 +102,8 @@ class SWEET:
         # the actual landfill open year through 2050.
         year_range = np.arange(int(open_date), MODEL_END_YEAR + 1)
         if flare_efficiency is None:
-            flare_efficiency = pd.Series(
-                [FLARE_EFFICIENCY_WHEN_UNSET for x in year_range], index=year_range
-            )
+            # decision: flaring-uniform
+            flare_efficiency = pd.Series(DEFAULT_FLARE_EFFICIENCY, index=year_range)
         elif isinstance(flare_efficiency, dict):
             flare_efficiency = pd.Series(flare_efficiency)
 

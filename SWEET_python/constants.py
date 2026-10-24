@@ -44,6 +44,12 @@ population a run used is fixed by the SWEET commit the run records.
 MODEL_START_YEAR: int = 1970
 MODEL_END_YEAR: int = 2050
 
+#: A close year meaning "still open when the model ends". A site takes no waste in
+#: its close year, so MODEL_END_YEAR itself would close it a year early; this is
+#: what an unknown close year means on every path.
+# decision: intake-ends-before-close-year
+NEVER_CLOSES: int = MODEL_END_YEAR + 1
+
 #: The earliest open year the site tool and the advanced DST accept. An input
 #: floor against accidental giant simulations, not the modelling start: those two
 #: paths model a site from its real open year, back to here, because
@@ -79,14 +85,22 @@ SHORT_TONS_PER_TONNE: float = 1.1023
 # defaults, because the annual engine (model_v2) needs one too and dst_common
 # imports city_params -> landfill -> model_v2.
 
-#: Share of captured gas a flare destroys when the caller states none: the site
-#: tool, both advanced DST engines, and Climate TRACE's sites.
+#: Share of captured gas a flare destroys when no one states it, on every path.
+#: Both engines use it for a landfill with no flaring series, which is every
+#: city-model landfill.
 DEFAULT_FLARE_EFFICIENCY: float = 0.98
 
-#: What the annual engine uses for a landfill with no flaring series at all,
-#: which is every city-model landfill: captured gas is wholly destroyed. It
-#: differs from DEFAULT_FLARE_EFFICIENCY; see MODEL_DECISIONS.md, flaring-uniform.
-FLARE_EFFICIENCY_WHEN_UNSET: int = 1
+
+# ---------------------------------------------------------------------------
+# Unknown climate
+# ---------------------------------------------------------------------------
+
+#: The climate a site or city gets when its caller sends none: the advanced DST's
+#: default temperature, and the site tool's prefill when its weather lookup finds
+#: nothing. One pair, so the two tools agree on an unknown climate.
+# decision: missing-climate
+UNKNOWN_CLIMATE_TEMPERATURE_C: float = 15.0
+UNKNOWN_CLIMATE_PRECIPITATION_MM: float = 1000.0
 
 
 # ---------------------------------------------------------------------------
