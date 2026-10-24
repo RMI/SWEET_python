@@ -1,3 +1,5 @@
+from SWEET_python.constants import DEGRADABLE_TYPES, DIVERSION_ELIGIBILITY
+
 # Initiate parameter dictionary
 params = {
     "city": "Providence",
@@ -22,7 +24,7 @@ params = {
     # Depth
     "depth": 10,  # m
     # Model components. These shouldn't change
-    "components": set(["food", "green", "wood", "paper_cardboard", "textiles"]),
+    "components": set(DEGRADABLE_TYPES),
     # Determine split between landfill and dump site
     "sites": ["landfill", "dump_site"],
     "split_fractions": {
@@ -31,44 +33,20 @@ params = {
     },  # Doesn't have to sum to 1, some waste gets composted etc.
     # Compost params
     "compost_components": set(
-        ["food", "green", "wood", "paper_cardboard"]
+        DIVERSION_ELIGIBILITY["compost"]
     ),  # Double check we don't want to include paper
     "compost_fraction": 0.1,
     "compost_mass": None,  # Set this either way not both
     # Anaerobic params
-    "anaerobic_components": set(["food", "green", "wood", "paper_cardboard"]),
+    "anaerobic_components": set(DIVERSION_ELIGIBILITY["anaerobic"]),
     "anaerobic_fraction": 0.1,
     "anaerobic_mass": None,  # Set this either way not both
     # Combustion params
-    "combustion_components": set(
-        [
-            "food",
-            "green",
-            "wood",
-            "paper_cardboard",
-            "textiles",
-            "plastic",
-            "rubber",
-            "metal",
-            "glass",
-            "other",
-        ]
-    ),
+    "combustion_components": set(DIVERSION_ELIGIBILITY["combustion"]),
     "combustion_fraction": 0.1,
     "combustion_mass": None,  # Set this either way not both
     # Recycling params
-    "recycling_components": set(
-        [
-            "wood",
-            "paper_cardboard",
-            "textiles",
-            "plastic",
-            "rubber",
-            "metal",
-            "glass",
-            "other",
-        ]
-    ),
+    "recycling_components": set(DIVERSION_ELIGIBILITY["recycling"]),
     "recycling_fraction": 0.1,
     "recycling_mass": None,  # Set this either way not both
 }
