@@ -146,9 +146,9 @@ deliberate; none is decided yet. Each names the entry it belongs to.
 - **Two engines** (`monthly-from-decay-model`): `ct-site` runs the monthly engine; every other path
   runs the annual one. They differ in timing, and in which year's decay rate and MCF apply when those
   change over time.
-- **Diversion defaults** (`diversion-defaults`): a Custom Location takes its country's composting and
-  incineration shares; a city with no treatment data takes none, because the city model's default
-  branch never runs.
+- **Diversion defaults** (`diversion-defaults`): a Custom Location always takes its country's
+  composting and incineration shares; a city takes them only when it reports no diversion and its
+  landfill shares add up to under 99%.
 - **Over-drawn diversion** (`diversion-split`): the city paths re-split by min-cost max-flow; `adst-city`
   refuses the request.
 - **Food prevention** (`food-waste-prevention`): the city DST keeps the baseline's decay rate and compost
@@ -373,7 +373,7 @@ None of the waste sent to incineration is landfilled unburned, so incinerated wa
 - **Kind:** fixed value
 - **Why:** Incinerator ash is nearly all mineral: the EU's Industrial Emissions Directive holds its organic carbon under 3%, and Japan landfills under 1% of its waste unburned. The old 0.1 had no source.
 - **Paths:**
-  - `city-model`: on the reported incineration share; its default share never applies (see `diversion-defaults`).
+  - `city-model`: on the reported, else the default, incineration share (see `diversion-defaults`).
   - `city-dst-scenario`: on the scenario's chosen share.
   - `custom-location`: on the country's default share.
   - `adst-city`: on the combustion pathway, and on a facility marked `combusts`, which would deposit that share of its intake.
@@ -403,7 +403,7 @@ A city's treatment shares reported as "other" or "unaccounted for" get no destin
 A city or place with no treatment data takes its country's, else its region's, composting and incineration shares, and none for digestion or recycling.
 
 - **Kind:** fallback
-- **Why:** Not recorded; the tables ship with SWEET's defaults, beside the landfill/dump shares.
+- **Why:** A city with no treatment data most likely treats its waste as its country does; Hugh, 2026-10-23.
 - **Options, best first:**
   1. `reported`: the city's own shares.
   2. `country`: the country's composting and incineration shares.
@@ -411,10 +411,9 @@ A city or place with no treatment data takes its country's, else its region's, c
   4. `none`: no diversion.
 - **Paths:**
   - `custom-location`: `country`, else `region`, else `none`.
-  - `city-model`: `reported`, else in effect `none` (see Known problem).
-- **Known problem:** on `city-model`, a blank compost share becomes 0 before the all-blank check, so the default branch never runs. In the June 2026 cities table no city uses diversion defaults.
+  - `city-model`: `reported`; with every diversion blank and landfill shares under 99%, `country`, else `region`, else `none`. Before this release the defaults never applied.
 - **Confidence:** low
-- **Better:** Decide whether a city with no treatment data should take its country's shares, make the city model do so, and flag it in the published table.
+- **Better:** Review the default tables, which the code marks as needing review: Palestine's 69% incineration, for one, is doubtful.
 - **Value:** `SWEET_python.defaults_2019`: `fraction_composted_country`, `fraction_composted`, `fraction_incinerated_country`, `fraction_incinerated`
 - **Code:** `SWEET_python/city_params.py` (2 places)
 - **Reviewed:** 2026-10-23
