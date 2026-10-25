@@ -34,6 +34,7 @@ from pydantic import BaseModel, Field
 import SWEET_python.defaults_2019 as defaults_2019
 from SWEET_python.city_params import City, CityParameters
 from SWEET_python.class_defs import LandfillType, Variant
+from SWEET_python.constants import UNKNOWN_CLIMATE_TEMPERATURE_C
 from SWEET_python import dst_common as common
 from SWEET_python.dst_common import YearlyFloat, YearlyFractions
 
@@ -96,7 +97,10 @@ class AdvancedDSTRequest(BaseModel):
             "ks_overrides. Omit to derive k."
         ),
     )
-    temperature: float = Field(10.0, description="Average annual temperature, deg C.")
+    # decision: missing-climate
+    temperature: float = Field(
+        UNKNOWN_CLIMATE_TEMPERATURE_C, description="Average annual temperature, deg C."
+    )
     country: Optional[str] = Field(
         None, description="ISO3 country code. Stored for identity; does not affect the math."
     )

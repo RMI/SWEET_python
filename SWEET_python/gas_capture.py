@@ -37,12 +37,35 @@ GAS_CAPTURE_EFFICIENCY_BY_TYPE: List[float] = [
     GAS_CAPTURE_EFFICIENCY["dumpsite"],
 ]
 
-#: The city DST's "add gas capture" turns a dumpsite into a controlled dumpsite
-#: capturing this much. Not the 0.45 a controlled dump otherwise defaults to; see
-#: MODEL_DECISIONS.md, gas-capture-efficiency.
+# A site remediated in a scenario captures less than one built to its new type:
+# the gas system is retrofitted into waste already in place. A controlled dumpsite
+# assumes 45%; a dumpsite remediated to a controlled dumpsite, 30%; a controlled
+# dumpsite remediated to a sanitary landfill, 50%. See MODEL_DECISIONS.md,
+# gas-capture-efficiency.
+
+#: A dumpsite remediated to a controlled dumpsite: the city DST's "add gas
+#: capture" does this to its dumpsite share.
 CONVERTED_DUMP_CAPTURE_EFFICIENCY = 0.3
 
-#: What the site tool would give a site upgraded in its scenario, by LandfillType,
-#: when the user states no efficiency. Unreached today: the site tool refuses a
-#: blank efficiency before it gets here.
-UPGRADED_SITE_CAPTURE_EFFICIENCY_BY_TYPE: List[float] = [0.5, 0.3, 0.0]
+#: A controlled dumpsite remediated to a sanitary landfill. A dumpsite taken
+#: straight to a sanitary landfill gets this too: the rule goes by the new type.
+UPGRADED_CONTROLLED_DUMP_CAPTURE_EFFICIENCY = 0.5
+
+#: The same, indexed by the LandfillType a site is remediated to.
+REMEDIATED_CAPTURE_EFFICIENCY_BY_TYPE: List[float] = [
+    UPGRADED_CONTROLLED_DUMP_CAPTURE_EFFICIENCY,
+    CONVERTED_DUMP_CAPTURE_EFFICIENCY,
+    GAS_CAPTURE_EFFICIENCY["dumpsite"],
+]
+
+
+def default_capture_efficiency(baseline_type: int, scenario_type: int) -> float:
+    """The capture a site gets when no efficiency is stated, by LandfillType.
+
+    A scenario type better (lower) than the baseline's is a remediation, and takes
+    the remediated value; otherwise the site gets its type's default. For a
+    baseline, pass the same type twice.
+    """
+    if scenario_type < baseline_type:
+        return REMEDIATED_CAPTURE_EFFICIENCY_BY_TYPE[scenario_type]
+    return GAS_CAPTURE_EFFICIENCY_BY_TYPE[scenario_type]

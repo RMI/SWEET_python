@@ -24,6 +24,7 @@ from SWEET_python.constants import (
     DEGRADABLE_TYPES,
     MODEL_END_YEAR,
     MODEL_YEAR_MIN,
+    NEVER_CLOSES,  # re-exported: importers read it from here
     WASTE_TYPES,
 )
 from SWEET_python.landfill import Landfill
@@ -38,15 +39,6 @@ from SWEET_python.singapore_k import compute_singapore_k
 # contrast, is the modeling horizon itself, so it derives from the shared
 # constant rather than repeating the year.
 MODEL_YEAR_MAX = MODEL_END_YEAR
-
-# A close year of MODEL_END_YEAR + 1 means "still open when the model ends".
-#
-# A closure year is not an intake year (see ``apply_window``), so a site
-# submitted as closing in MODEL_END_YEAR accepts nothing in the model's final
-# year — there is no way to say "never closes" with MODEL_END_YEAR itself. This
-# sentinel is the way, and it is the same one ``city_params`` already uses when
-# a site's recorded close year is missing (``fillna(MODEL_END_YEAR + 1)``).
-NEVER_CLOSES = MODEL_END_YEAR + 1
 
 # Order matters: waste_fractions vectors are sent in this column order.
 WASTE_COMPONENTS: List[str] = list(WASTE_TYPES)
