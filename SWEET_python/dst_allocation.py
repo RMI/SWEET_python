@@ -27,16 +27,13 @@ from __future__ import annotations
 from collections import deque
 from fractions import Fraction
 
-# Mirrors City.div_components (SWEET_python/city_params.py:195). Callers should
-# pass their own `eligibility` (e.g. self.div_components); this is the default /
-# drift reference for tests.
+from SWEET_python.constants import DIVERSION_ELIGIBILITY
+
+# constants.DIVERSION_ELIGIBILITY, which City.div_components copies, as plain
+# sets. Callers should pass their own `eligibility` (e.g. self.div_components);
+# this is the default / drift reference for tests.
 DEFAULT_ELIGIBILITY = {
-    "compost": {"food", "green", "wood", "paper_cardboard"},
-    "anaerobic": {"food", "green", "wood", "paper_cardboard"},
-    "combustion": {"food", "green", "wood", "paper_cardboard",
-                   "textiles", "plastic", "rubber", "metal", "glass", "other"},
-    "recycling": {"wood", "paper_cardboard", "textiles", "plastic",
-                  "rubber", "metal", "glass", "other"},
+    pathway: set(types) for pathway, types in DIVERSION_ELIGIBILITY.items()
 }
 NON_COMBUSTION = ("compost", "anaerobic", "recycling")
 

@@ -30,12 +30,22 @@ import numpy as np
 import time
 import calendar
 import SWEET_python.defaults_2019 as defaults_2019
-from SWEET_python.constants import MODEL_START_YEAR, MODEL_END_YEAR
+from SWEET_python.constants import (
+    DEFAULT_FLARE_EFFICIENCY,
+    FLARE_EFFICIENCY_WHEN_UNSET,
+    MODEL_START_YEAR,
+    MODEL_END_YEAR,
+)
 pd.set_option("display.max_rows", None)
 
 # Particulate emission factors (kg PM / m^3 CH4 destroyed by flaring)
 PM2P5_KG_PER_M3_CH4_FLARED: float = 0.00024
 PM10_KG_PER_M3_CH4_FLARED: float = 0.00024
+
+# Waste is taken as deposited mid-year, so it starts decaying half a year after
+# the start of its deposit year: exp(-k * (years_back - DECAY_DELAY_YEARS)). The
+# monthly engine applies the same offset so the two agree.
+DECAY_DELAY_YEARS: float = 0.5
 
 
 # Based on EPA's SWEET excel model for calculating methane emissions from municipal solid waste
@@ -93,7 +103,9 @@ class SWEET:
         # the actual landfill open year through 2050.
         year_range = np.arange(int(open_date), MODEL_END_YEAR + 1)
         if flare_efficiency is None:
-            flare_efficiency = pd.Series([1 for x in year_range], index=year_range)
+            flare_efficiency = pd.Series(
+                [FLARE_EFFICIENCY_WHEN_UNSET for x in year_range], index=year_range
+            )
         elif isinstance(flare_efficiency, dict):
             flare_efficiency = pd.Series(flare_efficiency)
 
@@ -116,7 +128,7 @@ class SWEET:
 
             # Precompute exponential decay term for all years at once
             ks_values = ks[waste].loc[year_range].values[:, None]
-            exp_term = np.exp(-ks_values * (years_back_matrix - 0.5))
+            exp_term = np.exp(-ks_values * (years_back_matrix - DECAY_DELAY_YEARS))
 
             # Vectorized waste mass, L_0, and MCF computation.
             waste_masses = waste_mass_df.loc[year_range, waste].values[:, None]
@@ -257,7 +269,7 @@ class SWEET:
 
         gas_capture_values = expand_to_months(gas_capture_efficiency)
         oxidation_values = expand_to_months(oxidation_factor)
-        flare_values = expand_to_months(flare_efficiency if flare_efficiency is not None else 0.98)
+        flare_values = expand_to_months(flare_efficiency if flare_efficiency is not None else DEFAULT_FLARE_EFFICIENCY)
 
         # Setup mask for valid emission-addition month pairs (emit month >= add month)
         mask_valid = np.tri(n_months, n_months, k=0, dtype=bool)
@@ -291,7 +303,7 @@ class SWEET:
             # Apply half-year offset to match annual model's -0.5 convention
             # The annual model uses exp(-k * (years_back - 0.5)), which assumes waste 
             # deposited mid-year. We subtract 0.5 * k (at deposit month) from the integral.
-            half_year_offset = 0.5 * ks_monthly[None, :]  # k at deposit month
+            half_year_offset = DECAY_DELAY_YEARS * ks_monthly[None, :]  # k at deposit month
             integral_adjusted = integral - half_year_offset
             
             # Mask out deposits younger than the ~half-year emission lag (analogous

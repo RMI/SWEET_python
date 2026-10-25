@@ -6,16 +6,12 @@ import numpy as np
 import SWEET_python.defaults_2019 as defaults_2019
 from SWEET_python.class_defs import *
 from SWEET_python.model_v2 import SWEET
-from SWEET_python.constants import MODEL_START_YEAR, MODEL_END_YEAR
-
-# Density of methane at 0 C and 1 atm, in kg/m3. This file previously carried
-# two different values for the same physical constant -- 0.7168 here and 0.657
-# in the `doing_fancy_ox` branch, 9.1% apart, which is CH4 at 0 C versus at
-# roughly 25 C. Both conversions are between the same two units on the same
-# quantity, so they cannot legitimately differ. 0.7168 wins because it is the
-# value the rest of SWEET already uses (city_params.py:6698, :6715) and the
-# basis L_0 is denominated in.
-CH4_DENSITY_KG_PER_M3 = 0.7168
+from SWEET_python.constants import (
+    CH4_DENSITY_KG_PER_M3,  # re-exported: importers read it from here
+    MODEL_START_YEAR,
+    MODEL_END_YEAR,
+)
+from SWEET_python.oxidation import OX_NO_CAPTURE, OX_WITH_CAPTURE
 
 # from SWEET_python.calmim_ox import Site, WeatherModel, WeatherProfile, Cover, CoverMaterial, materials, attach_thread
 
@@ -174,22 +170,22 @@ class Landfill:
                     )  # g/m³/sec * m² * m * sec/day * day/year /1e6 = tons/year
 
         if self.gas_capture_efficiency is None:
-            self.gas_capture_efficiency = defaults_2019.gas_capture_efficiency[
+            self.gas_capture_efficiency = defaults_2019.GAS_CAPTURE_EFFICIENCY[
                 site_type
             ]
 
         # if not self.oxidation_factor:
         #     if self.gas_capture:
-        #         self.oxidation_factor = defaults_2019.oxidation_factor['with_lfg'][site_type]
+        #         self.oxidation_factor = defaults_2019.OXIDATION_FACTOR['with_lfg'][site_type]
         #     else:
-        #         self.oxidation_factor = defaults_2019.oxidation_factor['without_lfg'][site_type]
+        #         self.oxidation_factor = defaults_2019.OXIDATION_FACTOR['without_lfg'][site_type]
 
         # if (self.gas_capture) and (scenario == 0):
-        #     self.gas_capture_efficiency = defaults_2019.gas_capture_efficiency[site_type]
-        #     self.oxidation_factor = defaults_2019.oxidation_factor['with_lfg'][site_type]
+        #     self.gas_capture_efficiency = defaults_2019.GAS_CAPTURE_EFFICIENCY[site_type]
+        #     self.oxidation_factor = defaults_2019.OXIDATION_FACTOR['with_lfg'][site_type]
         # else:
         #     self.gas_capture_efficiency = 0
-        #     self.oxidation_factor = defaults_2019.oxidation_factor['without_lfg'][site_type]
+        #     self.oxidation_factor = defaults_2019.OXIDATION_FACTOR['without_lfg'][site_type]
 
         self.waste_mass = None
         self.emissions = None
@@ -336,8 +332,8 @@ class Landfill:
         #     self.oxidation_factor = 0
 
         # Oxidation factor for simple DST
-        ox_nocap = {"landfill": 0.1, "controlled_dumpsite": 0.05, "dumpsite": 0}
-        ox_cap = {"landfill": 0.22, "controlled_dumpsite": 0.1, "dumpsite": 0}
+        ox_nocap = OX_NO_CAPTURE
+        ox_cap = OX_WITH_CAPTURE
         if not skip_ox:
             if (not self.advanced) or (self.oxidation_factor is None):
                 if self.gas_capture:

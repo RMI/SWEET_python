@@ -18,19 +18,25 @@ import SWEET_python.defaults_2019 as defaults_2019
 import SWEET_python.mcf as mcf_defaults
 from SWEET_python.city_params import City, CustomError
 from SWEET_python.class_defs import DecompositionRates
-from SWEET_python.constants import MODEL_END_YEAR
+import SWEET_python.oxidation as oxidation
+from SWEET_python.constants import (
+    DEFAULT_FLARE_EFFICIENCY,  # re-exported: importers read it from here
+    DEGRADABLE_TYPES,
+    MODEL_END_YEAR,
+    MODEL_YEAR_MIN,
+    WASTE_TYPES,
+)
 from SWEET_python.landfill import Landfill
 from SWEET_python.singapore_k import compute_singapore_k
 
 # The model is only ever evaluated over this window. Open years are validated
-# against MODEL_YEAR_MIN to avoid accidental giant simulations.
+# against MODEL_YEAR_MIN (constants.py) to avoid accidental giant simulations.
 #
 # MODEL_YEAR_MIN is an input-validation floor, NOT the modeling start: a site
 # may legitimately record an opening year before MODEL_START_YEAR (deposition
 # is simply treated as starting at MODEL_START_YEAR). MODEL_YEAR_MAX, by
 # contrast, is the modeling horizon itself, so it derives from the shared
 # constant rather than repeating the year.
-MODEL_YEAR_MIN = 1950
 MODEL_YEAR_MAX = MODEL_END_YEAR
 
 # A close year of MODEL_END_YEAR + 1 means "still open when the model ends".
@@ -43,27 +49,10 @@ MODEL_YEAR_MAX = MODEL_END_YEAR
 NEVER_CLOSES = MODEL_END_YEAR + 1
 
 # Order matters: waste_fractions vectors are sent in this column order.
-WASTE_COMPONENTS: List[str] = [
-    "food",
-    "green",
-    "wood",
-    "paper_cardboard",
-    "textiles",
-    "plastic",
-    "metal",
-    "glass",
-    "rubber",
-    "other",
-]
+WASTE_COMPONENTS: List[str] = list(WASTE_TYPES)
 # The SWEET engine only generates landfill methane from the biodegradable
 # components (these are the ones with a k value and an L_0).
-DEGRADABLE_COMPONENTS: List[str] = [
-    "food",
-    "green",
-    "wood",
-    "paper_cardboard",
-    "textiles",
-]
+DEGRADABLE_COMPONENTS: List[str] = list(DEGRADABLE_TYPES)
 
 # Methane correction factors live in SWEET_python.mcf, which is the single source
 # of truth for the table and for the depth rule. These names are re-exported so
@@ -75,14 +64,14 @@ DEEP_SITE_DEPTH_M = mcf_defaults.DEEP_SITE_DEPTH_M
 DEEP_DUMP_MCF = mcf_defaults.MCF_UNMANAGED_DEEP
 DEEP_MCF_DUMP_TYPES = mcf_defaults.DEPTH_SENSITIVE_TYPES
 
-# Oxidation factor lookup, mirroring City.sdst_v1_5 / Landfill.estimate_emissions.
-OX_NOCAP: Dict[str, float] = {"landfill": 0.1, "controlled_dumpsite": 0.05, "dumpsite": 0.0}
-OX_CAP: Dict[str, float] = {"landfill": 0.22, "controlled_dumpsite": 0.1, "dumpsite": 0.0}
+# Oxidation factors live in SWEET_python.oxidation; re-exported under the names
+# existing importers of dst_common use.
+OX_NOCAP: Dict[str, float] = oxidation.OX_NO_CAPTURE
+OX_CAP: Dict[str, float] = oxidation.OX_WITH_CAPTURE
 # A dump upgraded ("ameliorated") to an engineered landfill with gas capture gets
 # a higher oxidation factor than a landfill that always existed.
-OX_REMEDIATED_TO_LANDFILL = 0.18
+OX_REMEDIATED_TO_LANDFILL = oxidation.OX_REMEDIATED_TO_LANDFILL
 
-DEFAULT_FLARE_EFFICIENCY = 0.98
 LANDFILL_LANDFILL_TYPE = 0  # LandfillType.landfill
 
 # A yearly time series arrives over the wire as {year: value}. Pydantic coerces
