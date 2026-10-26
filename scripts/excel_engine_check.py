@@ -163,6 +163,20 @@ CASES = {
 
 # --- Excel side --------------------------------------------------------------
 
+def _check_pasted(book, case: dict, years: list[int]) -> None:
+    """Stop if Excel did not keep what was pasted, rather than compare the wrong thing."""
+    if "waste" in case:
+        got = np.array(book.sheets["I. Waste"].range(_year_range("E", 7)).value, dtype=float)
+        want = np.array([case["waste"].get(y, {}).get("food", 0.0) for y in years])
+        if not np.allclose(got, want, rtol=1e-9):
+            raise RuntimeError("Excel did not keep the pasted waste in 'I. Waste'")
+    if "collection" in case:
+        got = np.array(book.sheets["CH4 Collect"].range(_year_range("C", 7)).value, dtype=float)
+        want = np.array([case["collection"].get(y, 0.0) for y in years])
+        if not np.allclose(got, want, rtol=1e-9):
+            raise RuntimeError("Excel did not keep the pasted collection efficiency in 'CH4 Collect'")
+
+
 def run_excel(app, template: Path, name: str, case: dict, keep: bool) -> pd.DataFrame:
     """Fill a fresh copy of the workbook with one case and read back what it used."""
     EXCEL_WORK_DIR.mkdir(parents=True, exist_ok=True)
@@ -175,14 +189,20 @@ def run_excel(app, template: Path, name: str, case: dict, keep: bool) -> pd.Data
             book.sheets[sheet].range(cell).value = value
 
         years = list(range(EXCEL_FIRST_YEAR, EXCEL_LAST_YEAR + 1))
+        # Every sheet is protected (no password). The input cells are unlocked,
+        # but a write to a locked cell is dropped without an error, so unlock
+        # a sheet before pasting over its formulas.
         if "waste" in case:
+            waste = book.sheets["I. Waste"]
+            waste.api.unprotect()
             rows = [[case["waste"].get(y, {}).get(s, 0.0) for s in ALL_STREAMS] for y in years]
-            book.sheets["I. Waste"].range("E7").value = rows
+            waste.range("E7").value = rows
         if "collection" in case:
-            book.sheets["CH4 Collect"].range("C7").options(transpose=True).value = [
-                case["collection"].get(y, 0.0) for y in years
-            ]
+            collect = book.sheets["CH4 Collect"]
+            collect.api.unprotect()
+            collect.range("C7").options(transpose=True).value = [case["collection"].get(y, 0.0) for y in years]
         app.calculate()
+        _check_pasted(book, case, years)
 
         def column(sheet, col, first_row):
             values = book.sheets[sheet].range(_year_range(col, first_row)).value
