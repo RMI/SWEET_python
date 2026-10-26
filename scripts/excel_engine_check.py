@@ -32,8 +32,10 @@ replays those with no Excel, so CI keeps the engines honest from then on.
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import sys
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -163,6 +165,38 @@ CASES = {
 
 # --- Excel side --------------------------------------------------------------
 
+def prepare_template(workbook: Path, out: Path) -> Path:
+    """A copy of the workbook Excel can open and fill without asking anything.
+
+    Excel asks about macros every time it opens the .xlsm, even hidden, and
+    asks for a password to unlock a sheet; both questions land on whoever is
+    at the screen. The macros are only reset and navigation buttons, and the
+    locks only stop typing over formulas, so the copy drops both: the VBA part
+    and its references go, the workbook becomes a plain .xlsx, and each
+    sheet's <sheetProtection> element is removed. Formulas and values are
+    untouched. Only the copy is changed.
+    """
+    with zipfile.ZipFile(workbook) as src, zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as dst:
+        for item in src.infolist():
+            if item.filename == "xl/vbaProject.bin":
+                continue
+            data = src.read(item.filename)
+            if item.filename == "[Content_Types].xml":
+                text = data.decode("utf-8")
+                text = re.sub(r'<Override PartName="/xl/vbaProject\.bin"[^>]*/>', "", text)
+                text = text.replace(
+                    "application/vnd.ms-excel.sheet.macroEnabled.main+xml",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml",
+                )
+                data = text.encode("utf-8")
+            elif item.filename == "xl/_rels/workbook.xml.rels":
+                data = re.sub(rb'<Relationship [^>]*Target="vbaProject\.bin"[^>]*/>', b"", data)
+            elif item.filename.startswith("xl/worksheets/") and item.filename.endswith(".xml"):
+                data = re.sub(rb"<sheetProtection [^>]*/>", b"", data)
+            dst.writestr(item, data)
+    return out
+
+
 def _check_pasted(book, case: dict, years: list[int]) -> None:
     """Stop if Excel did not keep what was pasted, rather than compare the wrong thing."""
     if "waste" in case:
@@ -180,27 +214,27 @@ def _check_pasted(book, case: dict, years: list[int]) -> None:
 def run_excel(app, template: Path, name: str, case: dict, keep: bool) -> pd.DataFrame:
     """Fill a fresh copy of the workbook with one case and read back what it used."""
     EXCEL_WORK_DIR.mkdir(parents=True, exist_ok=True)
-    path = EXCEL_WORK_DIR / f"{name}.xlsm"
+    path = EXCEL_WORK_DIR / f"{name}{template.suffix}"
     shutil.copyfile(template, path)
     book = app.books.open(str(path))
     try:
-        cells = {**CITY, ("General Information", "C12"): case["precip"], **case["site"]}
+        # Recalculating the 161-year array formulas after every write is slow
+        # enough that a later command times out; calculate once, at the end.
+        app.calculation = "manual"
+        cells ={**CITY, ("General Information", "C12"): case["precip"], **case["site"]}
         for (sheet, cell), value in cells.items():
             book.sheets[sheet].range(cell).value = value
 
         years = list(range(EXCEL_FIRST_YEAR, EXCEL_LAST_YEAR + 1))
-        # Every sheet is protected (no password). The input cells are unlocked,
-        # but a write to a locked cell is dropped without an error, so unlock
-        # a sheet before pasting over its formulas.
+        # The template has no sheet locks (see prepare_template); a write to a
+        # locked cell would be dropped without an error.
         if "waste" in case:
-            waste = book.sheets["I. Waste"]
-            waste.api.unprotect()
             rows = [[case["waste"].get(y, {}).get(s, 0.0) for s in ALL_STREAMS] for y in years]
-            waste.range("E7").value = rows
+            book.sheets["I. Waste"].range("E7").value = rows
         if "collection" in case:
-            collect = book.sheets["CH4 Collect"]
-            collect.api.unprotect()
-            collect.range("C7").options(transpose=True).value = [case["collection"].get(y, 0.0) for y in years]
+            book.sheets["CH4 Collect"].range("C7").options(transpose=True).value = [
+                case["collection"].get(y, 0.0) for y in years
+            ]
         app.calculate()
         _check_pasted(book, case, years)
 
@@ -367,8 +401,7 @@ def main(argv=None) -> int:
 
     OUT_DIR.mkdir(exist_ok=True)
     EXCEL_WORK_DIR.mkdir(parents=True, exist_ok=True)
-    template = EXCEL_WORK_DIR / "template.xlsm"
-    shutil.copyfile(args.workbook.expanduser(), template)
+    template = prepare_template(args.workbook.expanduser(), EXCEL_WORK_DIR / "template.xlsx")
 
     app = xw.App(visible=False, add_book=False)
     app.display_alerts = False
