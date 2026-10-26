@@ -80,7 +80,9 @@ def parse_city_population(value) -> Optional[dict[int, float]]:
     leaves a city blank in the years it was under 50,000 people, and a blank means "not
     a city yet", not zero people.
     """
-    if value is None or (isinstance(value, float) and pd.isna(value)):
+    # Any scalar missing value (None, NaN, pd.NA, NaT); is_scalar keeps a mapping or
+    # text away from pd.isna.
+    if value is None or (pd.api.types.is_scalar(value) and pd.isna(value)):
         return None
     if isinstance(value, str):
         if not value.strip():
@@ -116,11 +118,14 @@ def city_population_series(
     faster than its country, so it slightly overstates a city's population before its
     first year.
 
-    ``None`` when there is no city, no country series, or no city year inside the
-    country's years; the caller then grows by the country alone.
+    ``None`` when there is no city, no city year inside the country's years, or no
+    country series with a positive number in every year (the city's ends are scaled by
+    it, so a gap would leave a gap); the caller then grows by the country alone.
     """
     # decision: population-growth
     if not city or country is None:
+        return None
+    if country.isna().any() or not (country > 0).all():
         return None
     observed = pd.Series(city, dtype=float).sort_index()
     observed = observed[observed.index.isin(country.index)]

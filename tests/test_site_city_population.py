@@ -31,7 +31,7 @@ def test_json_text_with_string_years_reads_as_int_years():
     assert parse_city_population('{"1975": 50000, "2025": 80000}') == {1975: 50000.0, 2025: 80000.0}
 
 
-@pytest.mark.parametrize("blank", [None, np.nan, "", "{}"])
+@pytest.mark.parametrize("blank", [None, np.nan, pd.NA, pd.NaT, "", "{}"])
 def test_no_city_reads_as_none(blank):
     assert parse_city_population(blank) is None
 
@@ -84,18 +84,27 @@ def test_without_a_city_or_country_or_overlap_there_is_no_series(city, country):
     assert city_population_series(city, country) is None
 
 
+@pytest.mark.parametrize("year, value", [(1970, np.nan), (2050, np.nan), (2005, 0.0)])
+def test_a_country_with_a_gap_or_no_people_gives_no_series(year, value):
+    """The city's ends are scaled by the country, so a gap there would leave a gap."""
+    country = USA.copy()
+    country[year] = value
+    assert city_population_series({2005: 50_000.0, 2025: 200_000.0}, country) is None
+
+
 # --------------------------------------------------------------------------- #
 # Through a site
 # --------------------------------------------------------------------------- #
 
-def _site(city_population):
+def _site(city_population_by_year, **extra):
     row = pd.Series({
         "asset_identifier": 999802, "iso3_country": "USA", "type": "Sanitary Landfill",
         "income_id": "HIC", "annual_incoming_waste": 100_000.0, "incoming_waste_year": 2023.0,
         "site_open_year": 1980.0, "site_close_year": np.nan, "waste_depth": 10.0,
         "landfill_gas_collection": False, "gas_collection_efficiency": np.nan,
         "latitude": 39.0, "longitude": -95.0, "precipitation": 800.0, "temperature": 15.0,
-        "city_population": city_population,
+        "city_population_by_year": city_population_by_year,
+        **extra,
     })
     pop_data = pd.DataFrame(
         {"growth_rate_historic": [1.02], "growth_rate_future": [1.01],
@@ -122,4 +131,11 @@ def test_a_site_with_a_city_grows_with_the_city():
 
 def test_a_site_with_no_city_still_grows_with_its_country():
     baseline = _site(None)
+    assert np.allclose(_shape(baseline.waste_generated_df.df), _shape(USA))
+
+
+def test_a_single_city_population_number_on_a_site_row_is_not_read():
+    """``city_population`` is the Brazil city-site path's one number per city; a site
+    row grows only with ``city_population_by_year``."""
+    baseline = _site(None, city_population=1_500_000.0)
     assert np.allclose(_shape(baseline.waste_generated_df.df), _shape(USA))

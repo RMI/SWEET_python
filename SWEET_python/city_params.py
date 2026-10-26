@@ -3539,7 +3539,7 @@ class City:
             # the site grows with that city, and with the country's shape outside the
             # city's years (population.city_population_series).
             city_series = city_population_series(
-                parse_city_population(canonical_row.get("city_population")), population_series
+                parse_city_population(canonical_row.get("city_population_by_year")), population_series
             )
             if city_series is not None:
                 population_series = city_series
