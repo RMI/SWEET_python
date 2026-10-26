@@ -8,5 +8,5 @@ Decay engine (checked against SWEET v4.0.6 by scripts/excel_engine_check.py; tes
 
 4) Given the same inputs, the annual engine generates exactly the same methane as Excel.
 5) Gas a flare fails to destroy is oxidised in the cover in Python and not in Excel. That makes Python's emissions lower by generated x capture x 2% x oxidation, about 0.8% at a landfill with 60% capture. It is the only emissions difference left.
-6) The monthly engine, which the TRACE pipeline runs, is within 0.4% of Excel over a site's life and within 4% in any one year. The largest gaps are in the first year after closing and in leap years.
+6) The monthly engine, which the TRACE pipeline runs, is within 0.5% of Excel over a site's life and within 4% in any one year, once the flare-slip difference in 5) is taken off. The largest gaps are in the first year after closing and in leap years.
 7) Excel is wrong in one cell: 'I. CH4'!C64 (site 1, food, 2015) holds the 2016 formula, so Excel's 2015 food methane is really 2016's.
