@@ -58,7 +58,8 @@ def _side(path: Path) -> pd.DataFrame:
 
 
 def test_fixtures_exist():
-    assert len(FIXTURES) == len(check.CASES), "re-run scripts/excel_engine_check.py --write-fixtures"
+    # By name, not count: a stale extra CSV must not stand in for a missing case.
+    assert {p.stem for p in FIXTURES} == set(check.CASES), "re-run scripts/excel_engine_check.py --write-fixtures"
 
 
 @pytest.mark.parametrize("path", FIXTURES, ids=lambda p: p.stem)
