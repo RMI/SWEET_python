@@ -216,25 +216,26 @@ Every tonne a city generates is diverted or disposed of. None is left uncollecte
 
 ### `population-growth`
 
-Waste grows with the country's UN population each year. A big UN-listed city keeps its own two UN rates. With no usable series, fixed rates apply.
+Waste grows with the country's UN population each year. A Climate TRACE site near a UN-listed city grows with that city. A big UN-listed city keeps its own two UN rates. With no usable series, fixed rates apply.
 
 - **Kind:** fallback
 - **Why:** Population is the main driver of how much waste a place generates over time, and a big city can outgrow its country.
 - **Options, best first:**
-  1. `un-city-rates`: a UN-listed city of 300,000 or more, with plausible rates, compounds its own historic and future UN rates.
-  2. `un-population`: the country's UN World Population Prospects 2024 population, by year, from SWEET's table.
-  3. `constant-rate`: fixed historic and future rates, when there is no usable yearly series.
+  1. `un-city-series`: the nearby city's UN population by year, which the caller supplies. Outside the city's years it moves with the country's population.
+  2. `un-city-rates`: a UN-listed city of 300,000 or more, with plausible rates, compounds its own historic and future UN rates.
+  3. `un-population`: the country's UN World Population Prospects 2024 population, by year, from SWEET's table.
+  4. `constant-rate`: fixed historic and future rates, when there is no usable yearly series.
 - **Paths:**
   - `city-model`, `city-dst-scenario`: all three; `constant-rate` is the city's own rates. `city_population_trajectory` gives the same answer to a caller that stores it.
   - `custom-location`: `un-population`, else world urban-population rates.
   - `site-tool`: `un-population`, else an error asking for a rate. A rate the user sets compounds both ways; −100% is meant to hold waste flat.
-  - `ct-site`: the series Climate TRACE hands in, gaps held at the nearest year, else Climate TRACE's rates. An anchor year outside 1970–2050 takes the rates.
+  - `ct-site`: `un-city-series` when the row carries a city, else the country series Climate TRACE hands in, gaps held at the nearest year, else its rates. An anchor year outside 1970–2050 takes the rates.
 - **Confidence:** medium
 - **Better:** Use one fallback on every path, and UN city trajectories rather than two rates for listed cities.
 - **Known problem:** in `site-tool`, a −100% rate holds only the baseline flat; the scenario's waste goes to zero or infinity, because its growth factors skip the zero-rate guard.
 - **Value:** `SWEET_python/pops_yearly.csv`; `city_params`: `UN_LISTED_CITY_MIN_POPULATION`, `PLAUSIBLE_CITY_GROWTH`, `FALLBACK_GROWTH_RATE_HISTORIC`, `FALLBACK_GROWTH_RATE_FUTURE`
-- **Code:** `SWEET_python/class_defs.py`
-- **Reviewed:** 2026-10-22
+- **Code:** `SWEET_python/class_defs.py`, `SWEET_python/population.py`
+- **Reviewed:** 2026-10-26
 
 ### `intake-follows-population`
 
