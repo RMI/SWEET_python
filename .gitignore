@@ -19,3 +19,5 @@ SWEET_python.egg-info
 /pr-drafts/
 # Written into built copies by setup.py, never committed.
 SWEET_python/_build_sha.py
+# Local output of scripts/excel_engine_check.py; the fixtures it writes are tracked.
+/scripts/excel_engine_check_out/
