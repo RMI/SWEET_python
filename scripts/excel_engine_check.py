@@ -324,24 +324,10 @@ def run_python(excel: pd.DataFrame) -> pd.DataFrame:
 
 # --- Comparison --------------------------------------------------------------
 
-def excel_emitted_with_slip_oxidised(frame: pd.DataFrame) -> pd.Series:
-    """Excel's emissions, re-done the way our engines treat flare slip.
-
-    Excel ('CH4 Emit'!D10) emits the gas the flare fails to destroy as is:
-    generated x (1 - capture) x (1 - oxidation) + generated x capture x (1 - DE).
-    Ours oxidise that slip too: (generated - generated x capture x DE) x (1 - oxidation).
-    The difference is generated x capture x (1 - DE) x oxidation; take it off
-    Excel's number and the engines should agree exactly.
-    """
-    slip = frame["excel_generated_m3"] * frame["collection_efficiency"] * (1 - frame["destruction_efficiency"])
-    return frame["excel_emitted_m3"] - slip * frame["oxidation"]
-
-
 def compare(excel: pd.DataFrame) -> pd.DataFrame:
     """Excel and both engines side by side, one row per year the site is modelled."""
     ours = run_python(excel)
     side = excel.merge(ours, on="year", how="inner")
-    side["excel_emitted_slip_oxidised_m3"] = excel_emitted_with_slip_oxidised(side)
     side["excel_defect"] = side["year"].map(KNOWN_EXCEL_DEFECTS).fillna("")
 
     def pct(ours_col, excel_col):
@@ -350,7 +336,6 @@ def compare(excel: pd.DataFrame) -> pd.DataFrame:
     for engine in ("annual", "monthly"):
         for quantity in ("generated", "emitted"):
             side[f"{engine}_{quantity}_pct"] = pct(f"{engine}_{quantity}_m3", f"excel_{quantity}_m3")
-    side["annual_emitted_unexplained_pct"] = pct("annual_emitted_m3", "excel_emitted_slip_oxidised_m3")
     return side
 
 
@@ -368,7 +353,6 @@ def summarise(side: pd.DataFrame) -> dict:
             ours, theirs = live[f"{engine}_{quantity}_m3"], live[f"excel_{quantity}_m3"]
             row[f"{engine}_{quantity}_total_pct"] = 100 * (ours.sum() / theirs.sum() - 1)
             row[f"{engine}_{quantity}_worst_year_pct"] = live[f"{engine}_{quantity}_pct"].abs().max()
-    row["annual_emitted_unexplained_worst_year_pct"] = live["annual_emitted_unexplained_pct"].abs().max()
     for year in KNOWN_EXCEL_DEFECTS:
         hit = side[side["year"] == year]
         if len(hit):

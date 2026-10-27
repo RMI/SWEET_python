@@ -1,12 +1,18 @@
-"""Gas capture arithmetic: no double-counted flare slip, and a bounded efficiency.
+"""Gas capture arithmetic: flare slip counted once and not oxidised, and a bounded efficiency.
 
-Two defects lived in the same expression.
+Three defects lived in the same expression.
 
 The annual engine added ``+ ch4_capture * 0.02`` on top of a ``ch4_capture``
-that was already ``generation x capture_efficiency x flaring``. The gas a flare
-fails to destroy is emitted through ``(ch4_produce - ch4_capture)``, so the
-extra term charged the flare's inefficiency a second time -- and it made this
-engine disagree with the monthly one, which never had it.
+that was already ``generation x capture_efficiency x flaring``, charging the
+flare's inefficiency a second time -- and it made this engine disagree with the
+monthly one, which never had it.
+
+Both engines then oxidised the flare slip with the uncaptured gas. Slip leaves
+through the flare and never passes the cover, so it is now emitted as is, as in
+the SWEET Excel workbook ('CH4 Emit'!D10):
+
+    emitted = generated x (1 - capture) x (1 - oxidation)
+            + generated x capture x (1 - flaring)
 
 Separately, ``gas_capture_efficiency`` reaches the engine as a bare float map
 with no bound anywhere, so a value above 1 produced negative emissions.
@@ -18,75 +24,86 @@ import pytest
 
 from SWEET_python import defaults_2019
 from SWEET_python.landfill import CH4_DENSITY_KG_PER_M3
+from SWEET_python.model_v2 import SWEET
 
 
 YEARS = list(range(2000, 2051))
+COMPONENTS = ["food", "green", "wood", "paper_cardboard", "textiles"]
 
 
 def _emissions(generation, capture_eff, flaring, oxidation):
-    """The annual engine's formula, as it now stands (model_v2.py)."""
-    captured_and_destroyed = generation * capture_eff * flaring
-    return (generation - captured_and_destroyed) * (1 - oxidation)
+    """The formula both engines should follow."""
+    uncaptured = generation * (1 - capture_eff)
+    slip = generation * capture_eff * (1 - flaring)
+    return uncaptured * (1 - oxidation) + slip
 
 
-def _emissions_monthly(generation, capture_eff, flaring, oxidation):
-    """The monthly engine's formula (model_v2.py, ``trace_monthly`` branch)."""
-    capture = generation * capture_eff * flaring
-    return (generation - capture) * (1 - oxidation)
+def _run_engines(capture_eff, flaring, oxidation):
+    """Yearly (generated, emitted) from each engine for 1,000 t of food a year."""
+    years = pd.Index(YEARS)
+    landfill = {
+        "open_date": YEARS[0],
+        "close_date": None,
+        "ks": {c: pd.Series(0.2, index=years) for c in COMPONENTS},
+        "waste_mass_df": pd.DataFrame({c: 1000.0 if c == "food" else 0.0 for c in COMPONENTS}, index=years),
+        "mcf": pd.Series(1.0, index=years),
+        "gas_capture_efficiency": pd.Series(capture_eff, index=years),
+        "oxidation_factor": pd.Series(oxidation, index=years),
+        "flaring": pd.Series(flaring, index=years),
+    }
+    city = {"components": COMPONENTS}
+    params = {"year_of_data_pop": None, "growth_rate_historic": None, "growth_rate_future": None}
+
+    _, q, ch4, _ = SWEET(city, params, dict(landfill, ks=dict(landfill["ks"]))).estimate_emissions2()
+    annual = (ch4.sum(axis=1), q["total"])
+    _, q, ch4, _ = SWEET(city, params, dict(landfill, ks=dict(landfill["ks"]))).estimate_emissions_monthly()
+    by_year = lambda frame: frame.groupby(frame.index.year).sum()
+    monthly = (by_year(ch4).sum(axis=1), by_year(q["total"]))
+    return {"annual": annual, "monthly": monthly}
+
+
+CASES = [(0.0, 0.98, 0.10), (0.6, 0.98, 0.22), (0.3, 0.5, 0.10), (0.6, 0.0, 0.22), (1.0, 1.0, 0.22)]
 
 
 class TestFlareSlip:
-    def test_annual_and_monthly_agree(self):
-        """The whole point of the change: identical inputs, identical answer."""
-        for eff in (0.0, 0.3, 0.6, 0.98, 1.0):
-            for flaring in (0.0, 0.5, 0.98, 1.0):
-                assert _emissions(1000.0, eff, flaring, 0.22) == pytest.approx(
-                    _emissions_monthly(1000.0, eff, flaring, 0.22)
-                )
+    @pytest.mark.parametrize("engine", ["annual", "monthly"])
+    @pytest.mark.parametrize("capture_eff, flaring, oxidation", CASES)
+    def test_each_engine_follows_the_formula(self, engine, capture_eff, flaring, oxidation):
+        generated, emitted = _run_engines(capture_eff, flaring, oxidation)[engine]
+        expected = _emissions(generated, capture_eff, flaring, oxidation)
+        np.testing.assert_allclose(emitted, expected, rtol=1e-12, atol=1e-9)
+
+    def test_flare_slip_is_not_oxidised(self):
+        """At 60% capture, 98% flaring and 0.22 oxidation, the slip is 1.2% of
+        generation and adds 0.8% to emissions over oxidising it with the rest."""
+        generation, eff, flaring, ox = 1000.0, 0.6, 0.98, 0.22
+        oxidised_slip = (generation - generation * eff * flaring) * (1 - ox)
+        now = _emissions(generation, eff, flaring, ox)
+        assert now - oxidised_slip == pytest.approx(generation * eff * (1 - flaring) * ox)
+        assert now / oxidised_slip - 1 == pytest.approx(0.0082, abs=1e-4)
 
     def test_flare_inefficiency_is_charged_once(self):
-        """Undestroyed gas is emitted once, via the residual -- not twice."""
+        """The old annual expression added another 2% of the *destroyed* gas back."""
         generation, eff, flaring, ox = 1000.0, 0.6, 0.98, 0.22
-
         destroyed = generation * eff * flaring
-        residual = generation - destroyed
-        expected = residual * (1 - ox)
-
-        assert _emissions(generation, eff, flaring, ox) == pytest.approx(expected)
-
-        # The old expression added another 2% of the *destroyed* gas back.
-        old = expected + destroyed * 0.02
-        assert old > expected
-        # It inflated a captured site's emissions by ~3.7%.
-        assert (old - expected) / expected == pytest.approx(0.0366, abs=1e-3)
+        now = _emissions(generation, eff, flaring, ox)
+        old = (generation - destroyed) * (1 - ox) + destroyed * 0.02
+        assert old > now
 
     def test_no_capture_is_unaffected(self):
-        """A site without capture never had a slip term, and still doesn't."""
-        generation, ox = 1000.0, 0.22
-        assert _emissions(generation, 0.0, 0.98, ox) == pytest.approx(
-            generation * (1 - ox)
-        )
+        assert _emissions(1000.0, 0.0, 0.98, 0.22) == pytest.approx(1000.0 * (1 - 0.22))
 
     def test_perfect_capture_and_destruction_emits_nothing(self):
         assert _emissions(1000.0, 1.0, 1.0, 0.22) == pytest.approx(0.0)
 
-    def test_capture_with_no_destruction_equals_no_capture(self):
-        """Documents a real limitation this change does NOT fix.
-
-        Gas that is collected and then vented leaves through a stack, not
-        through the cover, so it should escape oxidation. The engine oxidises
-        it anyway, which understates emissions for a venting site. Only
-        reachable by setting ``flaring`` near zero, which the default of 0.98
-        makes rare -- pinned here so the behaviour is deliberate rather than
-        forgotten.
-        """
+    def test_vented_gas_escapes_oxidation(self):
+        """Gas collected and then not destroyed leaves through a stack, not the
+        cover. It used to be oxidised anyway, so a venting site came out the same
+        as one with no capture at all."""
         generation, ox = 1000.0, 0.22
         vented = _emissions(generation, 0.6, 0.0, ox)
-        no_capture = _emissions(generation, 0.0, 0.98, ox)
-        assert vented == pytest.approx(no_capture)
-
-        physical = generation * 0.4 * (1 - ox) + generation * 0.6
-        assert physical > vented
+        assert vented == pytest.approx(generation * 0.4 * (1 - ox) + generation * 0.6)
+        assert vented > _emissions(generation, 0.0, 0.98, ox)
 
 
 class TestCaptureBounds:

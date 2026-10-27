@@ -123,33 +123,34 @@ def test_add_gas_keeps_the_oxidation_it_sets(city_without_capture, index, site, 
     ids=["landfill", "dumpsite"],
 )
 def test_add_gas_emissions_include_the_oxidation(city_without_capture, index, site):
-    """After the implementation year each converted site emits what it did, less
-    the gas captured and destroyed, with the new oxidation in place of the old:
-    (1 - 0.6 x 0.98) x 0.78 / 0.9 for the landfill and (1 - 0.3 x 0.98) x 0.9 for
-    the dumpsite. Before the fix the factors were capture alone. The flare destroys
-    0.98 of the gas captured; until the city paths flared at 0.98 it was all of it.
-    Up to the implementation year nothing moves."""
+    """After the implementation year each converted site emits its uncaptured gas,
+    with the new oxidation in place of the old, plus the 2% of captured gas the
+    flare fails to destroy, which leaves through the flare and is not oxidised:
+    (0.4 x 0.78 + 0.6 x 0.02) / 0.9 for the landfill and 0.7 x 0.9 + 0.3 x 0.02
+    for the dumpsite. Before the fix the factors were capture alone; until
+    2026-10 the flare slip was oxidised too. Up to the implementation year
+    nothing moves."""
     capture, before, after = site
     no_change = _implement(city_without_capture, 0).landfills[index].emissions["total"]
     added = _implement(city_without_capture, 1).landfills[index].emissions["total"]
 
     pd.testing.assert_series_equal(added.loc[_BEFORE], no_change.loc[_BEFORE])
-    factor = (1 - capture * DEFAULT_FLARE_EFFICIENCY) * (1 - after) / (1 - before)
+    factor = ((1 - capture) * (1 - after) + capture * (1 - DEFAULT_FLARE_EFFICIENCY)) / (1 - before)
     pd.testing.assert_series_equal(added.loc[_AFTER], no_change.loc[_AFTER] * factor, rtol=1e-12)
 
 
 def test_a_city_that_landfills_everything_falls_64_percent():
     """No diversion and all disposal to a landfill without capture: add_gas cuts
-    the city's emissions after the implementation year by 64.3%:
-    1 - (1 - 0.6 x 0.98) x 0.78 / 0.9. Before its oxidation applied it was 60%, and
+    the city's emissions after the implementation year by 64.0%:
+    1 - (0.4 x 0.78 + 0.6 x 0.02) / 0.9. Before its oxidation applied it was 60%;
     before the city paths flared at 0.98 instead of destroying all captured gas,
-    65.3%."""
+    65.3%; and while flare slip was oxidised too, 64.3%."""
     city = _city_with_split(0.0, 1.0, 0.0)
     no_diversion = DiversionFractions(compost=0.0, anaerobic=0.0, combustion=0.0, recycling=0.0)
     no_change = _implement(city, 0, div_fractions=no_diversion).total_emissions["total"]
     added = _implement(city, 1, div_fractions=no_diversion).total_emissions["total"]
 
-    assert 1 - added.loc[2040] / no_change.loc[2040] == pytest.approx(0.6429, abs=1e-4)
+    assert 1 - added.loc[2040] / no_change.loc[2040] == pytest.approx(0.6400, abs=1e-4)
 
 
 def test_without_add_gas_each_site_keeps_its_default_oxidation(city_without_capture):

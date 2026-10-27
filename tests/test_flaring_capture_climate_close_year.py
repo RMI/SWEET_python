@@ -64,12 +64,17 @@ def test_a_city_landfill_with_no_flaring_flares_at_the_default():
     pd.testing.assert_frame_equal(unset.emissions, stated.emissions)
 
 
-def test_the_capture_bucket_emits_three_percent_more_than_with_perfect_flaring():
-    unset = _custom_location_all_captured().emissions["total"]
+def test_the_capture_bucket_emits_four_percent_more_than_with_perfect_flaring():
+    landfill = _custom_location_all_captured()
+    unset = landfill.emissions["total"]
     perfect = _custom_location_all_captured(flaring=1.0).emissions["total"]
-    # (1 - 0.6 x 0.98) / (1 - 0.6) = 1.03, in every year the site captures.
+    # The 2% of captured gas the flare misses leaves through the flare, not the
+    # cover, so it is not oxidised: 1 + 0.6 x 0.02 / (0.4 x (1 - 0.22)) = 1.038,
+    # in every year the site captures.
+    ox = landfill.oxidation_factor
+    expected = 1 + 0.6 * (1 - DEFAULT_FLARE_EFFICIENCY) / ((1 - 0.6) * (1 - ox))
     ratio = unset.loc[2000:] / perfect.loc[2000:]
-    assert np.allclose(ratio, (1 - 0.6 * DEFAULT_FLARE_EFFICIENCY) / (1 - 0.6), rtol=1e-12)
+    assert np.allclose(ratio, expected, rtol=1e-12)
 
 
 # --------------------------------------------------------------------------- #

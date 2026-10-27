@@ -184,19 +184,19 @@ class SWEET:
             # deposits) that meant the change had no effect at all -- the
             # "biocover does not reduce emissions" bug (WasteMAP #719). This also
             # matches the monthly model, which already oxidises by emission month.
-            # `ch4_capture` is already net of destruction -- it is
-            # generation x capture_efficiency x flaring -- so the gas that the
-            # flare fails to destroy is sitting in `(ch4_produce - ch4_capture)`
-            # and is emitted there. A `+ ch4_capture * 0.02` term used to be
-            # added here on top of that, which charged the flare's inefficiency
-            # a second time: with the default flaring of 0.98 it added another
-            # 2% of the *destroyed* gas back as emissions. It also made this
-            # engine disagree with the monthly one (see the `trace_monthly`
-            # branch below), which has never had the extra term, so identical
-            # inputs produced ~3.7% higher emissions here than on the TRACE
-            # per-site path. The two now agree.
+            #
+            # Two streams leave the site. Gas not captured migrates through the
+            # cover and is oxidised there. Gas captured but not destroyed (flare
+            # slip, generation x capture x (1 - flaring)) leaves through the flare
+            # and never meets the cover, so it is not oxidised. This is the
+            # SWEET Excel workbook's formula ('CH4 Emit'!D10); oxidising the
+            # slip too made emissions ~0.8% low at a landfill with 60% capture.
+            # The slip is counted once: a `+ ch4_capture * 0.02` term on top of
+            # it once charged the flare's inefficiency twice.
+            ch4_uncaptured = ch4_produce * (1 - gas_capture_efficiency_values)
+            ch4_flare_slip = ch4_produce * gas_capture_efficiency_values - ch4_capture
             ch4_year_total = np.sum(
-                (ch4_produce - ch4_capture) * (1 - oxidation_factor_values[None, :]),
+                ch4_uncaptured * (1 - oxidation_factor_values[None, :]) + ch4_flare_slip,
                 axis=0,
             )
 
@@ -339,7 +339,11 @@ class SWEET:
 
             # Capture and emissions
             capture = ch4_total * gas_capture_values * flare_values
-            emissions = (ch4_total - capture) * (1 - oxidation_values)
+            # Uncaptured gas is oxidised in the cover; flare slip leaves through
+            # the flare and is not (as in the annual engine above).
+            uncaptured = ch4_total * (1 - gas_capture_values)
+            flare_slip = ch4_total * gas_capture_values - capture
+            emissions = uncaptured * (1 - oxidation_values) + flare_slip
 
             # Store in result arrays
             ch4_df[:, i] = ch4_total
