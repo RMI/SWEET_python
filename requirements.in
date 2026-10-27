@@ -19,3 +19,4 @@ asyncpg
 fastapi
 psycopg2
 sqlalchemy
+scipy

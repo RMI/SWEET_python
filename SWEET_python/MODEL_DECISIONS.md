@@ -85,6 +85,7 @@ Where the code applies a decision, a one-line comment names it:
 | [`all-city-waste-is-collected`](#all-city-waste-is-collected) | Inputs | simplification | low |
 | [`population-growth`](#population-growth) | Inputs | fallback | medium |
 | [`intake-follows-population`](#intake-follows-population) | Inputs | simplification | low |
+| [`shrinking-site-follows-its-line`](#shrinking-site-follows-its-line) | Inputs | method choice | medium |
 | [`waste-before-1970-is-zero`](#waste-before-1970-is-zero) | Inputs | simplification | medium |
 | [`intake-through-close-year`](#intake-through-close-year) | Inputs | simplification | medium |
 | [`waste-per-capita-default`](#waste-per-capita-default) | Inputs | fallback | low |
@@ -239,18 +240,33 @@ Waste grows with the country's UN population each year. A big UN-listed city kee
 
 ### `intake-follows-population`
 
-A site's intake in other years is its anchor year's intake scaled by population, so waste per person never changes. Several years' reports, from 2010 on, are averaged first.
+A site's intake in other years is its anchor year's intake scaled by population, so waste per person never changes. Several years' reports, from 2010 on, are averaged first, each moved to a common year by population.
 
 - **Kind:** simplification
 - **Why:** Population is the one driver available for every country and year.
 - **Paths:**
-  - `ct-site`: as above, at the latest report year. With no dated row, a several-row site is anchored at 2020; a one-row site at last year by the system clock, or the year before closing.
+  - `ct-site`: as above; each reported year keeps its own value. With no dated row, a several-row site is anchored at 2020; a one-row site at last year by the system clock, or the year before closing.
   - `city-model`, `city-dst-scenario`, `custom-location`: the same constant-per-person rule for a city's generated waste.
   - `site-tool`: grows a blank site the same way, and scales a Climate TRACE site's series by one ratio.
 - **Confidence:** low
-- **Better:** Let waste per person change with income, as What a Waste projects, and place an averaged report at its middle year.
-- **Code:** `SWEET_python/city_params.py` (2 places)
-- **Reviewed:** 2026-10-22
+- **Better:** Let waste per person change with income, as What a Waste projects, and follow a site's own trend past its last report.
+- **Code:** `SWEET_python/city_params.py` (3 places)
+- **Reviewed:** 2026-10-27
+
+
+### `shrinking-site-follows-its-line`
+
+A Climate TRACE site whose reported intake is clearly falling follows a straight line through its reports instead of population, then holds its last report.
+
+- **Kind:** method choice
+- **Why:** By population, a shrinking site jumped back to its average after its last report. Holding the last report is safer than extending the decline to zero.
+- **Paths:**
+  - `ct-site`: three or more reported years, a downward slope with p below 0.05, and a line falling to 75% or less of its start. Population leads up to the line; the last report is held after.
+- **Confidence:** medium
+- **Better:** Tell a site still winding down from one that has levelled off, and keep declining only the first.
+- **Value:** `SHRINKING_MIN_YEARS`, `SHRINKING_MAX_P`, `SHRINKING_MAX_FIT_RATIO` in `SWEET_python/city_params.py`
+- **Code:** `SWEET_python/city_params.py`
+- **Reviewed:** 2026-10-27
 
 ### `waste-before-1970-is-zero`
 

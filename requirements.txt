@@ -26,6 +26,7 @@ numpy==2.5.4
     # via
     #   -r requirements.in
     #   pandas
+    #   scipy
 opentelemetry-api==1.45.0
     # via fastapi
 pandas==3.1.0
@@ -42,6 +43,8 @@ pydantic-core==2.50.1
     # via pydantic
 python-dateutil==2.9.0.post0
     # via pandas
+scipy==1.18.1
+    # via -r requirements.in
 six==1.17.0
     # via python-dateutil
 sqlalchemy==2.1.6
