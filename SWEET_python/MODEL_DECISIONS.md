@@ -280,7 +280,7 @@ A site takes waste in its open year, its close year and every year between. An u
 - **Confidence:** medium
 - **Better:** Take a part year in the open and close years, where the month is known.
 - **Value:** `SWEET_python.constants.INTAKE_THROUGH_CLOSE_YEAR`, `SWEET_python.constants.NEVER_CLOSES` (2051)
-- **Code:** `SWEET_python/city_params.py` (5 places), `SWEET_python/constants.py`, `SWEET_python/dst_common.py`, `SWEET_python/advanced_dst_city.py`
+- **Code:** `SWEET_python/city_params.py` (2 places), `SWEET_python/constants.py`, `SWEET_python/dst_common.py`, `SWEET_python/advanced_dst_city.py`
 - **Reviewed:** 2026-10-27
 
 ### `waste-per-capita-default`

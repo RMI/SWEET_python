@@ -320,6 +320,14 @@ def _city_sizes(citysite_rows):
     return pop.reindex(cities).fillna(0.0), "population"
 
 
+def _intake_years(years_range, open_date, close_date):
+    """1.0 in each year a site takes waste, from its open year through its close year; else 0.0."""
+    # decision: intake-through-close-year
+    accepting = pd.Series(0.0, index=years_range)
+    accepting.loc[open_date:close_date] = 1.0
+    return accepting
+
+
 def _city_shares_of_site(citysite_rows, years_range):
     """Each city's share of a shared site's intake, per year (rows sum to 1).
 
@@ -2798,12 +2806,7 @@ class City:
         if open_date < MODEL_START_YEAR:
             open_date = MODEL_START_YEAR
         close_date = row['Site Close Year'].fillna(MODEL_END_YEAR + 1).values[0]
-        fration_of_waste_vector = pd.Series(
-                0.0, index=self.years_range
-            )
-        # Sites accept waste from their open year through their close year.
-        # decision: intake-through-close-year
-        fration_of_waste_vector.loc[open_date:close_date] = 1.0
+        fration_of_waste_vector = _intake_years(self.years_range, open_date, close_date)
         new_landfill = Landfill(
             open_date=open_date,
             close_date=close_date,
@@ -3020,11 +3023,7 @@ class City:
                 close_date = NEVER_CLOSES
             else:
                 close_date = int(close_date)
-        fraction_of_waste_vector = pd.Series(
-                0.0, index=self.years_range
-            )
-        # decision: intake-through-close-year
-        fraction_of_waste_vector.loc[open_date:close_date] = 1.0
+        fraction_of_waste_vector = _intake_years(self.years_range, open_date, close_date)
         id = int(canonical_row['asset_identifier'])
         oxidation_series = _build_oxidation_series(
             oxidation_value, canonical_row, time_series_rows, self.years_range
@@ -3267,12 +3266,7 @@ class City:
             if len(reported) == 1:
                 citysite_rows = reported.iloc[0]
         if (citysite_rows is None) or (isinstance(citysite_rows, pd.Series)):
-            fraction_of_waste_vector = pd.Series(
-                    0.0, index=self.years_range
-                )
-            # Sites accept waste from their open year through their close year.
-            # decision: intake-through-close-year
-            fraction_of_waste_vector.loc[open_date:close_date] = 1.0
+            fraction_of_waste_vector = _intake_years(self.years_range, open_date, close_date)
             new_landfill = Landfill(
                 open_date=open_date,
                 close_date=close_date,
@@ -3304,12 +3298,9 @@ class City:
             # Simulates different city sources to the same landfill by making virtual extra landfills
             cities_to_model = citysite_rows['city_id'].unique()
             fraction_of_waste_df = _city_shares_of_site(citysite_rows, self.years_range)
-            # Sites accept waste from their open year through their close year. These
-            # per-city fractions are the only deposition gate for the virtual
+            # These per-city fractions are the only deposition gate for the virtual
             # landfills below, so zero them outside the operating window.
-            operating_years = pd.Series(False, index=self.years_range)
-            # decision: intake-through-close-year
-            operating_years.loc[open_date:close_date] = True
+            operating_years = _intake_years(self.years_range, open_date, close_date) > 0
             fraction_of_waste_df.loc[~operating_years] = 0.0
             baseline.fraction_of_waste_df = fraction_of_waste_df
 
