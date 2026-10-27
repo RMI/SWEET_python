@@ -302,6 +302,58 @@ UN_LISTED_CITY_MIN_POPULATION = 300_000
 PLAUSIBLE_CITY_GROWTH = (0.98, 1.07)
 
 
+#: A site's reports from this year on are the ones averaged for its intake level.
+INTAKE_AVERAGE_FROM_YEAR = 2010
+
+
+def _site_intake_series(report_years, report_tonnes, years, growth_factor, fallback_tonnes):
+    """A site's yearly intake from its reported years: the projection, then the reports.
+
+    1. One value per reported year (the mean of that year's rows), so a year reported
+       twice counts once.
+    2. Each year's value is moved to a common year along the population curve
+       (``growth_factor``), and those are averaged. That is the average of the reports
+       anchored at the years they describe, not at the latest one: an average of
+       2014-2019 grown from 2019 understated a growing site's whole series by two or
+       three years of growth.
+    3. Every model year is that level grown by population, and each reported year is
+       then overwritten with its own value.
+
+    Reports from ``INTAKE_AVERAGE_FROM_YEAR`` on set the level when there are any.
+    Undated values are averaged as they are, anchored at 2020, as before; with no
+    value at all, ``fallback_tonnes``.
+
+    ``growth_factor(years)`` gives population growth factors relative to any fixed
+    year; the result doesn't depend on which.
+    """
+    # decision: intake-follows-population
+    years = np.asarray(years)
+    reports = pd.DataFrame({
+        "year": pd.to_numeric(pd.Series(report_years), errors="coerce").to_numpy(dtype=float),
+        "tonnes": pd.to_numeric(pd.Series(report_tonnes), errors="coerce").to_numpy(dtype=float),
+    }).dropna(subset=["tonnes"])
+    dated = reports.dropna(subset=["year"])
+    per_year = dated.groupby(dated["year"].astype(int))["tonnes"].mean()
+
+    if per_year.empty:
+        level = reports["tonnes"].mean() if len(reports) else np.nan
+        if np.isnan(level):
+            level = fallback_tonnes
+        series = level * growth_factor(years) / growth_factor(np.array([2020]))[0]
+    else:
+        basis = per_year[per_year.index >= INTAKE_AVERAGE_FROM_YEAR]
+        if basis.empty:
+            basis = per_year
+        level = float(np.mean(basis.to_numpy() / growth_factor(basis.index.to_numpy())))
+        series = level * growth_factor(years)
+
+    series = np.array(series, dtype=float)
+    for year, tonnes in per_year.items():
+        if years[0] <= year <= years[-1]:
+            series[year - years[0]] = tonnes
+    return series
+
+
 def _city_growth(iso3, anchor_year, population, city_historic, city_future):
     """How a city's waste grows: ``(population_series, growth_rate_historic, growth_rate_future)``.
 
@@ -3584,18 +3636,6 @@ class City:
                 waste_mass_defaults = False
                 year_of_data_msw = time_series_rows['incoming_waste_year'].max()
 
-                # Get rows with incoming_waste_year >= 2010
-                recent_rows = time_series_rows[time_series_rows['incoming_waste_year'] >= 2010]
-
-                if len(recent_rows) > 0:
-                    # Calculate average annual incoming waste for recent years
-                    avg_annual_waste = recent_rows['annual_incoming_waste'].mean()
-                else:
-                    # Fallback if no recent data
-                    avg_annual_waste = time_series_rows['annual_incoming_waste'].mean()
-                if np.isnan(avg_annual_waste):
-                    avg_annual_waste = canonical_row['annual_incoming_waste']
-
                 # Get growth rates
                 growth_rate_historic = pop_data.at[self.iso3, 'growth_rate_historic']
                 growth_rate_future = pop_data.at[self.iso3, 'growth_rate_future']
@@ -3603,37 +3643,24 @@ class City:
                 # Create time series from 1990 to 2050
                 years = np.arange(MODEL_START_YEAR, MODEL_END_YEAR + 1)
 
-                # Anchor the projection at the data year (the latest observed waste
-                # year), the SAME pivot the single-row path uses -- so the two paths
-                # agree instead of differing by a 2020-vs-data-year offset. Fall back
-                # to 2020 only when the data year is unknown.
-                if pd.isna(year_of_data_msw):
-                    baseline_year = 2020
-                else:
-                    baseline_year = int(year_of_data_msw)
+                # Growth factors relative to the latest observed waste year (2020 when
+                # unknown). With a WPP series this is P(year)/P(pivot) -- the UN's
+                # decelerating trajectory; without one it is the frozen CAGR
+                # (growth_rate_future forward, growth_rate_historic backward).
+                pivot = 2020 if pd.isna(year_of_data_msw) else int(year_of_data_msw)
 
-                # Project the average waste around the baseline year by population
-                # growth. With a WPP series this is P(year)/P(baseline_year) -- the
-                # UN's decelerating trajectory; without one it is the frozen CAGR
-                # (growth_rate_future forward, growth_rate_historic backward), which
-                # growth_factors_for_years reproduces exactly around a single pivot.
-                growth_factors = growth_factors_for_years(
+                def growth_factor(at_years):
+                    return growth_factors_for_years(
+                        at_years, pivot, growth_rate_historic, growth_rate_future, population_series,
+                    )
+
+                waste_series = _site_intake_series(
+                    time_series_rows['incoming_waste_year'],
+                    time_series_rows['annual_incoming_waste'],
                     years,
-                    baseline_year,
-                    growth_rate_historic,
-                    growth_rate_future,
-                    population_series,
+                    growth_factor,
+                    canonical_row['annual_incoming_waste'],
                 )
-                waste_series = avg_annual_waste * growth_factors
-
-                # Overwrite with actual data where available
-                for _, data_row in time_series_rows.iterrows():
-                    if not pd.isna(data_row['incoming_waste_year']):
-                        year_idx = int(data_row['incoming_waste_year']) - MODEL_START_YEAR
-                        if 0 <= year_idx < len(waste_series):
-                            val = data_row['annual_incoming_waste']
-                            if not np.isnan(val):
-                                waste_series[year_idx] = val
 
                 # Store the time series. This series already carries population
                 # growth, so the later WasteGeneratedDF.create must not re-apply it

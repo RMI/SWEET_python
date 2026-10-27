@@ -238,18 +238,18 @@ Waste grows with the country's UN population each year. A big UN-listed city kee
 
 ### `intake-follows-population`
 
-A site's intake in other years is its anchor year's intake scaled by population, so waste per person never changes. Several years' reports, from 2010 on, are averaged first.
+A site's intake in other years is its anchor year's intake scaled by population, so waste per person never changes. Several years' reports, from 2010 on, are averaged first, each moved to a common year by population.
 
 - **Kind:** simplification
 - **Why:** Population is the one driver available for every country and year.
 - **Paths:**
-  - `ct-site`: as above, at the latest report year. With no dated row, a several-row site is anchored at 2020; a one-row site at last year by the system clock, or the year before closing.
+  - `ct-site`: as above; each reported year keeps its own value. With no dated row, a several-row site is anchored at 2020; a one-row site at last year by the system clock, or the year before closing.
   - `city-model`, `city-dst-scenario`, `custom-location`: the same constant-per-person rule for a city's generated waste.
   - `site-tool`: grows a blank site the same way, and scales a Climate TRACE site's series by one ratio.
 - **Confidence:** low
-- **Better:** Let waste per person change with income, as What a Waste projects, and place an averaged report at its middle year.
-- **Code:** `SWEET_python/city_params.py` (2 places)
-- **Reviewed:** 2026-10-22
+- **Better:** Let waste per person change with income, as What a Waste projects, and follow a site's own trend past its last report.
+- **Code:** `SWEET_python/city_params.py` (3 places)
+- **Reviewed:** 2026-10-27
 
 ### `waste-before-1970-is-zero`
 
