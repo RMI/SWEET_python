@@ -288,6 +288,105 @@ def _resolve_gas_capture(flag, site_type, canonical_row, time_series_rows, years
     return presence, oxidation_value, pd.Series(value, index=years_range)
 
 
+#: The city's own yearly waste, in tonnes, on a Climate TRACE city-site row (SINIR's
+#: ``city_waste.msw_generated_metric_tons_per_year`` for Brazil), and its year.
+CITY_WASTE_COLUMN = "city_waste_tonnes"
+CITY_WASTE_YEAR_COLUMN = "city_waste_year"
+#: True on a city-site row Climate TRACE adds for a year the city reported sending its
+#: waste to other sites and not this one. Its % is blank, so a SWEET without this rule
+#: fills it as it fills any unreported year; this one reads it as 0%.
+SENT_ELSEWHERE_COLUMN = "ctf_sent_elsewhere"
+
+
+def _city_sizes(citysite_rows):
+    """Each city's size for splitting a shared site: ``(sizes, basis)``.
+
+    The size is the city's own waste in tonnes when every city at the site has a
+    positive figure, else its population (``basis`` is ``"waste"`` or
+    ``"population"``). The two are never mixed at one site, because a share is a
+    size divided by the site's sum of sizes and tonnes plus people means nothing.
+    """
+    cities = citysite_rows.groupby('city_id').size().index
+    if CITY_WASTE_COLUMN in citysite_rows.columns:
+        rows = citysite_rows
+        if CITY_WASTE_YEAR_COLUMN in rows.columns:
+            rows = rows.sort_values(CITY_WASTE_YEAR_COLUMN)
+        waste = pd.to_numeric(rows[CITY_WASTE_COLUMN], errors='coerce')
+        waste = waste.where(waste > 0).groupby(rows['city_id']).last().reindex(cities)
+        if waste.notna().all():
+            return waste, "waste"
+    pop = (citysite_rows.sort_values('city_population_year')
+                        .groupby('city_id')['city_population'].last())
+    return pop.reindex(cities).fillna(0.0), "population"
+
+
+def _city_shares_of_site(citysite_rows, years_range):
+    """Each city's share of a shared site's intake, per year (rows sum to 1).
+
+    A city's weight in a year is its size (:func:`_city_sizes`) times the % of its
+    waste it sent to this site that year. Weights are divided by the site's sum each
+    year, so the site keeps its own intake and only its split between cities depends
+    on them.
+
+    With sizes in tonnes, a weight is the tonnes the city reports sending, which is
+    what the split should follow. Population stood in for it, and collected waste
+    per person in Brazil runs from about 0.2 to 1.5 kg/day between cities, so a
+    small town sharing a site with a city took several times its own waste.
+
+    A year the city reported sending its waste elsewhere (``ctf_sent_elsewhere``) is
+    0%. A year it reported nothing takes its average % over the years it reported,
+    those zeros included. Averaging only the years a link appears gave a city that
+    switched sites 100% at both in every year outside the reports.
+    """
+    # decision: multi-city-site-split
+    sizes, _basis = _city_sizes(citysite_rows)
+
+    pct = pd.to_numeric(citysite_rows['ctf_percent_of_waste_sent'], errors='coerce').to_numpy()
+    sent_elsewhere = _sent_elsewhere(citysite_rows)
+    pct = np.where(sent_elsewhere, 0.0, pct)
+
+    # Reported % by (year, city), as a fraction 0..1. A year's rows are averaged
+    # first, so a year with more rows (one per gas-capture record) counts once.
+    reports = pd.DataFrame({
+        'ctf_year': citysite_rows['ctf_year'].to_numpy(),
+        'city_id': citysite_rows['city_id'].to_numpy(),
+        'pct': pct / 100.0,
+    })
+
+    def weights(rows):
+        obs = rows.groupby(['ctf_year', 'city_id'])['pct'].mean().unstack('city_id')
+        obs = obs.reindex(columns=sizes.index)
+        avg_pct = obs.mean().fillna(0.0)             # over the years each link reports
+        P = obs.reindex(index=years_range).fillna(avg_pct)
+        return P.mul(sizes, axis=1), avg_pct.mul(sizes)   # weight_i,t = size_i * pct_i,t
+
+    W, fill = weights(reports)
+
+    # Which years the site takes waste does not depend on the sent-elsewhere rows:
+    # it is decided from the reported rows alone, as before them, so only the split
+    # between cities moves. A year every linked city reported at 0% still takes none.
+    reported_W, _ = weights(reports[~sent_elsewhere])
+    takes_waste = reported_W.sum(axis=1) > 0
+
+    # A year the site takes waste but no linked city reported sending it any is split
+    # as an unreported year is. Failing that, by the cities' sizes.
+    # decision: site-year-no-sender
+    if not fill.sum() > 0:
+        fill = sizes
+    no_sender = takes_waste & ~(W.sum(axis=1) > 0)
+    W.loc[no_sender, :] = fill.to_numpy()
+    W.loc[~takes_waste, :] = 0.0
+    return W.div(W.sum(axis=1), axis=0).fillna(0.0)
+
+
+def _sent_elsewhere(citysite_rows):
+    """Which city-site rows Climate TRACE added for a year sent elsewhere (a bool array)."""
+    if SENT_ELSEWHERE_COLUMN not in citysite_rows.columns:
+        return np.zeros(len(citysite_rows), dtype=bool)
+    flag = citysite_rows[SENT_ELSEWHERE_COLUMN].astype('boolean').fillna(False)
+    return flag.to_numpy(dtype=bool)
+
+
 # The way this model is set up is based on the unit of a City, corresponding to the City class.
 # Cities can have multiple sets of CityParameters, one for each scenario.
 # Sets of CityParameters can have one or more landfills, dumpsites, waste to energy, etc.
@@ -3161,6 +3260,12 @@ class City:
         # decision: flaring-uniform
         flaring_series = pd.Series(DEFAULT_FLARE_EFFICIENCY, index=self.years_range)
         baseline._singapore_k(advanced_baseline=True)
+        if isinstance(citysite_rows, pd.DataFrame):
+            # A site with one reported link-year arrives as one row, which takes the
+            # site's whole intake. Rows added for years sent elsewhere don't change that.
+            reported = citysite_rows[~_sent_elsewhere(citysite_rows)]
+            if len(reported) == 1:
+                citysite_rows = reported.iloc[0]
         if (citysite_rows is None) or (isinstance(citysite_rows, pd.Series)):
             fraction_of_waste_vector = pd.Series(
                     0.0, index=self.years_range
@@ -3198,71 +3303,7 @@ class City:
             # Calculate a fraction_of_waste_vector for each city's waste contribution to the site
             # Simulates different city sources to the same landfill by making virtual extra landfills
             cities_to_model = citysite_rows['city_id'].unique()
-            populations = citysite_rows.groupby('city_id')['city_population'].mean()
-            population_weights = populations / populations.sum()
-            # total_weights = {}
-            # for city_id in cities_to_model:
-            #     specific_city_df = citysite_rows[citysite_rows['city_id'] == city_id]
-            #     population_weight = population_weights[city_id]
-            #     long_term_avg_pct = specific_city_df['ctf_percent_of_waste_sent'].mean()
-            #     total_weight = long_term_avg_pct * population_weight
-            #     total_weights[city_id] = total_weight
-            # total_weights = pd.Series(total_weights) / 100
-            # total_weights /= total_weights.sum()
-            # # Go through and add real data on top of the average time series
-
-            # fraction_of_waste_vectors = {}
-            # for city_id in cities_to_model:
-            #     fraction_of_waste_vectors[city_id] = pd.Series(total_weights[city_id], index=self.years_range)
-            # fraction_of_waste_df = pd.DataFrame(fraction_of_waste_vectors)
-
-            # for city_id in cities_to_model:
-            #     specific_city_df = citysite_rows[citysite_rows['city_id'] == city_id]
-            #     population_weight = population_weights[city_id]
-            #     pct_sent_annual = specific_city_df.groupby('ctf_year')['ctf_percent_of_waste_sent'].mean() / 100
-            #     pct_sent_mean = pct_sent_annual.mean()
-            #     diffs = (pct_sent_annual - pct_sent_mean)
-            #     fraction_of_waste_df.loc[pct_sent_annual.index, city_id] += diffs.values * population_weight
-            #     fraction_of_waste_df.loc[pct_sent_annual.index, ~city_id] -= diffs.values * population_weight
-
-            # decision: multi-city-site-split
-            # 1) Population weights per city (pick how you choose the city population)
-            # If you have city_population_year, use the latest per city:
-            pop = (citysite_rows.sort_values('city_population_year')
-                                .groupby('city_id')['city_population'].last())
-            # Otherwise, your .mean() is OK:
-            # pop = citysite_rows.groupby('city_id')['city_population'].mean()
-
-            pop = pop.dropna()
-            pop_w = pop / pop.sum()                         # weights sum to 1
-
-            # 2) Average % sent per city (as fraction 0..1)
-            avg_pct = (citysite_rows.groupby('city_id')['ctf_percent_of_waste_sent']
-                    .mean().div(100.0))
-            avg_pct = avg_pct.reindex(pop_w.index).fillna(0.0)
-
-            # 3) Observed % by (year, city) pivot (as fraction 0..1)
-            obs = (citysite_rows.groupby(['ctf_year','city_id'])['ctf_percent_of_waste_sent']
-                .mean().div(100.0)).unstack('city_id')
-
-            # Align to your target years and city set
-            obs = obs.reindex(index=self.years_range, columns=pop_w.index)
-
-            # 4) Fill missing observations with that city's average
-            P = obs.fillna(avg_pct)                          # per-year, per-city percent-to-this-landfill
-
-            # 5) Convert to shares of *landfill inflow* using population proxy and renormalize each year
-            W = P.mul(pop_w, axis=1)                         # weight_i,t = pop_w_i * pct_i,t
-            # row_sums = W.sum(axis=1)
-            # # Identify years with no information (sum == 0 or all NaN)
-            # zero_or_nan_rows = row_sums.isna() | (np.isclose(row_sums, 0.0))
-            # if zero_or_nan_rows.any():
-            #     # Fill those years with population weights so rows still sum to 1
-            #     # Ensure pop_w aligns to columns
-            #     pop_w_aligned = pop_w.reindex(W.columns).fillna(0.0)
-            #     # Assign the same weights across the problematic rows
-            #     W.loc[zero_or_nan_rows, :] = pop_w_aligned
-            fraction_of_waste_df = W.div(W.sum(axis=1), axis=0).fillna(0.0)
+            fraction_of_waste_df = _city_shares_of_site(citysite_rows, self.years_range)
             # Sites accept waste in open years but not the closure year. These
             # per-city fractions are the only deposition gate for the virtual
             # landfills below, so zero them outside the operating window.
