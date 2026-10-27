@@ -92,6 +92,7 @@ Where the code applies a decision, a one-line comment names it:
 | [`open-year-unknown`](#open-year-unknown) | Inputs | fallback | low |
 | [`site-tool-prefill-defaults`](#site-tool-prefill-defaults) | Inputs | fixed value | low |
 | [`multi-city-site-split`](#multi-city-site-split) | Inputs | fallback | medium |
+| [`site-year-no-sender`](#site-year-no-sender) | Inputs | fallback | low |
 | [`combustion-reject`](#combustion-reject) | Diversion | fixed value | medium |
 | [`other-treatment-shares-landfilled`](#other-treatment-shares-landfilled) | Diversion | simplification | low |
 | [`diversion-defaults`](#diversion-defaults) | Diversion | fallback | low |
@@ -349,7 +350,7 @@ The site-tool prefill fills gaps with fixed values: 10,000 t a year, a waste yea
 
 ### `multi-city-site-split`
 
-A site several cities send waste to is split into one share per city, weighted by each city's own waste in tonnes times its share sent there that year, and renormalised each year.
+A site several cities send waste to is split per city by its waste in tonnes times its % sent there that year: 0% in a year sent elsewhere, its average % in a year unreported.
 
 - **Kind:** fallback
 - **Why:** Climate TRACE links Brazil's sites to several cities and needs each city's part. The % sent is of the city's waste, so city waste × % is the tonnes the city reports sending.
@@ -359,7 +360,24 @@ A site several cities send waste to is split into one share per city, weighted b
 - **Paths:**
   - `ct-site`: in `City.citysite_estimate_trace` only (`_city_shares_of_site`). The site's total does not change, only its split between cities.
 - **Confidence:** medium
-- **Better:** Read a link missing in a year the city reported elsewhere as 0%, not its average %; outside 2014-2019 some cities' shares add to up to 5 times their waste.
+- **Better:** Use each city's waste by year, and its last reported % after its reports rather than its average.
+- **Code:** `SWEET_python/city_params.py`
+- **Reviewed:** 2026-10-27
+
+### `site-year-no-sender`
+
+A year in which no city linked to a shared site sent it any waste is split between them as an unreported year is, so the site keeps the intake it is modelled with.
+
+- **Kind:** fallback
+- **Why:** Climate TRACE models a site's intake in every open year; a year with no sender would otherwise deposit nothing and move the site's emissions.
+- **Options, best first:**
+  1. `reported-shares`: the year's own split, when some linked city sent waste there.
+  2. `average-shares`: each city's waste times its average % over the years it reported.
+  3. `city-size`: each city's waste alone, when no city ever reported sending any.
+- **Paths:**
+  - `ct-site`: in `City.citysite_estimate_trace` only (`_city_shares_of_site`).
+- **Confidence:** low
+- **Better:** Reconcile the site's intake with its links: in SINIR those years mostly show no intake either.
 - **Code:** `SWEET_python/city_params.py`
 - **Reviewed:** 2026-10-27
 

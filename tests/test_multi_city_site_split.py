@@ -129,3 +129,77 @@ def test_the_site_keeps_its_intake_and_only_the_split_moves():
     assert bujari.waste_mass_df.sum(axis=1).at[2019] == pytest.approx(
         share * _site_waste(by_waste).at[2019]
     )
+
+
+# --------------------------------------------------------------------------- #
+# Years a city reported sending its waste elsewhere
+# --------------------------------------------------------------------------- #
+
+SWITCHER, STAYER = 2001, 2002
+
+
+def _switching_rows(flag=True):
+    """The switcher sends all its waste here in 2014-2016, then all to another site.
+
+    Climate TRACE adds a blank-% row flagged ``ctf_sent_elsewhere`` for each of its
+    2017-2019 reports. The stayer sends 50% here every year.
+    """
+    years = list(range(2014, 2020))
+    rows = pd.DataFrame(
+        {
+            "city_id": [SWITCHER] * 6 + [STAYER] * 6,
+            "ctf_year": years * 2,
+            "ctf_percent_of_waste_sent": [100.0] * 3 + [np.nan] * 3 + [50.0] * 6,
+            "ctf_sent_elsewhere": [False] * 3 + [True] * 3 + [False] * 6,
+            "city_population": [1_000.0] * 12,
+            "city_population_year": [2022] * 12,
+            "city_waste_tonnes": [1_000.0] * 6 + [2_000.0] * 6,
+        }
+    )
+    if not flag:
+        rows = rows.drop(columns=["ctf_sent_elsewhere"])
+    return rows
+
+
+def test_a_year_sent_elsewhere_is_zero_and_counts_in_the_average():
+    shares = _city_shares_of_site(_switching_rows(), YEARS)
+    assert shares.at[2015, SWITCHER] == pytest.approx(1_000.0 / (1_000.0 + 1_000.0))
+    assert shares.at[2018, SWITCHER] == 0.0
+    # Outside the reports the switcher sends half its waste here (3 of 6 years),
+    # not 100%: its % across its two sites adds to 100.
+    assert shares.at[2030, SWITCHER] == pytest.approx(500.0 / (500.0 + 1_000.0))
+    assert shares.at[1990, SWITCHER] == shares.at[2030, SWITCHER]
+
+
+def test_without_the_flag_a_blank_year_is_filled_as_before():
+    """A SWEET that predates the flag sees a blank %, the same as no row at all."""
+    shares = _city_shares_of_site(_switching_rows(flag=False), YEARS)
+    assert shares.at[2018, SWITCHER] == pytest.approx(0.5)
+    assert shares.at[2030, SWITCHER] == pytest.approx(0.5)
+
+
+def test_a_year_no_linked_city_sent_waste_keeps_the_average_split():
+    """The site keeps its modelled intake: the year is split as an unreported one is."""
+    rows = _switching_rows()
+    stayer_2019 = (rows.city_id == STAYER) & (rows.ctf_year == 2019)
+    rows.loc[stayer_2019, "ctf_percent_of_waste_sent"] = np.nan
+    rows.loc[stayer_2019, "ctf_sent_elsewhere"] = True
+    shares = _city_shares_of_site(rows, YEARS)
+    assert shares.loc[2019].sum() == pytest.approx(1.0)
+    pd.testing.assert_series_equal(shares.loc[2019], shares.loc[2030], check_names=False)
+
+
+def test_a_site_with_one_city_takes_all_its_intake_every_year():
+    rows = _switching_rows()
+    shares = _city_shares_of_site(rows[rows.city_id == SWITCHER], YEARS)
+    assert (shares[SWITCHER] == 1.0).all()
+
+
+def test_a_years_repeated_rows_count_once_in_the_average():
+    """Climate TRACE repeats a link's rows once per gas-capture record."""
+    rows = _switching_rows()
+    reported = rows[~rows.ctf_sent_elsewhere]
+    doubled = pd.concat([rows, reported], ignore_index=True)
+    pd.testing.assert_frame_equal(
+        _city_shares_of_site(doubled, YEARS), _city_shares_of_site(rows, YEARS)
+    )

@@ -292,6 +292,10 @@ def _resolve_gas_capture(flag, site_type, canonical_row, time_series_rows, years
 #: ``city_waste.msw_generated_metric_tons_per_year`` for Brazil), and its year.
 CITY_WASTE_COLUMN = "city_waste_tonnes"
 CITY_WASTE_YEAR_COLUMN = "city_waste_year"
+#: True on a city-site row Climate TRACE adds for a year the city reported sending its
+#: waste to other sites and not this one. Its % is blank, so a SWEET without this rule
+#: fills it as it fills any unreported year; this one reads it as 0%.
+SENT_ELSEWHERE_COLUMN = "ctf_sent_elsewhere"
 
 
 def _city_sizes(citysite_rows):
@@ -320,30 +324,50 @@ def _city_shares_of_site(citysite_rows, years_range):
     """Each city's share of a shared site's intake, per year (rows sum to 1).
 
     A city's weight in a year is its size (:func:`_city_sizes`) times the % of its
-    waste it sent to this site that year, or its average % in a year with no
-    report. Weights are divided by the site's sum each year, so the site keeps its
-    own intake and only its split between cities depends on them.
+    waste it sent to this site that year. Weights are divided by the site's sum each
+    year, so the site keeps its own intake and only its split between cities depends
+    on them.
 
     With sizes in tonnes, a weight is the tonnes the city reports sending, which is
     what the split should follow. Population stood in for it, and collected waste
     per person in Brazil runs from about 0.2 to 1.5 kg/day between cities, so a
     small town sharing a site with a city took several times its own waste.
+
+    A year the city reported sending its waste elsewhere (``ctf_sent_elsewhere``) is
+    0%. A year it reported nothing takes its average % over the years it reported,
+    those zeros included. Averaging only the years a link appears gave a city that
+    switched sites 100% at both in every year outside the reports.
     """
     # decision: multi-city-site-split
     sizes, _basis = _city_sizes(citysite_rows)
 
-    # Average % sent per city (as fraction 0..1)
-    avg_pct = (citysite_rows.groupby('city_id')['ctf_percent_of_waste_sent']
-            .mean().div(100.0))
-    avg_pct = avg_pct.reindex(sizes.index).fillna(0.0)
+    pct = pd.to_numeric(citysite_rows['ctf_percent_of_waste_sent'], errors='coerce').to_numpy()
+    if SENT_ELSEWHERE_COLUMN in citysite_rows.columns:
+        sent_elsewhere = citysite_rows[SENT_ELSEWHERE_COLUMN].astype('boolean').fillna(False)
+        pct = np.where(sent_elsewhere.to_numpy(dtype=bool), 0.0, pct)
 
-    # Observed % by (year, city), filled with that city's average
-    obs = (citysite_rows.groupby(['ctf_year','city_id'])['ctf_percent_of_waste_sent']
-        .mean().div(100.0)).unstack('city_id')
-    obs = obs.reindex(index=years_range, columns=sizes.index)
-    P = obs.fillna(avg_pct)
+    # Reported % by (year, city), as a fraction 0..1. A year's rows are averaged
+    # first, so a year with more rows (one per gas-capture record) counts once.
+    reports = pd.DataFrame({
+        'ctf_year': citysite_rows['ctf_year'].to_numpy(),
+        'city_id': citysite_rows['city_id'].to_numpy(),
+        'pct': pct / 100.0,
+    })
+    obs = reports.groupby(['ctf_year', 'city_id'])['pct'].mean().unstack('city_id')
+    obs = obs.reindex(columns=sizes.index)
+    avg_pct = obs.mean().fillna(0.0)                 # over the years each link reports
 
+    P = obs.reindex(index=years_range).fillna(avg_pct)
     W = P.mul(sizes, axis=1)                         # weight_i,t = size_i * pct_i,t
+
+    # A year no linked city sent any waste here keeps the average split, so the site
+    # keeps the intake it is modelled with. Failing that, the cities' sizes.
+    # decision: site-year-no-sender
+    fill = avg_pct.mul(sizes)
+    if not fill.sum() > 0:
+        fill = sizes
+    no_sender = ~(W.sum(axis=1) > 0)
+    W.loc[no_sender, :] = fill.to_numpy()
     return W.div(W.sum(axis=1), axis=0).fillna(0.0)
 
 
