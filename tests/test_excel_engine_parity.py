@@ -12,9 +12,8 @@ What the tests pin down:
 - The annual engine (``estimate_emissions2``) reproduces Excel's generation
   exactly. It is the same formula: waste placed in year y emits from y + 1 at
   k x L0 x MCF x exp(-k(t - y - 0.5)).
-- Emissions differ in one known way. Excel lets the gas a flare fails to destroy
-  out unoxidised; ours oxidise it in the cover along with everything else. Take
-  that term off and the annual engine matches Excel exactly too.
+- Its emissions match Excel exactly too. Until 2026-10 they did not: ours
+  oxidised the gas a flare fails to destroy, which Excel lets out as is.
 - The monthly engine, the one the TRACE pipeline runs, spreads each year's waste
   over its months and decays month by month. That is a different discretisation
   of the same model, so it is held to a tolerance, not to equality.
@@ -69,19 +68,16 @@ def test_annual_engine_generation_matches_excel(path):
 
 
 @pytest.mark.parametrize("path", FIXTURES, ids=lambda p: p.stem)
-def test_annual_engine_emissions_match_excel_but_for_flare_slip(path):
+def test_annual_engine_emissions_match_excel(path):
     side = _side(path)
-    np.testing.assert_allclose(side["annual_emitted_m3"], side["excel_emitted_slip_oxidised_m3"], rtol=1e-9)
+    np.testing.assert_allclose(side["annual_emitted_m3"], side["excel_emitted_m3"], rtol=1e-9)
 
 
 @pytest.mark.parametrize("path", FIXTURES, ids=lambda p: p.stem)
 def test_monthly_engine_within_tolerance_of_excel(path):
     side = _side(path)
-    # Emissions against Excel with flare slip treated our way, as for the annual
-    # engine, so the tolerance covers only the monthly steps.
-    pairs = {"generated": "excel_generated_m3", "emitted": "excel_emitted_slip_oxidised_m3"}
-    for quantity, excel_col in pairs.items():
-        ours, theirs = side[f"monthly_{quantity}_m3"], side[excel_col]
+    for quantity in ("generated", "emitted"):
+        ours, theirs = side[f"monthly_{quantity}_m3"], side[f"excel_{quantity}_m3"]
         total_pct = 100 * (ours.sum() / theirs.sum() - 1)
         assert abs(total_pct) < MONTHLY_TOTAL_PCT, f"{quantity}: lifetime gap {total_pct:.3f}%"
         worst = (100 * (ours / theirs - 1)).abs().max()
