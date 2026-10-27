@@ -85,6 +85,7 @@ Where the code applies a decision, a one-line comment names it:
 | [`all-city-waste-is-collected`](#all-city-waste-is-collected) | Inputs | simplification | low |
 | [`population-growth`](#population-growth) | Inputs | fallback | medium |
 | [`intake-follows-population`](#intake-follows-population) | Inputs | simplification | low |
+| [`shrinking-site-follows-its-line`](#shrinking-site-follows-its-line) | Inputs | method choice | medium |
 | [`waste-before-1970-is-zero`](#waste-before-1970-is-zero) | Inputs | simplification | medium |
 | [`intake-ends-before-close-year`](#intake-ends-before-close-year) | Inputs | simplification | medium |
 | [`waste-per-capita-default`](#waste-per-capita-default) | Inputs | fallback | low |
@@ -249,6 +250,21 @@ A site's intake in other years is its anchor year's intake scaled by population,
 - **Confidence:** low
 - **Better:** Let waste per person change with income, as What a Waste projects, and follow a site's own trend past its last report.
 - **Code:** `SWEET_python/city_params.py` (3 places)
+- **Reviewed:** 2026-10-27
+
+
+### `shrinking-site-follows-its-line`
+
+A Climate TRACE site whose reported intake is clearly falling follows a straight line through its reports, never below zero, instead of population.
+
+- **Kind:** method choice
+- **Why:** Projected by population, a site taking less and less waste jumped back to its average after its last report.
+- **Paths:**
+  - `ct-site`: three or more reported years, a downward slope with p below 0.05, and a line falling to 75% or less of its start. Before the first report it follows population back from the line.
+- **Confidence:** medium
+- **Better:** Let the decline level off rather than run straight to zero, where a source says the site still operates.
+- **Value:** `SHRINKING_MIN_YEARS`, `SHRINKING_MAX_P`, `SHRINKING_MAX_FIT_RATIO` in `SWEET_python/city_params.py`
+- **Code:** `SWEET_python/city_params.py`
 - **Reviewed:** 2026-10-27
 
 ### `waste-before-1970-is-zero`

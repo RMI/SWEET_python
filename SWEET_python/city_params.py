@@ -1,3 +1,4 @@
+import math
 import os
 import re
 import sys
@@ -305,6 +306,79 @@ PLAUSIBLE_CITY_GROWTH = (0.98, 1.07)
 #: A site's reports from this year on are the ones averaged for its intake level.
 INTAKE_AVERAGE_FROM_YEAR = 2010
 
+#: A site is shrinking when a straight line through its reported years (the ones that
+#: set its level) slopes down with p below SHRINKING_MAX_P and falls to at most
+#: SHRINKING_MAX_FIT_RATIO of where it starts, over at least SHRINKING_MIN_YEARS years.
+#: Such a site follows its line, not population, from its first report on.
+SHRINKING_MIN_YEARS = 3
+SHRINKING_MAX_P = 0.05
+SHRINKING_MAX_FIT_RATIO = 0.75
+
+
+def _regularized_incomplete_beta(a, b, x):
+    """I_x(a, b), by Lentz's continued fraction (Numerical Recipes 6.4); SWEET has no scipy."""
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    if x > (a + 1.0) / (a + b + 2.0):
+        return 1.0 - _regularized_incomplete_beta(b, a, 1.0 - x)
+    log_front = math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b) + a * math.log(x) + b * math.log1p(-x)
+    tiny = 1e-300
+    c, d = 1.0, 1.0 - (a + b) * x / (a + 1.0)
+    d = 1.0 / (d if abs(d) > tiny else tiny)
+    f = d
+    for m in range(1, 300):
+        for numerator in (
+            m * (b - m) * x / ((a + 2 * m - 1) * (a + 2 * m)),
+            -(a + m) * (a + b + m) * x / ((a + 2 * m) * (a + 2 * m + 1)),
+        ):
+            d = 1.0 + numerator * d
+            d = 1.0 / (d if abs(d) > tiny else tiny)
+            c = 1.0 + numerator / c
+            c = c if abs(c) > tiny else tiny
+            f *= c * d
+        if abs(c * d - 1.0) < 1e-12:
+            break
+    return math.exp(log_front) * f / a
+
+
+def _shrinking_line(per_year):
+    """``(slope, intercept)`` of a site's reported intake when it is clearly shrinking, else None.
+
+    Ordinary least squares on one value per year. Clearly shrinking means at least
+    ``SHRINKING_MIN_YEARS`` years, a downward slope with two-sided p below
+    ``SHRINKING_MAX_P``, and a line that falls to at most ``SHRINKING_MAX_FIT_RATIO`` of
+    its value at the first reported year by the last.
+    """
+    n = len(per_year)
+    if n < SHRINKING_MIN_YEARS:
+        return None
+    x = per_year.index.to_numpy(dtype=float)
+    y = per_year.to_numpy(dtype=float)
+    x_mean, y_mean = x.mean(), y.mean()
+    sxx = float(((x - x_mean) ** 2).sum())
+    if sxx == 0.0:
+        return None
+    slope = float(((x - x_mean) * (y - y_mean)).sum() / sxx)
+    intercept = y_mean - slope * x_mean
+    if slope >= 0.0:
+        return None
+    start = intercept + slope * x.min()
+    end = intercept + slope * x.max()
+    if not (start > 0.0 and end <= SHRINKING_MAX_FIT_RATIO * start):
+        return None
+    df = n - 2
+    residual = float(((y - (intercept + slope * x)) ** 2).sum())
+    if df > 0 and residual > 0.0:
+        t = slope / math.sqrt(residual / df / sxx)
+        p = _regularized_incomplete_beta(df / 2.0, 0.5, df / (df + t * t))
+        if p >= SHRINKING_MAX_P:
+            return None
+    elif df == 0:
+        return None  # two points always fit a line exactly
+    return slope, intercept
+
 
 def _site_intake_series(report_years, report_tonnes, years, growth_factor, fallback_tonnes):
     """A site's yearly intake from its reported years: the projection, then the reports.
@@ -318,6 +392,12 @@ def _site_intake_series(report_years, report_tonnes, years, growth_factor, fallb
        three years of growth.
     3. Every model year is that level grown by population, and each reported year is
        then overwritten with its own value.
+
+    A clearly shrinking site (:func:`_shrinking_line`) follows its straight line instead,
+    from its first reported year on, never below zero: projected by population, a site
+    taking less and less waste jumped back to its average after its last report. Before
+    its first report it follows population back from the line's value there, since a
+    falling line climbs without limit going back.
 
     Reports from ``INTAKE_AVERAGE_FROM_YEAR`` on set the level when there are any.
     Undated values are averaged as they are, anchored at 2020, as before; with no
@@ -346,6 +426,17 @@ def _site_intake_series(report_years, report_tonnes, years, growth_factor, fallb
             basis = per_year
         level = float(np.mean(basis.to_numpy() / growth_factor(basis.index.to_numpy())))
         series = level * growth_factor(years)
+        # decision: shrinking-site-follows-its-line
+        line = _shrinking_line(basis)
+        if line is not None:
+            slope, intercept = line
+            first = int(basis.index.min())
+            at_first = max(intercept + slope * first, 0.0)
+            series = np.where(
+                years >= first,
+                np.maximum(intercept + slope * years, 0.0),
+                at_first * growth_factor(years) / growth_factor(np.array([first]))[0],
+            )
 
     series = np.array(series, dtype=float)
     for year, tonnes in per_year.items():

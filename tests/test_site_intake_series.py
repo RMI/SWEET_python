@@ -63,3 +63,47 @@ def test_undated_values_are_averaged_and_anchored_at_2020():
 def test_with_no_value_at_all_the_canonical_intake_is_used():
     out = _series([2015], [np.nan], fallback=50.0)
     assert out[2020] == pytest.approx(50.0)
+
+
+# --------------------------------------------------------------------------- #
+# Clearly shrinking sites follow their straight line
+# --------------------------------------------------------------------------- #
+
+from SWEET_python.city_params import _regularized_incomplete_beta, _shrinking_line  # noqa: E402
+
+SHRINKING = {2014: 1000.0, 2015: 900.0, 2016: 820.0, 2017: 700.0, 2018: 610.0, 2019: 500.0}
+
+
+@pytest.mark.parametrize("t, df", [(12.706, 1), (4.303, 2), (2.776, 4), (2.228, 10)])
+def test_the_p_value_helper_gives_the_t_tables_five_percent(t, df):
+    assert _regularized_incomplete_beta(df / 2, 0.5, df / (df + t * t)) == pytest.approx(0.05, abs=1e-4)
+
+
+def test_a_shrinking_site_follows_its_line_after_its_last_report_and_stops_at_zero():
+    out = _series(list(SHRINKING), list(SHRINKING.values()))
+    slope, intercept = _shrinking_line(pd.Series(SHRINKING))
+    assert slope == pytest.approx(-99.71, abs=0.01)
+    assert out[2020] == pytest.approx(intercept + slope * 2020)  # about 407 t, not ~760
+    assert out[2030] == 0.0  # the line crosses zero in 2024
+    for year, tonnes in SHRINKING.items():
+        assert out[year] == tonnes  # reported years keep their own values
+
+
+def test_before_its_first_report_a_shrinking_site_follows_population_back():
+    out = _series(list(SHRINKING), list(SHRINKING.values()))
+    slope, intercept = _shrinking_line(pd.Series(SHRINKING))
+    at_2014 = intercept + slope * 2014
+    assert out[2004] == pytest.approx(at_2014 / 1.02 ** 10)  # not ~2,000 t up the line
+
+
+@pytest.mark.parametrize(
+    "reports",
+    [
+        {2014: 1000.0, 2016: 500.0},  # two years always fit a line
+        {2014: 1000.0, 2015: 950.0, 2016: 920.0, 2017: 900.0},  # down 10%: not clearly shrinking
+        {2014: 1000.0, 2015: 300.0, 2016: 1200.0, 2017: 400.0, 2018: 900.0, 2019: 350.0},  # noise
+        {2014: 500.0, 2015: 600.0, 2016: 700.0},  # growing
+    ],
+)
+def test_other_sites_keep_the_population_projection(reports):
+    assert _shrinking_line(pd.Series(reports)) is None
