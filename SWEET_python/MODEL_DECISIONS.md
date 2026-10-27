@@ -91,7 +91,7 @@ Where the code applies a decision, a one-line comment names it:
 | [`city-shares-constant`](#city-shares-constant) | Inputs | simplification | low |
 | [`open-year-unknown`](#open-year-unknown) | Inputs | fallback | low |
 | [`site-tool-prefill-defaults`](#site-tool-prefill-defaults) | Inputs | fixed value | low |
-| [`multi-city-site-split`](#multi-city-site-split) | Inputs | method choice | low |
+| [`multi-city-site-split`](#multi-city-site-split) | Inputs | fallback | medium |
 | [`combustion-reject`](#combustion-reject) | Diversion | fixed value | medium |
 | [`other-treatment-shares-landfilled`](#other-treatment-shares-landfilled) | Diversion | simplification | low |
 | [`diversion-defaults`](#diversion-defaults) | Diversion | fallback | low |
@@ -349,16 +349,19 @@ The site-tool prefill fills gaps with fixed values: 10,000 t a year, a waste yea
 
 ### `multi-city-site-split`
 
-A site several cities send waste to is split into one share per city, weighted by each city's latest population times its average share sent, and renormalised each year.
+A site several cities send waste to is split into one share per city, weighted by each city's own waste in tonnes times its share sent there that year, and renormalised each year.
 
-- **Kind:** method choice
-- **Why:** Climate TRACE links some sites, Brazil's, to several cities and needs each city's part.
+- **Kind:** fallback
+- **Why:** Climate TRACE links Brazil's sites to several cities and needs each city's part. The % sent is of the city's waste, so city waste × % is the tonnes the city reports sending.
+- **Options, best first:**
+  1. `city-waste`: the city's own yearly waste (`city_waste_tonnes`, SINIR's figure for Brazil), when every city at the site has a positive one.
+  2. `population`: the city's latest population, for every city at the site, when any lacks a waste figure. Tonnes and people are never mixed at one site.
 - **Paths:**
-  - `ct-site`: in `City.citysite_estimate_trace` only. The site's total does not change, only its split between cities.
-- **Confidence:** low
-- **Better:** Use each city's reported share by year where it exists, and its tonnage rather than its population.
+  - `ct-site`: in `City.citysite_estimate_trace` only (`_city_shares_of_site`). The site's total does not change, only its split between cities.
+- **Confidence:** medium
+- **Better:** Read a link missing in a year the city reported elsewhere as 0%, not its average %; outside 2014-2019 some cities' shares add to up to 5 times their waste.
 - **Code:** `SWEET_python/city_params.py`
-- **Reviewed:** 2026-10-23
+- **Reviewed:** 2026-10-27
 
 ## Diversion
 
