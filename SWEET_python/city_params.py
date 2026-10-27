@@ -353,11 +353,12 @@ def _site_intake_series(report_years, report_tonnes, years, growth_factor, fallb
     3. Every model year is that level grown by population, and each reported year is
        then overwritten with its own value.
 
-    A clearly shrinking site (:func:`_shrinking_line`) follows its straight line instead,
-    from its first reported year on, never below zero: projected by population, a site
-    taking less and less waste jumped back to its average after its last report. Before
-    its first report it follows population back from the line's value there, since a
-    falling line climbs without limit going back.
+    A clearly shrinking site (:func:`_shrinking_line`) follows its straight line instead
+    between its first and last reports, never below zero: projected by population, a
+    site taking less and less waste jumped back to its average after its last report.
+    After its last report it keeps that report's value in every year, rather than
+    following the line down to zero. Before its first report it follows population up
+    to the line's value there, since a falling line climbs without limit going back.
 
     Reports from ``INTAKE_AVERAGE_FROM_YEAR`` on set the level when there are any.
     Undated values are averaged as they are, anchored at 2020, as before; with no
@@ -390,12 +391,12 @@ def _site_intake_series(report_years, report_tonnes, years, growth_factor, fallb
         line = _shrinking_line(basis)
         if line is not None:
             slope, intercept = line
-            first = int(basis.index.min())
+            first, last = int(basis.index.min()), int(basis.index.max())
             at_first = max(intercept + slope * first, 0.0)
             series = np.where(
-                years >= first,
-                np.maximum(intercept + slope * years, 0.0),
+                years < first,
                 at_first * growth_factor(years) / growth_factor(np.array([first]))[0],
+                np.where(years <= last, np.maximum(intercept + slope * years, 0.0), float(basis[last])),
             )
 
     series = np.array(series, dtype=float)

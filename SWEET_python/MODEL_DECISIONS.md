@@ -255,14 +255,14 @@ A site's intake in other years is its anchor year's intake scaled by population,
 
 ### `shrinking-site-follows-its-line`
 
-A Climate TRACE site whose reported intake is clearly falling follows a straight line through its reports, never below zero, instead of population.
+A Climate TRACE site whose reported intake is clearly falling follows a straight line through its reports instead of population, then holds its last report.
 
 - **Kind:** method choice
-- **Why:** Projected by population, a site taking less and less waste jumped back to its average after its last report.
+- **Why:** By population, a shrinking site jumped back to its average after its last report. Holding the last report is safer than extending the decline to zero.
 - **Paths:**
-  - `ct-site`: three or more reported years, a downward slope with p below 0.05, and a line falling to 75% or less of its start. Before the first report it follows population back from the line.
+  - `ct-site`: three or more reported years, a downward slope with p below 0.05, and a line falling to 75% or less of its start. Population leads up to the line; the last report is held after.
 - **Confidence:** medium
-- **Better:** Let the decline level off rather than run straight to zero, where a source says the site still operates.
+- **Better:** Tell a site still winding down from one that has levelled off, and keep declining only the first.
 - **Value:** `SHRINKING_MIN_YEARS`, `SHRINKING_MAX_P`, `SHRINKING_MAX_FIT_RATIO` in `SWEET_python/city_params.py`
 - **Code:** `SWEET_python/city_params.py`
 - **Reviewed:** 2026-10-27

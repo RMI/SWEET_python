@@ -74,14 +74,15 @@ from SWEET_python.city_params import _shrinking_line  # noqa: E402
 SHRINKING = {2014: 1000.0, 2015: 900.0, 2016: 820.0, 2017: 700.0, 2018: 610.0, 2019: 500.0}
 
 
-def test_a_shrinking_site_follows_its_line_after_its_last_report_and_stops_at_zero():
-    out = _series(list(SHRINKING), list(SHRINKING.values()))
-    slope, intercept = _shrinking_line(pd.Series(SHRINKING))
-    assert slope == pytest.approx(-99.71, abs=0.01)
-    assert out[2020] == pytest.approx(intercept + slope * 2020)  # about 407 t, not ~760
-    assert out[2030] == 0.0  # the line crosses zero in 2024
-    for year, tonnes in SHRINKING.items():
+def test_a_shrinking_site_follows_its_line_between_reports_and_then_holds_its_last_report():
+    reports = {2014: 1000.0, 2015: 900.0, 2017: 700.0, 2018: 610.0, 2019: 500.0}  # 2016 missing
+    out = _series(list(reports), list(reports.values()))
+    slope, intercept = _shrinking_line(pd.Series(reports))
+    assert out[2016] == pytest.approx(intercept + slope * 2016)  # on the line
+    for year, tonnes in reports.items():
         assert out[year] == tonnes  # reported years keep their own values
+    # After the last report: 2019's 500 t in every year, not the line down to zero.
+    assert (out.loc[2020:] == 500.0).all()
 
 
 def test_before_its_first_report_a_shrinking_site_follows_population_back():
