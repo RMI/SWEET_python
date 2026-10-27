@@ -218,17 +218,25 @@ def test_a_climate_trace_site_with_no_close_year_takes_2050s_waste():
     assert landfill.fraction_of_waste_vector.at[MODEL_END_YEAR] == 1.0
 
 
-def test_a_climate_trace_site_closing_in_2050_still_takes_none_that_year():
+def test_a_climate_trace_site_takes_waste_in_its_close_year_and_not_after():
+    landfill = _trace_site(2040.0)
+    assert landfill.fraction_of_waste_vector.at[2040] == 1.0
+    assert landfill.fraction_of_waste_vector.at[2041] == 0.0
+    assert landfill.fraction_of_waste_vector.at[1990] == 1.0  # its open year
+
+
+def test_a_climate_trace_site_closing_in_2050_takes_2050s_waste():
     landfill = _trace_site(2050.0)
-    assert landfill.fraction_of_waste_vector.at[MODEL_END_YEAR] == 0.0
+    assert landfill.fraction_of_waste_vector.at[MODEL_END_YEAR] == 1.0
 
 
 def test_the_site_tool_accepts_never_closing():
     """It refused 2051 ("Landfill years must be between 1950 and 2050") before."""
     open_site, _ = _sdst((0, 0), (0.0, 0.0), open_close=(1990, NEVER_CLOSES))
-    closing, _ = _sdst((0, 0), (0.0, 0.0), open_close=(1990, MODEL_END_YEAR))
+    closing, _ = _sdst((0, 0), (0.0, 0.0), open_close=(1990, 2040))
     assert open_site.waste_mass_df.loc[MODEL_END_YEAR].sum() > 0
-    assert closing.waste_mass_df.loc[MODEL_END_YEAR].sum() == 0
+    assert closing.waste_mass_df.loc[2040].sum() > 0  # its close year takes waste
+    assert closing.waste_mass_df.loc[2041].sum() == 0
 
 
 def test_the_site_tool_still_refuses_a_close_year_past_never_closing():

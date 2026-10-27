@@ -87,12 +87,13 @@ Where the code applies a decision, a one-line comment names it:
 | [`intake-follows-population`](#intake-follows-population) | Inputs | simplification | low |
 | [`shrinking-site-follows-its-line`](#shrinking-site-follows-its-line) | Inputs | method choice | medium |
 | [`waste-before-1970-is-zero`](#waste-before-1970-is-zero) | Inputs | simplification | medium |
-| [`intake-ends-before-close-year`](#intake-ends-before-close-year) | Inputs | simplification | medium |
+| [`intake-through-close-year`](#intake-through-close-year) | Inputs | simplification | medium |
 | [`waste-per-capita-default`](#waste-per-capita-default) | Inputs | fallback | low |
 | [`city-shares-constant`](#city-shares-constant) | Inputs | simplification | low |
 | [`open-year-unknown`](#open-year-unknown) | Inputs | fallback | low |
 | [`site-tool-prefill-defaults`](#site-tool-prefill-defaults) | Inputs | fixed value | low |
-| [`multi-city-site-split`](#multi-city-site-split) | Inputs | method choice | low |
+| [`multi-city-site-split`](#multi-city-site-split) | Inputs | fallback | medium |
+| [`site-year-no-sender`](#site-year-no-sender) | Inputs | fallback | low |
 | [`combustion-reject`](#combustion-reject) | Diversion | fixed value | medium |
 | [`other-treatment-shares-landfilled`](#other-treatment-shares-landfilled) | Diversion | simplification | low |
 | [`diversion-defaults`](#diversion-defaults) | Diversion | fallback | low |
@@ -119,7 +120,7 @@ Tracing each decision through every path, on 2026-10-22, found these differences
 deliberate; none is decided yet. Each names the entry it belongs to. Four were decided on
 2026-10-23 and left this list: flaring, the remediated capture values, the unknown-climate pair and
 the unknown close year (see `flaring-uniform`, `gas-capture-efficiency`, `missing-climate` and
-`intake-ends-before-close-year`).
+`intake-through-close-year`).
 
 - **Decay rate** (`decay-rate-from-climate`): the waste mix is sampled in 2025 (city paths), 2000
   (`ct-site`, the site tool's prefill) or the implement year (advanced DST). Rubber counts as
@@ -154,7 +155,7 @@ the unknown close year (see `flaring-uniform`, `gas-capture-efficiency`, `missin
   factor; `adst-city` recomputes both from the reduced mix.
 - **Unknown opening year** (`open-year-unknown`): `ct-site` uses 1970; the site-tool prefill 2010 for a
   listed site and 1970 for a location; the advanced DST requires a year.
-- **Dead tags:** one tag each for `waste-before-1970-is-zero` and `intake-ends-before-close-year` sits
+- **Dead tags:** one tag each for `waste-before-1970-is-zero` and `intake-through-close-year` sits
   in `City.site_only_estimate`, which nothing calls.
 
 ## Inputs
@@ -282,21 +283,21 @@ No waste is deposited before 1970. A site that opened earlier is modelled as ope
 - **Code:** `SWEET_python/city_params.py` (3 places)
 - **Reviewed:** 2026-10-22
 
-### `intake-ends-before-close-year`
+### `intake-through-close-year`
 
-A site takes its last waste in the year before its close year, not in the close year itself. An unknown close year means the site never closes.
+A site takes waste in its open year, its close year and every year between. An unknown close year means the site never closes.
 
 - **Kind:** simplification
-- **Why:** A close year is when operations stop, so a full year of waste then would overstate it.
+- **Why:** The open and close years are years the site operated; stopping a year early dropped a year of every closed site's waste.
 - **Paths:**
-  - `ct-site`: a site with no close year never closes (2051), so takes 2050's waste.
+  - `ct-site`: a site with no close year never closes (2051). Climate TRACE reads `INTAKE_THROUGH_CLOSE_YEAR`, so its own boundary follows.
   - `site-tool`: the same rule; 2051 means never closing, and the prefill gives it to a site with no close year.
   - `adst-site`, `adst-city`: the same rule; 2051 means never closing. `adst-city` gives a closed site's share to the open ones.
 - **Confidence:** medium
-- **Better:** Record more close years; most sites in the data carry none.
-- **Value:** `SWEET_python.constants.NEVER_CLOSES` (2051)
-- **Code:** `SWEET_python/city_params.py` (4 places), `SWEET_python/constants.py`
-- **Reviewed:** 2026-10-23
+- **Better:** Take a part year in the open and close years, where the month is known.
+- **Value:** `SWEET_python.constants.INTAKE_THROUGH_CLOSE_YEAR`, `SWEET_python.constants.NEVER_CLOSES` (2051)
+- **Code:** `SWEET_python/city_params.py` (2 places), `SWEET_python/constants.py`, `SWEET_python/dst_common.py`, `SWEET_python/advanced_dst_city.py`
+- **Reviewed:** 2026-10-27
 
 ### `waste-per-capita-default`
 
@@ -365,16 +366,36 @@ The site-tool prefill fills gaps with fixed values: 10,000 t a year, a waste yea
 
 ### `multi-city-site-split`
 
-A site several cities send waste to is split into one share per city, weighted by each city's latest population times its average share sent, and renormalised each year.
+A site several cities send waste to is split per city by its waste in tonnes times its % sent there that year: 0% in a year sent elsewhere, its average % in a year unreported.
 
-- **Kind:** method choice
-- **Why:** Climate TRACE links some sites, Brazil's, to several cities and needs each city's part.
+- **Kind:** fallback
+- **Why:** Climate TRACE links Brazil's sites to several cities and needs each city's part. The % sent is of the city's waste, so city waste × % is the tonnes the city reports sending.
+- **Options, best first:**
+  1. `city-waste`: the city's own yearly waste (`city_waste_tonnes`, SINIR's figure for Brazil), when every city at the site has a positive one.
+  2. `population`: the city's latest population, for every city at the site, when any lacks a waste figure. Tonnes and people are never mixed at one site.
 - **Paths:**
-  - `ct-site`: in `City.citysite_estimate_trace` only. The site's total does not change, only its split between cities.
-- **Confidence:** low
-- **Better:** Use each city's reported share by year where it exists, and its tonnage rather than its population.
+  - `ct-site`: in `City.citysite_estimate_trace` only (`_city_shares_of_site`). The site's total does not change, only its split between cities.
+- **Confidence:** medium
+- **Better:** Use each city's waste by year, and its last reported % after its reports rather than its average.
 - **Code:** `SWEET_python/city_params.py`
-- **Reviewed:** 2026-10-23
+- **Reviewed:** 2026-10-27
+
+### `site-year-no-sender`
+
+A year a shared site takes waste but no linked city reported sending it any is split as an unreported year is, so the site keeps its modelled intake.
+
+- **Kind:** fallback
+- **Why:** A year whose cities all sent elsewhere would otherwise deposit nothing and move the site's emissions; only the split between cities should change.
+- **Options, best first:**
+  1. `reported-shares`: the year's own split, when some linked city reported sending waste there.
+  2. `average-shares`: each city's waste times its average % over the years it reported.
+  3. `city-size`: each city's waste alone, when no city ever reported sending any.
+- **Paths:**
+  - `ct-site`: in `City.citysite_estimate_trace` only (`_city_shares_of_site`).
+- **Confidence:** low
+- **Better:** Reconcile the site's intake with its links: SINIR records no intake at shared sites in those years.
+- **Code:** `SWEET_python/city_params.py`
+- **Reviewed:** 2026-10-27
 
 ## Diversion
 
@@ -689,4 +710,11 @@ PM2.5 and PM10 are each 0.00024 kg per m³ of methane destroyed by flaring.
 
 ## Retired
 
-None yet.
+### `intake-ends-before-close-year`
+
+A site took its last waste in the year before its close year, not in the close year itself.
+
+- **Kind:** simplification
+- **Why:** A close year was read as when operations stop, so a full year of waste then would overstate it.
+- **Retired:** 2026-10-27
+- **Replaced by:** [`intake-through-close-year`](#intake-through-close-year)
