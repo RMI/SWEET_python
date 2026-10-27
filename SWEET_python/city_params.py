@@ -2702,9 +2702,9 @@ class City:
         fration_of_waste_vector = pd.Series(
                 0.0, index=self.years_range
             )
-        # Sites accept waste in open years but not the closure year.
-        # decision: intake-ends-before-close-year
-        fration_of_waste_vector.loc[open_date:close_date-1] = 1.0
+        # Sites accept waste from their open year through their close year.
+        # decision: intake-through-close-year
+        fration_of_waste_vector.loc[open_date:close_date] = 1.0
         new_landfill = Landfill(
             open_date=open_date,
             close_date=close_date,
@@ -2924,8 +2924,8 @@ class City:
         fraction_of_waste_vector = pd.Series(
                 0.0, index=self.years_range
             )
-        # decision: intake-ends-before-close-year
-        fraction_of_waste_vector.loc[open_date:close_date-1] = 1.0
+        # decision: intake-through-close-year
+        fraction_of_waste_vector.loc[open_date:close_date] = 1.0
         id = int(canonical_row['asset_identifier'])
         oxidation_series = _build_oxidation_series(
             oxidation_value, canonical_row, time_series_rows, self.years_range
@@ -3165,9 +3165,9 @@ class City:
             fraction_of_waste_vector = pd.Series(
                     0.0, index=self.years_range
                 )
-            # Sites accept waste in open years but not the closure year.
-            # decision: intake-ends-before-close-year
-            fraction_of_waste_vector.loc[open_date:close_date-1] = 1.0
+            # Sites accept waste from their open year through their close year.
+            # decision: intake-through-close-year
+            fraction_of_waste_vector.loc[open_date:close_date] = 1.0
             new_landfill = Landfill(
                 open_date=open_date,
                 close_date=close_date,
@@ -3263,12 +3263,12 @@ class City:
             #     # Assign the same weights across the problematic rows
             #     W.loc[zero_or_nan_rows, :] = pop_w_aligned
             fraction_of_waste_df = W.div(W.sum(axis=1), axis=0).fillna(0.0)
-            # Sites accept waste in open years but not the closure year. These
+            # Sites accept waste from their open year through their close year. These
             # per-city fractions are the only deposition gate for the virtual
             # landfills below, so zero them outside the operating window.
             operating_years = pd.Series(False, index=self.years_range)
-            # decision: intake-ends-before-close-year
-            operating_years.loc[open_date:close_date-1] = True
+            # decision: intake-through-close-year
+            operating_years.loc[open_date:close_date] = True
             fraction_of_waste_df.loc[~operating_years] = 0.0
             baseline.fraction_of_waste_df = fraction_of_waste_df
 
@@ -3546,7 +3546,7 @@ class City:
                 if np.isnan(year_of_data_msw):
                     close_date = canonical_row['site_close_year']
                     if not np.isnan(close_date) and close_date < general_reference_year:
-                        year_of_data_msw = close_date - 1
+                        year_of_data_msw = close_date
                     else:
                         year_of_data_msw = general_reference_year
                 year_of_data_pop = year_of_data_msw
@@ -8350,7 +8350,7 @@ class City:
                 date_pairs = baseline_open_close_dates
             open_year, close_year = date_pairs[0]
             windowed = waste_masses_df.copy()
-            windowed.loc[int(close_year) :] = 0
+            windowed.loc[int(close_year) + 1 :] = 0  # decision: intake-through-close-year
             windowed.loc[: int(open_year) - 1] = 0
             return windowed
 

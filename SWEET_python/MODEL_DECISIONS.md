@@ -86,7 +86,7 @@ Where the code applies a decision, a one-line comment names it:
 | [`population-growth`](#population-growth) | Inputs | fallback | medium |
 | [`intake-follows-population`](#intake-follows-population) | Inputs | simplification | low |
 | [`waste-before-1970-is-zero`](#waste-before-1970-is-zero) | Inputs | simplification | medium |
-| [`intake-ends-before-close-year`](#intake-ends-before-close-year) | Inputs | simplification | medium |
+| [`intake-through-close-year`](#intake-through-close-year) | Inputs | simplification | medium |
 | [`waste-per-capita-default`](#waste-per-capita-default) | Inputs | fallback | low |
 | [`city-shares-constant`](#city-shares-constant) | Inputs | simplification | low |
 | [`open-year-unknown`](#open-year-unknown) | Inputs | fallback | low |
@@ -118,7 +118,7 @@ Tracing each decision through every path, on 2026-10-22, found these differences
 deliberate; none is decided yet. Each names the entry it belongs to. Four were decided on
 2026-10-23 and left this list: flaring, the remediated capture values, the unknown-climate pair and
 the unknown close year (see `flaring-uniform`, `gas-capture-efficiency`, `missing-climate` and
-`intake-ends-before-close-year`).
+`intake-through-close-year`).
 
 - **Decay rate** (`decay-rate-from-climate`): the waste mix is sampled in 2025 (city paths), 2000
   (`ct-site`, the site tool's prefill) or the implement year (advanced DST). Rubber counts as
@@ -153,7 +153,7 @@ the unknown close year (see `flaring-uniform`, `gas-capture-efficiency`, `missin
   factor; `adst-city` recomputes both from the reduced mix.
 - **Unknown opening year** (`open-year-unknown`): `ct-site` uses 1970; the site-tool prefill 2010 for a
   listed site and 1970 for a location; the advanced DST requires a year.
-- **Dead tags:** one tag each for `waste-before-1970-is-zero` and `intake-ends-before-close-year` sits
+- **Dead tags:** one tag each for `waste-before-1970-is-zero` and `intake-through-close-year` sits
   in `City.site_only_estimate`, which nothing calls.
 
 ## Inputs
@@ -266,21 +266,21 @@ No waste is deposited before 1970. A site that opened earlier is modelled as ope
 - **Code:** `SWEET_python/city_params.py` (3 places)
 - **Reviewed:** 2026-10-22
 
-### `intake-ends-before-close-year`
+### `intake-through-close-year`
 
-A site takes its last waste in the year before its close year, not in the close year itself. An unknown close year means the site never closes.
+A site takes waste in its open year, its close year and every year between. An unknown close year means the site never closes.
 
 - **Kind:** simplification
-- **Why:** A close year is when operations stop, so a full year of waste then would overstate it.
+- **Why:** The open and close years are years the site operated; stopping a year early dropped a year of every closed site's waste.
 - **Paths:**
-  - `ct-site`: a site with no close year never closes (2051), so takes 2050's waste.
+  - `ct-site`: a site with no close year never closes (2051). Climate TRACE reads `INTAKE_THROUGH_CLOSE_YEAR`, so its own boundary follows.
   - `site-tool`: the same rule; 2051 means never closing, and the prefill gives it to a site with no close year.
   - `adst-site`, `adst-city`: the same rule; 2051 means never closing. `adst-city` gives a closed site's share to the open ones.
 - **Confidence:** medium
-- **Better:** Record more close years; most sites in the data carry none.
-- **Value:** `SWEET_python.constants.NEVER_CLOSES` (2051)
-- **Code:** `SWEET_python/city_params.py` (4 places), `SWEET_python/constants.py`
-- **Reviewed:** 2026-10-23
+- **Better:** Take a part year in the open and close years, where the month is known.
+- **Value:** `SWEET_python.constants.INTAKE_THROUGH_CLOSE_YEAR`, `SWEET_python.constants.NEVER_CLOSES` (2051)
+- **Code:** `SWEET_python/city_params.py` (5 places), `SWEET_python/constants.py`, `SWEET_python/dst_common.py`, `SWEET_python/advanced_dst_city.py`
+- **Reviewed:** 2026-10-27
 
 ### `waste-per-capita-default`
 
@@ -673,4 +673,11 @@ PM2.5 and PM10 are each 0.00024 kg per m³ of methane destroyed by flaring.
 
 ## Retired
 
-None yet.
+### `intake-ends-before-close-year`
+
+A site took its last waste in the year before its close year, not in the close year itself.
+
+- **Kind:** simplification
+- **Why:** A close year was read as when operations stop, so a full year of waste then would overstate it.
+- **Retired:** 2026-10-27
+- **Replaced by:** [`intake-through-close-year`](#intake-through-close-year)

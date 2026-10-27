@@ -44,10 +44,13 @@ population a run used is fixed by the SWEET commit the run records.
 MODEL_START_YEAR: int = 1970
 MODEL_END_YEAR: int = 2050
 
-#: A close year meaning "still open when the model ends". A site takes no waste in
-#: its close year, so MODEL_END_YEAR itself would close it a year early; this is
-#: what an unknown close year means on every path.
-# decision: intake-ends-before-close-year
+#: A site takes waste in its open year, its close year and every year between.
+#: Climate TRACE reads this flag, so its own intake boundary follows the SWEET it pins.
+# decision: intake-through-close-year
+INTAKE_THROUGH_CLOSE_YEAR: bool = True
+
+#: A close year meaning "still open when the model ends": an unknown close year on
+#: every path. One past MODEL_END_YEAR, so it never reads as a recorded closure in 2050.
 NEVER_CLOSES: int = MODEL_END_YEAR + 1
 
 #: The earliest open year the site tool and the advanced DST accept. An input

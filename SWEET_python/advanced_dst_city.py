@@ -473,14 +473,14 @@ def _accepting_mask(
 ) -> pd.DataFrame:
     """years x landfill booleans: is this landfill accepting waste this year?
 
-    Intake runs ``[open, close)`` — a closure year is not an intake year, see
-    ``common.apply_window`` — clipped into the modeled window. A landfill that
-    closes the year it opens never accepts anything.
+    Intake runs ``[open, close]`` — the open and close years are both intake
+    years, see ``common.apply_window`` — clipped into the modeled window. A landfill
+    that closes the year it opens accepts waste in that one year.
     """
     accepting = pd.DataFrame(False, index=years, columns=columns)
     first, last = int(years.min()), int(years.max())
     for column, (open_year, close_year) in zip(columns, windows):
-        lower, upper = max(int(open_year), first), min(int(close_year) - 1, last)
+        lower, upper = max(int(open_year), first), min(int(close_year), last)  # decision: intake-through-close-year
         if lower <= upper:
             accepting.loc[lower:upper, column] = True
     return accepting
@@ -492,8 +492,8 @@ def _renormalize_over_open(
     """Redistribute each year's shares across the landfills actually accepting waste.
 
     The split says how the landfilled stream divides across landfills, but a
-    landfill only accepts waste inside its own window — and a closure year is
-    not an intake year (see ``common.apply_window``). A share pointed at a
+    landfill only accepts waste inside its own window, its open year through its
+    close year (see ``common.apply_window``). A share pointed at a
     landfill that is shut is not a share of anything: the mass used to be scaled
     onto it and then zeroed by the window, so it left the model altogether. The
     shares are meant to account for *all* the post-diversion waste, so they are
