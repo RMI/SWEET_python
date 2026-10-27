@@ -203,3 +203,24 @@ def test_a_years_repeated_rows_count_once_in_the_average():
     pd.testing.assert_frame_equal(
         _city_shares_of_site(doubled, YEARS), _city_shares_of_site(rows, YEARS)
     )
+
+
+def test_a_year_every_linked_city_reported_at_zero_still_takes_no_waste():
+    """Which years a site takes waste is decided as before the sent-elsewhere rows."""
+    rows = _switching_rows()
+    rows.loc[(rows.city_id == STAYER) & (rows.ctf_year == 2019), "ctf_percent_of_waste_sent"] = 0.0
+    switcher_2019 = (rows.city_id == SWITCHER) & (rows.ctf_year == 2019)
+    rows.loc[switcher_2019, ["ctf_percent_of_waste_sent", "ctf_sent_elsewhere"]] = [0.0, False]
+    assert (_city_shares_of_site(rows, YEARS).loc[2019] == 0.0).all()
+
+
+def test_a_site_with_one_reported_row_keeps_its_whole_intake():
+    """It arrives as a single row today, which takes the site's whole intake, 0% or not."""
+    one = _rows().iloc[[0]].assign(ctf_percent_of_waste_sent=0.0, ctf_sent_elsewhere=False)
+    added = pd.concat([one] * 3, ignore_index=True).assign(
+        ctf_year=[2017, 2018, 2019], ctf_percent_of_waste_sent=np.nan, ctf_sent_elsewhere=True
+    )
+    with_added = _run(pd.concat([one, added], ignore_index=True))
+    alone = _run(one.iloc[0])
+    assert _site_waste(alone).at[2019] > 0
+    pd.testing.assert_series_equal(_site_waste(with_added), _site_waste(alone))

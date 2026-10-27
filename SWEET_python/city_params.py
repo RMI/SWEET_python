@@ -342,9 +342,8 @@ def _city_shares_of_site(citysite_rows, years_range):
     sizes, _basis = _city_sizes(citysite_rows)
 
     pct = pd.to_numeric(citysite_rows['ctf_percent_of_waste_sent'], errors='coerce').to_numpy()
-    if SENT_ELSEWHERE_COLUMN in citysite_rows.columns:
-        sent_elsewhere = citysite_rows[SENT_ELSEWHERE_COLUMN].astype('boolean').fillna(False)
-        pct = np.where(sent_elsewhere.to_numpy(dtype=bool), 0.0, pct)
+    sent_elsewhere = _sent_elsewhere(citysite_rows)
+    pct = np.where(sent_elsewhere, 0.0, pct)
 
     # Reported % by (year, city), as a fraction 0..1. A year's rows are averaged
     # first, so a year with more rows (one per gas-capture record) counts once.
@@ -353,22 +352,39 @@ def _city_shares_of_site(citysite_rows, years_range):
         'city_id': citysite_rows['city_id'].to_numpy(),
         'pct': pct / 100.0,
     })
-    obs = reports.groupby(['ctf_year', 'city_id'])['pct'].mean().unstack('city_id')
-    obs = obs.reindex(columns=sizes.index)
-    avg_pct = obs.mean().fillna(0.0)                 # over the years each link reports
 
-    P = obs.reindex(index=years_range).fillna(avg_pct)
-    W = P.mul(sizes, axis=1)                         # weight_i,t = size_i * pct_i,t
+    def weights(rows):
+        obs = rows.groupby(['ctf_year', 'city_id'])['pct'].mean().unstack('city_id')
+        obs = obs.reindex(columns=sizes.index)
+        avg_pct = obs.mean().fillna(0.0)             # over the years each link reports
+        P = obs.reindex(index=years_range).fillna(avg_pct)
+        return P.mul(sizes, axis=1), avg_pct.mul(sizes)   # weight_i,t = size_i * pct_i,t
 
-    # A year no linked city sent any waste here keeps the average split, so the site
-    # keeps the intake it is modelled with. Failing that, the cities' sizes.
+    W, fill = weights(reports)
+
+    # Which years the site takes waste does not depend on the sent-elsewhere rows:
+    # it is decided from the reported rows alone, as before them, so only the split
+    # between cities moves. A year every linked city reported at 0% still takes none.
+    reported_W, _ = weights(reports[~sent_elsewhere])
+    takes_waste = reported_W.sum(axis=1) > 0
+
+    # A year the site takes waste but no linked city reported sending it any is split
+    # as an unreported year is. Failing that, by the cities' sizes.
     # decision: site-year-no-sender
-    fill = avg_pct.mul(sizes)
     if not fill.sum() > 0:
         fill = sizes
-    no_sender = ~(W.sum(axis=1) > 0)
+    no_sender = takes_waste & ~(W.sum(axis=1) > 0)
     W.loc[no_sender, :] = fill.to_numpy()
+    W.loc[~takes_waste, :] = 0.0
     return W.div(W.sum(axis=1), axis=0).fillna(0.0)
+
+
+def _sent_elsewhere(citysite_rows):
+    """Which city-site rows Climate TRACE added for a year sent elsewhere (a bool array)."""
+    if SENT_ELSEWHERE_COLUMN not in citysite_rows.columns:
+        return np.zeros(len(citysite_rows), dtype=bool)
+    flag = citysite_rows[SENT_ELSEWHERE_COLUMN].astype('boolean').fillna(False)
+    return flag.to_numpy(dtype=bool)
 
 
 # The way this model is set up is based on the unit of a City, corresponding to the City class.
@@ -3244,6 +3260,12 @@ class City:
         # decision: flaring-uniform
         flaring_series = pd.Series(DEFAULT_FLARE_EFFICIENCY, index=self.years_range)
         baseline._singapore_k(advanced_baseline=True)
+        if isinstance(citysite_rows, pd.DataFrame):
+            # A site with one reported link-year arrives as one row, which takes the
+            # site's whole intake. Rows added for years sent elsewhere don't change that.
+            reported = citysite_rows[~_sent_elsewhere(citysite_rows)]
+            if len(reported) == 1:
+                citysite_rows = reported.iloc[0]
         if (citysite_rows is None) or (isinstance(citysite_rows, pd.Series)):
             fraction_of_waste_vector = pd.Series(
                     0.0, index=self.years_range
