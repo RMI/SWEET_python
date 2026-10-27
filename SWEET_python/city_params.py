@@ -1,4 +1,3 @@
-import math
 import os
 import re
 import sys
@@ -315,34 +314,6 @@ SHRINKING_MAX_P = 0.05
 SHRINKING_MAX_FIT_RATIO = 0.75
 
 
-def _regularized_incomplete_beta(a, b, x):
-    """I_x(a, b), by Lentz's continued fraction (Numerical Recipes 6.4); SWEET has no scipy."""
-    if x <= 0.0:
-        return 0.0
-    if x >= 1.0:
-        return 1.0
-    if x > (a + 1.0) / (a + b + 2.0):
-        return 1.0 - _regularized_incomplete_beta(b, a, 1.0 - x)
-    log_front = math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b) + a * math.log(x) + b * math.log1p(-x)
-    tiny = 1e-300
-    c, d = 1.0, 1.0 - (a + b) * x / (a + 1.0)
-    d = 1.0 / (d if abs(d) > tiny else tiny)
-    f = d
-    for m in range(1, 300):
-        for numerator in (
-            m * (b - m) * x / ((a + 2 * m - 1) * (a + 2 * m)),
-            -(a + m) * (a + b + m) * x / ((a + 2 * m) * (a + 2 * m + 1)),
-        ):
-            d = 1.0 + numerator * d
-            d = 1.0 / (d if abs(d) > tiny else tiny)
-            c = 1.0 + numerator / c
-            c = c if abs(c) > tiny else tiny
-            f *= c * d
-        if abs(c * d - 1.0) < 1e-12:
-            break
-    return math.exp(log_front) * f / a
-
-
 def _shrinking_line(per_year):
     """``(slope, intercept)`` of a site's reported intake when it is clearly shrinking, else None.
 
@@ -351,33 +322,22 @@ def _shrinking_line(per_year):
     ``SHRINKING_MAX_P``, and a line that falls to at most ``SHRINKING_MAX_FIT_RATIO`` of
     its value at the first reported year by the last.
     """
-    n = len(per_year)
-    if n < SHRINKING_MIN_YEARS:
+    if len(per_year) < SHRINKING_MIN_YEARS:
         return None
     x = per_year.index.to_numpy(dtype=float)
     y = per_year.to_numpy(dtype=float)
-    x_mean, y_mean = x.mean(), y.mean()
-    sxx = float(((x - x_mean) ** 2).sum())
-    if sxx == 0.0:
+    if np.ptp(x) == 0:
         return None
-    slope = float(((x - x_mean) * (y - y_mean)).sum() / sxx)
-    intercept = y_mean - slope * x_mean
-    if slope >= 0.0:
-        return None
-    start = intercept + slope * x.min()
-    end = intercept + slope * x.max()
-    if not (start > 0.0 and end <= SHRINKING_MAX_FIT_RATIO * start):
-        return None
-    df = n - 2
-    residual = float(((y - (intercept + slope * x)) ** 2).sum())
-    if df > 0 and residual > 0.0:
-        t = slope / math.sqrt(residual / df / sxx)
-        p = _regularized_incomplete_beta(df / 2.0, 0.5, df / (df + t * t))
-        if p >= SHRINKING_MAX_P:
-            return None
-    elif df == 0:
-        return None  # two points always fit a line exactly
-    return slope, intercept
+    # Imported here, not at the top: WasteMAP installs SWEET with --no-deps and has no
+    # scipy, and only Climate TRACE's site path reaches this.
+    from scipy import stats
+
+    fit = stats.linregress(x, y)
+    start = fit.intercept + fit.slope * x.min()
+    end = fit.intercept + fit.slope * x.max()
+    if fit.slope < 0 and fit.pvalue < SHRINKING_MAX_P and start > 0 and end <= SHRINKING_MAX_FIT_RATIO * start:
+        return float(fit.slope), float(fit.intercept)
+    return None
 
 
 def _site_intake_series(report_years, report_tonnes, years, growth_factor, fallback_tonnes):

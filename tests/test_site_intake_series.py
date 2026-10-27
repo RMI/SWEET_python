@@ -69,14 +69,9 @@ def test_with_no_value_at_all_the_canonical_intake_is_used():
 # Clearly shrinking sites follow their straight line
 # --------------------------------------------------------------------------- #
 
-from SWEET_python.city_params import _regularized_incomplete_beta, _shrinking_line  # noqa: E402
+from SWEET_python.city_params import _shrinking_line  # noqa: E402
 
 SHRINKING = {2014: 1000.0, 2015: 900.0, 2016: 820.0, 2017: 700.0, 2018: 610.0, 2019: 500.0}
-
-
-@pytest.mark.parametrize("t, df", [(12.706, 1), (4.303, 2), (2.776, 4), (2.228, 10)])
-def test_the_p_value_helper_gives_the_t_tables_five_percent(t, df):
-    assert _regularized_incomplete_beta(df / 2, 0.5, df / (df + t * t)) == pytest.approx(0.05, abs=1e-4)
 
 
 def test_a_shrinking_site_follows_its_line_after_its_last_report_and_stops_at_zero():
