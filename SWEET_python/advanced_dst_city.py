@@ -16,7 +16,8 @@ live in a list, one dict per landfill:
   diversion (unlike single-site adst where it is the landfilled mass).
 * ``diversion_fractions`` is, per pathway, a {year: fraction-of-generated} series.
   The within-pathway component split is derived from the city composition
-  (so the frontend only sends overall pathway fractions, not per-component splits).
+  (so the frontend only sends overall pathway fractions, not per-component splits);
+  see ``_pathway_splits``.
 * ``food_waste_prevention`` is a {year: fraction} series applied to ``waste_mass``
   and ``waste_fractions`` before anything else reads them: it is generation-side,
   so it lands upstream of diversion. Callers send the composition and the total
@@ -53,6 +54,7 @@ import SWEET_python.defaults_2019 as defaults_2019
 from SWEET_python.city_params import City, CityParameters, CustomError
 from SWEET_python.class_defs import DivsDF, LandfillType, LandfillWasteMassDF, Variant
 from SWEET_python.constants import MODEL_START_YEAR
+from SWEET_python import dst_allocation
 from SWEET_python import dst_common as common
 from SWEET_python import site_inflow
 from SWEET_python.dst_common import YearlyFloat, YearlyFractions, YearlyOptionalFloat
@@ -67,6 +69,12 @@ __all__ = [
 #: The diversion pathways `DivsDF` carries, in the order the mass flow reports.
 DIVERSION_PATHWAYS: tuple[str, ...] = ("compost", "anaerobic", "combustion", "recycling")
 SHARE_SUM_TOLERANCE = 0.02
+#: How far past a material's generated mass the diversion pathways may reach
+#: before ``over_diversion`` -- float noise, not a quantity of waste.
+OVER_DIVERSION_TOLERANCE_TONS = 1e-6
+#: Shortfall, as a share of generated waste, below which a routing from
+#: ``dst_allocation`` (which rounds to a 1e-9 grid) is taken to fit.
+ROUTING_GRID_TOLERANCE = 1e-8
 
 
 class CityLandfillSpec(BaseModel):
@@ -426,6 +434,143 @@ def _mef_compost(fractions_df: pd.DataFrame, ref_year: int) -> float:
     return (0.0055 * food / denom + 0.0139 * green / denom) * 1.1023 * 0.7
 
 
+def _pathway_splits(
+    fractions_df: pd.DataFrame,
+    total_generated: pd.Series,
+    pathway_fractions: Dict[str, pd.Series],
+    city: City,
+) -> Dict[str, pd.DataFrame]:
+    """How each pathway's mass divides across its components, per year.
+
+    One frame per pathway, years x that pathway's components; a row sums to 1, or
+    to 0 where the city has none of the pathway's components.
+
+    A pathway takes its components in proportion to the composition, as
+    ``City._calculate_diverted_masses`` does. That can ask for more of a material
+    than the city generates even when the request as a whole fits: compost and
+    recycling both draw on wood and paper, so a large compost share plus a
+    recycling share, each split in proportion, can overrun the paper while the
+    city still has plastic and glass that only recycling wants. In those years the
+    split moves toward a routing that fits (``dst_allocation.solve_allocation``,
+    the city DST's solver) by the smallest step that takes every material back
+    within what the city generates. Recycling then leans on plastic, metal and
+    glass and leaves the paper to compost.
+
+    The smallest step keeps the answer continuous: a request just past where the
+    proportional split stops fitting gets a split just past proportional, not the
+    solver's routing outright. Years the proportional split fits are untouched,
+    measured on the same tolerance ``over_diversion`` uses. A year no routing fits
+    keeps its proportional split, and ``over_diversion`` names what overflows.
+    """
+    splits: Dict[str, pd.DataFrame] = {}
+    for pathway in DIVERSION_PATHWAYS:
+        # div_components values are WasteTypeSet, so iteration is already in
+        # canonical WASTE_TYPES order -- the same order every other frame in the
+        # package uses. This used to be sorted() (alphabetical), which was
+        # deterministic but disagreed with the rest of the model.
+        components = list(city.div_components[pathway])
+        sub = fractions_df[components]
+        denom = sub.sum(axis=1)
+        splits[pathway] = sub.div(denom, axis=0).replace([np.inf, -np.inf], 0.0).fillna(0.0)
+
+    claimed = pd.DataFrame(0.0, index=fractions_df.index, columns=fractions_df.columns)
+    for pathway, split in splits.items():
+        mass_into_pathway = pathway_fractions[pathway] * total_generated
+        claimed = claimed.add(split.mul(mass_into_pathway, axis=0), fill_value=0.0)
+    generated = fractions_df.mul(total_generated, axis=0)
+    overrun = (claimed - generated > OVER_DIVERSION_TOLERANCE_TONS).any(axis=1)
+
+    for year in fractions_df.index[overrun]:
+        rerouted = _rerouted_split(
+            fractions_df.loc[year],
+            {p: float(pathway_fractions[p].loc[year]) for p in DIVERSION_PATHWAYS},
+            {p: splits[p].loc[year] for p in DIVERSION_PATHWAYS},
+            city,
+        )
+        if rerouted is None:
+            continue
+        for pathway, row in rerouted.items():
+            splits[pathway].loc[year] = row
+    return splits
+
+
+def _rerouted_split(
+    composition: pd.Series,
+    targets: Dict[str, float],
+    proportional: Dict[str, pd.Series],
+    city: City,
+) -> Optional[Dict[str, pd.Series]]:
+    """One year's split, moved from proportional just far enough to fit.
+
+    ``None`` when no routing fits. All three allocations are fractions of generated
+    waste, pathways x components: ``prop`` (each pathway in proportion, which
+    overruns), ``routed`` (the solver's, which fits) and the blend
+    ``(1 - t) * prop + t * routed``. Every blend gives each pathway its full share,
+    and each material's total is linear in ``t``, so the least ``t`` that brings
+    every overrun material back to what the city generates is a closed form.
+    """
+    eligibility = {p: set(city.div_components[p]) for p in DIVERSION_PATHWAYS}
+    result = dst_allocation.solve_allocation(
+        {c: float(composition[c]) for c in composition.index},
+        targets,
+        eligibility=eligibility,
+        treatments=DIVERSION_PATHWAYS,
+    )
+    # A request exactly at its bound fits with nothing to spare, and the solver's
+    # grid can round that to a shortfall of a few 1e-9. Refusing it would refuse
+    # the very value the bounds offer.
+    if result["shortfall"] > ROUTING_GRID_TOLERANCE:
+        return None
+
+    available = composition.astype(float)
+    prop = pd.DataFrame(
+        {p: proportional[p].mul(targets[p]) for p in DIVERSION_PATHWAYS}
+    ).T.reindex(columns=available.index, fill_value=0.0).fillna(0.0)
+    routed = pd.DataFrame(
+        {p: pd.Series(result["allocation"][p], dtype=float) for p in DIVERSION_PATHWAYS}
+    ).T.reindex(index=list(DIVERSION_PATHWAYS), columns=available.index, fill_value=0.0)
+    routed = routed.fillna(0.0)
+
+    # Materials the same pathways can take are interchangeable to the solver, so
+    # it fills them in arbitrary order -- all of the wood, say, and little of the
+    # paper. Spread each pathway's take of such a group over it in proportion to
+    # the mix, as the proportional split does. Without this the blend below sees
+    # the solver's routing as already full on a material and steps all the way to
+    # it, and a request just past the cap jumps to a different split.
+    groups: Dict[frozenset, List[str]] = {}
+    for component in available.index:
+        takers = frozenset(p for p in DIVERSION_PATHWAYS if component in eligibility[p])
+        groups.setdefault(takers, []).append(component)
+    for members in groups.values():
+        group_size = float(available[members].sum())
+        if group_size <= 0:
+            continue
+        taken = routed[members].sum(axis=1)
+        routed[members] = np.outer(taken.to_numpy(), (available[members] / group_size).to_numpy())
+
+    # The solver works on a 1e-9 grid. Give each pathway exactly its share, then
+    # hold each material to what exists; the second step can leave a pathway short
+    # by grid noise, never over.
+    row_totals = routed.sum(axis=1)
+    target_series = pd.Series(targets, dtype=float)
+    routed = routed.mul((target_series / row_totals).where(row_totals > 0, 0.0), axis=0)
+    routed_use = routed.sum(axis=0)
+    routed = routed.mul((available / routed_use).where(routed_use > available, 1.0), axis=1)
+
+    prop_use = prop.sum(axis=0)
+    routed_use = routed.sum(axis=0)
+    over = prop_use > available
+    step = ((prop_use - available) / (prop_use - routed_use))[over]
+    t = float(step.max()) if not step.empty else 0.0
+    t = min(max(t, 0.0), 1.0)
+    blended = prop.mul(1.0 - t).add(routed.mul(t))
+
+    return {
+        p: (blended.loc[p, proportional[p].index] / targets[p]) if targets[p] > 0 else proportional[p]
+        for p in DIVERSION_PATHWAYS
+    }
+
+
 def _diverted_masses(
     fractions_df: pd.DataFrame,
     total_generated: pd.Series,
@@ -436,9 +581,10 @@ def _diverted_masses(
     """Per-pathway, per-component diverted mass (tons/yr): ``(net, gross)``.
 
     For each pathway: mass into the pathway = pathway_fraction * total_generated;
-    that mass is split across the pathway's eligible components using the city
-    composition (normalized within those components); then reject/yield rates are
-    applied. Matches City._calculate_diverted_masses, minus the legacy shims.
+    that mass is split across the pathway's eligible components (``_pathway_splits``:
+    in proportion to the city composition, rerouted where that overruns a material);
+    then reject/yield rates are applied. Matches City._calculate_diverted_masses,
+    minus the legacy shims.
 
     Both bases are returned because they answer different questions. ``net`` is
     what actually leaves the waste stream — rejects stay in it and are landfilled
@@ -450,16 +596,15 @@ def _diverted_masses(
     """
     div_dfs: Dict[str, pd.DataFrame] = {}
     gross_dfs: Dict[str, pd.DataFrame] = {}
+    pathway_fractions = {
+        pathway: common.yearly_to_series(div_fracs.get(pathway), years, default=0.0)
+        for pathway in DIVERSION_PATHWAYS
+    }
+    splits = _pathway_splits(fractions_df, total_generated, pathway_fractions, city)
     for pathway in DIVERSION_PATHWAYS:
-        # div_components values are WasteTypeSet, so iteration is already in
-        # canonical WASTE_TYPES order -- the same order every other frame in the
-        # package uses. This used to be sorted() (alphabetical), which was
-        # deterministic but disagreed with the rest of the model.
         components = list(city.div_components[pathway])
-        sub = fractions_df[components]
-        denom = sub.sum(axis=1)
-
-        pathway_fraction = common.yearly_to_series(div_fracs.get(pathway), years, default=0.0)
+        denom = fractions_df[components].sum(axis=1)
+        pathway_fraction = pathway_fractions[pathway]
 
         # A pathway with none of its eligible components present cannot receive
         # the mass asked of it. The split below would divide 0 by 0, and zeroing
@@ -477,7 +622,7 @@ def _diverted_masses(
                 f"material it can process ({', '.join(components)}).",
             )
 
-        split = sub.div(denom, axis=0).replace([np.inf, -np.inf], 0.0).fillna(0.0)
+        split = splits[pathway]
         mass_into_pathway = pathway_fraction * total_generated
         gross = split.mul(mass_into_pathway, axis=0)  # years x components
         gross_dfs[pathway] = gross
@@ -817,27 +962,58 @@ def _validate_shares(split: pd.DataFrame, accepting: pd.DataFrame, label: str) -
 # --------------------------------------------------------------------------- #
 #
 # A pathway can only divert material it actually receives: you cannot compost
-# more organics than a city generates. ``_diverted_masses`` splits a pathway's
-# mass across its eligible components *proportionally to the composition*, which
-# makes the constraint closed-form rather than a search.
+# more organics than a city generates. ``_pathway_splits`` reroutes a pathway's
+# mass away from a material others need whenever some routing fits, so the bound
+# is whether *any* routing fits, not whether the proportional one does.
 #
-# With ``f_c`` the normalized fraction of component ``c`` and
-# ``D_p = sum(f_c for c in components(p))``, pathway ``p`` consumes
-# ``divfrac_p / D_p`` of every component it touches. So per component:
+# Whether one fits is Hall's condition (the supply-demand theorem for a
+# transportation problem): for every set ``S`` of pathways, what they are asked
+# for together must fit in the material any of them can take,
 #
-#     use(c) = sum(divfrac_p / D_p  for p containing c)  <=  1
+#     sum(divfrac_p for p in S)  <=  sum(f_c for c in union(components(p) for p in S))
 #
-# The binding component is whichever has the largest ``use``. This is stated per
-# component rather than as an organic/recyclable pool pair because the pathways
-# do not partition into two: compost and anaerobic digestion share a component
-# set, recycling overlaps it on wood and paper, and combustion draws on all ten.
-# Summing per component needs no special case for any of that.
+# With four pathways that is fifteen sets, so the bound stays closed-form. The
+# sets that bind in practice: compost and digestion together against the
+# organics; recycling against the recyclables; and all of them against
+# everything either can take. Wood and paper sit in both of the first two, so
+# they count once in the third.
 #
 # This bounds GROSS diversion, before reject rates, which is the same basis
 # ``run_advanced_dst_city``'s ``over_diversion`` guard measures on. The two are
 # the same boundary on purpose: a caller respecting these limits cannot produce a
 # request the model rejects on mass balance.
 SHARE_LIMIT_TOLERANCE = 1e-9
+
+
+def _pathway_sets() -> List[tuple[str, ...]]:
+    """Every non-empty set of diversion pathways: the sets Hall's condition checks."""
+    return [
+        tuple(p for i, p in enumerate(DIVERSION_PATHWAYS) if mask >> i & 1)
+        for mask in range(1, 2 ** len(DIVERSION_PATHWAYS))
+    ]
+
+
+def _material_for(fractions: pd.DataFrame, city: City, pathways: tuple[str, ...]) -> pd.Series:
+    """Share of the stream any of ``pathways`` can draw on, per year."""
+    components = set().union(*(city.div_components[p] for p in pathways))
+    return fractions[[c for c in fractions.columns if c in components]].sum(axis=1)
+
+
+def _routing_slack(
+    fractions: pd.DataFrame,
+    div_fracs: Dict[str, pd.Series],
+    city: City,
+    pathway_sets: Optional[List[tuple[str, ...]]] = None,
+) -> pd.Series:
+    """Least spare material over every set of pathways, per year; negative = no routing fits.
+
+    ``pathway_sets`` checks only those sets instead of all of them.
+    """
+    slack = pd.Series(np.inf, index=fractions.index)
+    for pathways in pathway_sets if pathway_sets is not None else _pathway_sets():
+        demand = sum(div_fracs[p] for p in pathways)
+        slack = np.minimum(slack, _material_for(fractions, city, pathways) - demand)
+    return slack
 
 
 def _component_denominators(
@@ -852,29 +1028,22 @@ def _component_denominators(
 
 def _component_use(
     fractions: pd.DataFrame,
+    total: pd.Series,
     div_fracs: Dict[str, pd.Series],
     city: City,
-    skip: Optional[str] = None,
 ) -> pd.DataFrame:
     """Fraction of each component's own mass that the pathways claim, per year.
 
-    ``skip`` leaves one pathway out, which is what makes "how much more can this
-    pathway take" answerable: the rest of the demand is what it has to fit into.
+    Read off the split the model would use (``_pathway_splits``), so a year where
+    the pathways are rerouted shows the materials they share at most full. A year
+    no routing fits keeps its proportional split, and shows above 1 on what
+    overflows. A pathway with none of its components present draws on nothing.
     """
-    denominators = _component_denominators(fractions, city)
-    use = pd.DataFrame(0.0, index=fractions.index, columns=fractions.columns)
-    for pathway in DIVERSION_PATHWAYS:
-        if pathway == skip:
-            continue
-        denominator = denominators[pathway]
-        # A pathway with none of its components present draws on nothing; its
-        # share of a zero-size pool is undefined rather than infinite.
-        claim = div_fracs[pathway].divide(denominator).replace(
-            [np.inf, -np.inf], 0.0
-        ).fillna(0.0)
-        for component in sorted(city.div_components[pathway]):
-            use[component] = use[component] + claim
-    return use
+    splits = _pathway_splits(fractions, total, div_fracs, city)
+    claimed = pd.DataFrame(0.0, index=fractions.index, columns=fractions.columns)
+    for pathway, split in splits.items():
+        claimed = claimed.add(split.mul(div_fracs[pathway], axis=0), fill_value=0.0)
+    return claimed.divide(fractions).replace([np.inf, -np.inf], 0.0).fillna(0.0)
 
 
 def _max_pathway_fraction(
@@ -885,15 +1054,21 @@ def _max_pathway_fraction(
 ) -> pd.Series:
     """Largest fraction of generated waste ``pathway`` may take, per year.
 
-    Every other pathway is held at its own value for that year. The pathway is
-    bounded by each component it draws on: what is left of that component after
-    the others have taken their share, scaled back up by ``D_p``.
+    Every other pathway is held at its own value for that year. Each set of
+    pathways containing this one bounds it by the material the set can draw on,
+    less what the rest of the set is asked for; the tightest set wins. A year
+    whose other pathways already overreach without this one has no headroom:
+    no value of this pathway makes that request run.
     """
-    components = sorted(city.div_components[pathway])
-    others = _component_use(fractions, div_fracs, city, skip=pathway)
-    headroom = (1.0 - others[components]).min(axis=1).clip(lower=0.0)
-    denominator = _component_denominators(fractions, city)[pathway]
-    return (headroom * denominator).clip(lower=0.0, upper=1.0)
+    bound = pd.Series(1.0, index=fractions.index)
+    for pathways in _pathway_sets():
+        if pathway not in pathways:
+            continue
+        others = sum((div_fracs[p] for p in pathways if p != pathway), pd.Series(0.0, index=fractions.index))
+        bound = np.minimum(bound, _material_for(fractions, city, pathways) - others)
+    without = {p: (s if p != pathway else s * 0.0) for p, s in div_fracs.items()}
+    others_fit = _routing_slack(fractions, without, city) >= -SHARE_LIMIT_TOLERANCE
+    return bound.where(others_fit, 0.0).clip(lower=0.0, upper=1.0)
 
 
 def _max_food_waste_prevention(
@@ -906,17 +1081,36 @@ def _max_food_waste_prevention(
     """Largest food-waste-prevention fraction each year's diversion demand permits.
 
     Prevention shrinks the organic pool — it removes food — so a compost fraction
-    that fitted before it takes effect can stop fitting after. Bisected rather
-    than solved: removing food raises the organic pathways' claim while lowering
-    recycling's, and which component binds can change with it, so the closed form
-    is per component but the envelope over components is not monotone in general.
+    that fitted before it takes effect can stop fitting after. It also grows
+    every other material's share of the smaller stream, so it can make a request
+    fit that did not: 80% food and 20% plastic, with 30% compost and 50%
+    recycling, fits only between about 75% and 89% prevention.
+
+    So the feasible shares are an interval that need not start at zero, and the
+    answer is its top. Each set of pathways (Hall's condition) moves one way: a
+    set that draws on food loses material as more is prevented, and one that
+    does not gains share. The food sets alone are therefore true then false in
+    the prevented share, which is what bisection needs, and their crossing is
+    the top of the interval. The other sets only get easier toward it, so they
+    are checked once, there; if they fail, no prevention fits and the answer is
+    zero.
 
     Per year, and deliberately so. Folding dated interventions into a per-year
     series is the caller's concern — a cap for one intervention is the minimum of
     these over the years it is in force — and the model has no notion of one.
     """
+    sets = _pathway_sets()
+    drawing_on_food = [
+        s for s in sets if "food" in set().union(*(city.div_components[p] for p in s))
+    ]
+    not_drawing_on_food = [s for s in sets if s not in drawing_on_food]
+
+    def holds(shares: pd.Series, pathway_sets: List[tuple[str, ...]]) -> pd.Series:
+        shrunk_fractions, _ = _prevent_food_waste(fractions, total, shares)
+        return _routing_slack(shrunk_fractions, div_fracs, city, pathway_sets) >= -SHARE_LIMIT_TOLERANCE
+
     def fits(shares: pd.Series) -> pd.Series:
-        """Whether each year's diversion demand survives that year's prevention.
+        """Whether each year's food sets survive that year's prevention.
 
         Takes a share *per year* rather than one scalar, because every step
         below is row-wise — ``_prevent_food_waste`` renormalizes within a year,
@@ -925,15 +1119,12 @@ def _max_food_waste_prevention(
         one per halving instead of one per year per halving.
         """
         shrunk_fractions, _ = _prevent_food_waste(fractions, total, shares)
-        use = _component_use(shrunk_fractions, div_fracs, city)
-        within = use.max(axis=1) <= 1.0 + SHARE_LIMIT_TOLERANCE
+        within = holds(shares, drawing_on_food)
 
         # A pathway asked for a share of a pool that prevention has emptied is
-        # not satisfiable, but the per-component arithmetic reads it as zero
-        # rather than as too much: with D_p at zero, `_diverted_masses` splits
-        # the pathway's mass by 0/0 and diverts nothing at all. So the ratio is
-        # continuous right up to an empty pool and then drops to nothing, and a
-        # probe landing exactly on the empty case would call it feasible.
+        # refused by the model (`diversion_without_material`) however small the
+        # share, and a share inside the tolerance above would pass the slack
+        # test. So an empty pool is checked on its own.
         denominators = _component_denominators(shrunk_fractions, city)
         starved = pd.Series(False, index=fractions.index)
         for pathway in DIVERSION_PATHWAYS:
@@ -952,7 +1143,8 @@ def _max_food_waste_prevention(
         ok = fits(mid)
         low = low.where(~ok, mid)
         high = high.where(ok, mid)
-    return low.where(~unconstrained, 1.0)
+    top = low.where(~unconstrained, 1.0)
+    return top.where(holds(top, not_drawing_on_food), 0.0)
 
 
 def _limits_for_variant(
@@ -963,13 +1155,12 @@ def _limits_for_variant(
     city: City,
 ) -> Dict[str, pd.DataFrame | pd.Series]:
     """One variant's bounds, from that variant's own inputs."""
-    prevented_fractions, _ = _prevent_food_waste(fractions, total, prevented)
-    use = _component_use(prevented_fractions, div_fracs, city)
+    prevented_fractions, prevented_total = _prevent_food_waste(fractions, total, prevented)
+    use = _component_use(prevented_fractions, prevented_total, div_fracs, city)
 
     # A pathway asked for a share of a pool with nothing in it is infeasible,
-    # and `component_use` cannot say so: with `D_p` at zero the claim is 0/0,
-    # which `_component_use` reads as zero rather than as too much, so the row
-    # looks comfortably under 1. `run_advanced_dst_city` raises
+    # and `component_use` cannot say so: the pathway draws on nothing, so its
+    # row looks comfortably under 1. `run_advanced_dst_city` raises
     # `diversion_without_material` for exactly this request, so the bounds have
     # to name it or a caller reading only `component_use` would call the request
     # fine right up to the error.
@@ -1572,7 +1763,7 @@ def run_advanced_dst_city(
         ("scenario", wgen_scenario, divs_scenario, gross_scenario),
     ):
         demanded = wgen.sub(gross.sum(), fill_value=0.0)
-        if (demanded < -1e-6).to_numpy().any():
+        if (demanded < -OVER_DIVERSION_TOLERANCE_TONS).to_numpy().any():
             shortfall = demanded.min()
             component = str(shortfall.idxmin())
             year = int(demanded[component].idxmin())
