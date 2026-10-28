@@ -1000,11 +1000,17 @@ def _material_for(fractions: pd.DataFrame, city: City, pathways: tuple[str, ...]
 
 
 def _routing_slack(
-    fractions: pd.DataFrame, div_fracs: Dict[str, pd.Series], city: City
+    fractions: pd.DataFrame,
+    div_fracs: Dict[str, pd.Series],
+    city: City,
+    pathway_sets: Optional[List[tuple[str, ...]]] = None,
 ) -> pd.Series:
-    """Least spare material over every set of pathways, per year; negative = no routing fits."""
+    """Least spare material over every set of pathways, per year; negative = no routing fits.
+
+    ``pathway_sets`` checks only those sets instead of all of them.
+    """
     slack = pd.Series(np.inf, index=fractions.index)
-    for pathways in _pathway_sets():
+    for pathways in pathway_sets if pathway_sets is not None else _pathway_sets():
         demand = sum(div_fracs[p] for p in pathways)
         slack = np.minimum(slack, _material_for(fractions, city, pathways) - demand)
     return slack
@@ -1050,7 +1056,9 @@ def _max_pathway_fraction(
 
     Every other pathway is held at its own value for that year. Each set of
     pathways containing this one bounds it by the material the set can draw on,
-    less what the rest of the set is asked for; the tightest set wins.
+    less what the rest of the set is asked for; the tightest set wins. A year
+    whose other pathways already overreach without this one has no headroom:
+    no value of this pathway makes that request run.
     """
     bound = pd.Series(1.0, index=fractions.index)
     for pathways in _pathway_sets():
@@ -1058,7 +1066,9 @@ def _max_pathway_fraction(
             continue
         others = sum((div_fracs[p] for p in pathways if p != pathway), pd.Series(0.0, index=fractions.index))
         bound = np.minimum(bound, _material_for(fractions, city, pathways) - others)
-    return bound.clip(lower=0.0, upper=1.0)
+    without = {p: (s if p != pathway else s * 0.0) for p, s in div_fracs.items()}
+    others_fit = _routing_slack(fractions, without, city) >= -SHARE_LIMIT_TOLERANCE
+    return bound.where(others_fit, 0.0).clip(lower=0.0, upper=1.0)
 
 
 def _max_food_waste_prevention(
@@ -1071,16 +1081,36 @@ def _max_food_waste_prevention(
     """Largest food-waste-prevention fraction each year's diversion demand permits.
 
     Prevention shrinks the organic pool — it removes food — so a compost fraction
-    that fitted before it takes effect can stop fitting after. Bisected rather
-    than solved: removing food renormalizes every other share upward, so which
-    set of pathways binds can change with it.
+    that fitted before it takes effect can stop fitting after. It also grows
+    every other material's share of the smaller stream, so it can make a request
+    fit that did not: 80% food and 20% plastic, with 30% compost and 50%
+    recycling, fits only between about 75% and 89% prevention.
+
+    So the feasible shares are an interval that need not start at zero, and the
+    answer is its top. Each set of pathways (Hall's condition) moves one way: a
+    set that draws on food loses material as more is prevented, and one that
+    does not gains share. The food sets alone are therefore true then false in
+    the prevented share, which is what bisection needs, and their crossing is
+    the top of the interval. The other sets only get easier toward it, so they
+    are checked once, there; if they fail, no prevention fits and the answer is
+    zero.
 
     Per year, and deliberately so. Folding dated interventions into a per-year
     series is the caller's concern — a cap for one intervention is the minimum of
     these over the years it is in force — and the model has no notion of one.
     """
+    sets = _pathway_sets()
+    drawing_on_food = [
+        s for s in sets if "food" in set().union(*(city.div_components[p] for p in s))
+    ]
+    not_drawing_on_food = [s for s in sets if s not in drawing_on_food]
+
+    def holds(shares: pd.Series, pathway_sets: List[tuple[str, ...]]) -> pd.Series:
+        shrunk_fractions, _ = _prevent_food_waste(fractions, total, shares)
+        return _routing_slack(shrunk_fractions, div_fracs, city, pathway_sets) >= -SHARE_LIMIT_TOLERANCE
+
     def fits(shares: pd.Series) -> pd.Series:
-        """Whether each year's diversion demand survives that year's prevention.
+        """Whether each year's food sets survive that year's prevention.
 
         Takes a share *per year* rather than one scalar, because every step
         below is row-wise — ``_prevent_food_waste`` renormalizes within a year,
@@ -1089,7 +1119,7 @@ def _max_food_waste_prevention(
         one per halving instead of one per year per halving.
         """
         shrunk_fractions, _ = _prevent_food_waste(fractions, total, shares)
-        within = _routing_slack(shrunk_fractions, div_fracs, city) >= -SHARE_LIMIT_TOLERANCE
+        within = holds(shares, drawing_on_food)
 
         # A pathway asked for a share of a pool that prevention has emptied is
         # refused by the model (`diversion_without_material`) however small the
@@ -1113,7 +1143,8 @@ def _max_food_waste_prevention(
         ok = fits(mid)
         low = low.where(~ok, mid)
         high = high.where(ok, mid)
-    return low.where(~unconstrained, 1.0)
+    top = low.where(~unconstrained, 1.0)
+    return top.where(holds(top, not_drawing_on_food), 0.0)
 
 
 def _limits_for_variant(

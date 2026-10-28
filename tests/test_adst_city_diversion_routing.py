@@ -18,6 +18,7 @@ from SWEET_python.advanced_dst_city import (
     ROUTING_GRID_TOLERANCE,
     AdvancedDSTCityRequest,
     _diverted_masses,
+    _max_food_waste_prevention,
     _max_pathway_fraction,
     _pathway_splits,
     _routing_slack,
@@ -219,3 +220,40 @@ def test_the_bounds_and_the_model_agree_on_random_cities():
         generated = _f.mul(_t, axis=0)
         claimed = sum(getattr(gross, p).reindex(columns=generated.columns, fill_value=0.0) for p in DIVERSION_PATHWAYS)
         assert ((generated - claimed) < -1e-6).to_numpy().any()
+
+
+# --------------------------------------------------------------------------- #
+# Bounds that do not start from a request that fits
+# --------------------------------------------------------------------------- #
+FOOD_PLASTIC = [0.8, 0.0, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 0.0]
+
+
+def _prevention_cap(diversion, mix=FOOD_PLASTIC):
+    fractions = _fractions(mix)
+    total = pd.Series(TOTAL_TONS, index=fractions.index)
+    div = {p: pd.Series(diversion.get(p, 0.0), index=fractions.index) for p in DIVERSION_PATHWAYS}
+    return float(_max_food_waste_prevention(fractions, total, div, City("Routing")).loc[YEAR])
+
+
+def test_prevention_is_capped_at_the_top_of_the_range_that_fits():
+    """Recycling 50% of a 20%-plastic stream fits only once enough food is
+    prevented (75%); compost 30% fits only while enough food is left (5/5.6).
+    The cap is the top of that range, not the zero a bisection from zero finds."""
+    cap = _prevention_cap({"compost": 0.3, "recycling": 0.5})
+
+    assert cap == pytest.approx(0.5 / 0.56, abs=1e-4)
+    assert cap <= 0.5 / 0.56
+
+
+def test_prevention_is_capped_at_zero_when_no_share_fits():
+    # Compost 60% needs prevention at or below 62.5%; recycling needs at least 75%.
+    assert _prevention_cap({"compost": 0.6, "recycling": 0.5}) == 0.0
+
+
+def test_a_pathway_has_no_headroom_while_the_others_already_overreach():
+    """Recycling at 60% of a 55%-recyclable stream fails whatever compost is."""
+    fractions = _fractions()
+    div = {p: pd.Series(0.0, index=fractions.index) for p in DIVERSION_PATHWAYS}
+    div["recycling"][:] = 0.60
+
+    assert float(_max_pathway_fraction(fractions, div, City("Routing"), "compost").loc[YEAR]) == 0.0
