@@ -37,8 +37,8 @@ live in a list, one dict per landfill:
   landfills in the years it is shut, and ``landfills`` may be empty. See
   :class:`OtherLandfillsSpec`.
 
-Diversion math, reject rates, the per-landfill split, and emissions aggregation
-mirror the tested ``City`` machinery (``_calculate_diverted_masses``,
+Diversion math (without ``City``'s reject rates: see ``_diverted_masses``), the
+per-landfill split, and emissions aggregation mirror the tested ``City`` machinery (``_calculate_diverted_masses``,
 ``LandfillWasteMassDF.create_advanced``, ``estimate_diversion_emissions``,
 ``sum_landfill_emissions``); the leaf primitives are reused directly.
 """
@@ -375,8 +375,7 @@ def _mass_flow(
     Every frame here is one the emissions were computed from, so a caller
     rendering this is showing the model rather than a parallel estimate of it.
     That matters most for ``diverted``: compost and anaerobic digestion draw only
-    on organics and recycling only on recyclables, each with its own reject
-    rate, so the split is per waste type and approximating it as one scalar on
+    on organics and recycling only on recyclables, so the split is per waste type and approximating it as one scalar on
     the total quietly composts metal and glass.
 
     ``sites`` is per landfill in request order, already windowed by each one's
@@ -577,25 +576,20 @@ def _diverted_masses(
     div_fracs: Dict[str, Dict[int, float]],
     city: City,
     years: pd.Index,
-) -> tuple[DivsDF, DivsDF]:
-    """Per-pathway, per-component diverted mass (tons/yr): ``(net, gross)``.
+) -> DivsDF:
+    """Per-pathway, per-component diverted mass (tons/yr).
 
     For each pathway: mass into the pathway = pathway_fraction * total_generated;
     that mass is split across the pathway's eligible components (``_pathway_splits``:
-    in proportion to the city composition, rerouted where that overruns a material);
-    then reject/yield rates are applied. Matches City._calculate_diverted_masses,
-    minus the legacy shims.
+    in proportion to the city composition, rerouted where that overruns a material).
 
-    Both bases are returned because they answer different questions. ``net`` is
-    what actually leaves the waste stream — rejects stay in it and are landfilled
-    as their own material — so it is what the landfilled residual and the mass
-    flow are built from. ``gross`` is what was *demanded* of each component, and
-    that is the basis over-diversion has to be measured on: a pathway fed more of
-    a material than the city generates is impossible whether or not enough of it
-    is later rejected back.
+    A pathway keeps everything it is sent. Unlike ``City._calculate_diverted_masses``,
+    no reject or yield rate sends part of it back to the landfills: a city that
+    composts 10% of its waste composts 10%, and every share a user states in the
+    advanced DST is a share of what actually happens. The city DST and Climate TRACE
+    keep their rates.
     """
     div_dfs: Dict[str, pd.DataFrame] = {}
-    gross_dfs: Dict[str, pd.DataFrame] = {}
     pathway_fractions = {
         pathway: common.yearly_to_series(div_fracs.get(pathway), years, default=0.0)
         for pathway in DIVERSION_PATHWAYS
@@ -622,36 +616,15 @@ def _diverted_masses(
                 f"material it can process ({', '.join(components)}).",
             )
 
-        split = splits[pathway]
         mass_into_pathway = pathway_fraction * total_generated
-        gross = split.mul(mass_into_pathway, axis=0)  # years x components
-        gross_dfs[pathway] = gross
+        div_dfs[pathway] = splits[pathway].mul(mass_into_pathway, axis=0)  # years x components
 
-        if pathway == "compost":
-            ncnt = city.non_compostable_not_targeted
-            ncnt_total = sum(split[c] * float(ncnt.get(c, 0.0)) for c in components)
-            net = gross.mul(1.0 - ncnt_total, axis=0)
-            keep = pd.Series({c: 1.0 - float(city.unprocessable.get(c, 0.0)) for c in components})
-            net = net.mul(keep, axis=1)
-        elif pathway == "anaerobic":
-            net = gross  # no loss
-        elif pathway == "combustion":
-            net = gross * (1.0 - float(city.combustion_reject_rate))
-        else:  # recycling — reject_rates are yield multipliers (fraction kept)
-            yields = pd.Series({c: float(city.recycling_reject_rates.get(c, 1.0)) for c in components})
-            net = gross.mul(yields, axis=1)
-
-        div_dfs[pathway] = net
-
-    def collect(frames: Dict[str, pd.DataFrame]) -> DivsDF:
-        return DivsDF(
-            compost=frames["compost"],
-            anaerobic=frames["anaerobic"],
-            combustion=frames["combustion"],
-            recycling=frames["recycling"],
-        )
-
-    return collect(div_dfs), collect(gross_dfs)
+    return DivsDF(
+        compost=div_dfs["compost"],
+        anaerobic=div_dfs["anaerobic"],
+        combustion=div_dfs["combustion"],
+        recycling=div_dfs["recycling"],
+    )
 
 
 def _splice_divs(baseline: DivsDF, scenario: DivsDF, implement_year: int) -> DivsDF:
@@ -731,9 +704,9 @@ def _deposited_share(combusts: bool, city: City) -> float:
     """Fraction of the waste arriving at a facility that is actually deposited.
 
     A depositing site keeps all of it. A combusting facility keeps only the
-    unburnable reject -- the same ``combustion_reject_rate`` the combustion
-    diversion pathway applies, so an incinerator modeled as a facility and one
-    modeled as upstream combustion leave the same residue behind.
+    unburnable reject, ``combustion_reject_rate``. The combustion diversion
+    pathway, like every pathway here, keeps everything it is sent
+    (``_diverted_masses``), so the residue is the facility's alone.
     """
     return float(city.combustion_reject_rate) if combusts else 1.0
 
@@ -978,8 +951,8 @@ def _validate_shares(split: pd.DataFrame, accepting: pd.DataFrame, label: str) -
 # everything either can take. Wood and paper sit in both of the first two, so
 # they count once in the third.
 #
-# This bounds GROSS diversion, before reject rates, which is the same basis
-# ``run_advanced_dst_city``'s ``over_diversion`` guard measures on. The two are
+# This bounds diverted mass, which is what ``run_advanced_dst_city``'s
+# ``over_diversion`` guard measures. The two are
 # the same boundary on purpose: a caller respecting these limits cannot produce a
 # request the model rejects on mass balance.
 SHARE_LIMIT_TOLERANCE = 1e-9
@@ -1221,7 +1194,7 @@ def run_advanced_dst_city_limits(
 
     That is the point of computing this here rather than in a caller: the
     component sets come from ``city.div_components``, the same ones
-    ``_diverted_masses`` splits on, and the basis is gross diverted mass, the
+    ``_diverted_masses`` splits on, and the basis is diverted mass, the
     same one the ``over_diversion`` guard measures. A caller respecting these
     bounds cannot produce a request the model rejects on mass balance.
 
@@ -1635,7 +1608,7 @@ def run_advanced_dst_city(
     With ``with_mass_flow=True`` the result carries an extra ``"mass_flow"`` key
     describing where the tonnage went, per variant: ``generated`` (per component,
     before prevention), ``prevented``, ``diverted`` (per pathway per component,
-    net of reject rates), ``landfilled`` (the residual per component), and
+    everything the pathway was sent), ``landfilled`` (the residual per component), and
     ``sites`` (per landfill, in request order). A diversion pathway the request
     never uses is omitted from ``diverted`` rather than sent as zeros — the
     payload is several times the emissions one, so this is worth the asymmetry;
@@ -1729,28 +1702,22 @@ def run_advanced_dst_city(
     scenario_div_raw = div_variant["scenario"] if div_variant is not None else None
     scenario_div = scenario_div_raw if scenario_div_raw is not None else baseline_div
 
-    divs_baseline, gross_baseline = _diverted_masses(
+    divs_baseline = _diverted_masses(
         baseline_fractions, baseline_total, baseline_div, city, years
     )
-    divs_scenario_own, gross_scenario_own = _diverted_masses(
+    divs_scenario_own = _diverted_masses(
         scenario_fractions, scenario_total, scenario_div, city, years
     )
     divs_scenario = _splice_divs(divs_baseline, divs_scenario_own, implement_year)
-    gross_scenario = _splice_divs(gross_baseline, gross_scenario_own, implement_year)
 
-    # Guard against diverting more of a material than the city generates.
-    #
-    # Measured on GROSS diverted mass, before reject rates. Rejects stay in the
-    # waste stream and are landfilled as their own material, so a net-basis check
-    # passes a pathway that was fed material which does not exist as long as
-    # enough of it is rejected back -- the city composts phantom wood and then
-    # landfills the rejects of it. Gross is also exactly the boundary
+    # Guard against diverting more of a material than the city generates: a
+    # negative residual. It is exactly the boundary
     # ``run_advanced_dst_city_limits`` reports, so a caller respecting those
     # bounds cannot trip this.
     #
-    # The net residual is kept rather than discarded: it is the landfilled mass
-    # per waste type, which is what the mass flow reports and what the
-    # per-landfill split is taken from.
+    # The residual is kept rather than discarded: it is the landfilled mass per
+    # waste type, which is what the mass flow reports and what the per-landfill
+    # split is taken from.
     #
     # The message reaches the advanced DST's user verbatim, so it names the
     # waste type as the composition legend does and leaves the variant out. The
@@ -1758,21 +1725,21 @@ def run_advanced_dst_city(
     # trips first, even when the diversion that overreached is an intervention;
     # "baseline" would point the user at the wrong thing. The year says when.
     net_masses: Dict[str, pd.DataFrame] = {}
-    for label, wgen, divs, gross in (
-        ("baseline", wgen_baseline, divs_baseline, gross_baseline),
-        ("scenario", wgen_scenario, divs_scenario, gross_scenario),
+    for label, wgen, divs in (
+        ("baseline", wgen_baseline, divs_baseline),
+        ("scenario", wgen_scenario, divs_scenario),
     ):
-        demanded = wgen.sub(gross.sum(), fill_value=0.0)
-        if (demanded < -OVER_DIVERSION_TOLERANCE_TONS).to_numpy().any():
-            shortfall = demanded.min()
+        residual = wgen.sub(divs.sum(), fill_value=0.0)
+        if (residual < -OVER_DIVERSION_TOLERANCE_TONS).to_numpy().any():
+            shortfall = residual.min()
             component = str(shortfall.idxmin())
-            year = int(demanded[component].idxmin())
+            year = int(residual[component].idxmin())
             raise CustomError(
                 "over_diversion",
                 f"More {common.WASTE_COMPONENT_NAMES[component]} would be sent to "
                 f"diversion in {year} than the city generates.",
             )
-        net_masses[label] = wgen.sub(divs.sum(), fill_value=0.0)
+        net_masses[label] = residual
 
     # The mix the city is left to bury, as per-year component shares. Any waste
     # arriving at a site from outside the baseline is given this same mix, so
