@@ -2775,13 +2775,16 @@ class City:
             self.estimate_diversion_emissions(scenario=0)
             self.sum_landfill_emissions(scenario=0)
 
-    def site_only_estimate(self, row=None, pop_data=None):
+    def site_only_estimate(self, row=None, pop_data=None, income_id: Optional[str] = None):
         """
         For generating estimates for sites only
 
         Args:
             id (int): The ID of the site.
             df (DataFrame): The DataFrame containing site data.
+            income_id: The country's World Bank income group, for a site with no
+                recorded type (the shared site-type rule). SWEET holds no income
+                table; without one, only region and named countries decide.
 
         Returns:
             None
@@ -2900,7 +2903,7 @@ class City:
         depth = None
         site_type = row["Site Type"].values[0]
         if site_type not in get_site_type_idx.keys():
-            site_type = site_type_defaults.default_site_type(self.iso3)
+            site_type = site_type_defaults.default_site_type(self.iso3, income_id)
         site_type_idx = get_site_type_idx[site_type]
         city_params_dict = baseline.update_cityparams_dict()
         baseline.city_params_dict = city_params_dict

@@ -102,10 +102,14 @@ def test_landfill_is_default_agrees_with_default_site_type():
             assert std.default_site_type(iso3, income) == ("Sanitary Landfill" if landfill else "Dumpsite")
 
 
-def test_the_city_split_and_the_point_prefill_take_income_from_the_caller():
+def test_every_path_that_guesses_a_type_takes_income_from_the_caller():
     andre = inspect.signature(city_params.City.load_andre_params).parameters
     prefill = inspect.signature(city_params.City.sdst_prepopulate).parameters
+    site = inspect.signature(city_params.City.site_only_estimate).parameters
+    blank = inspect.signature(city_params.City.dst_baseline_blank).parameters
     assert "income_id" in andre and "income_by_iso3" in prefill
+    assert "income_id" in site and "income_id" in blank
+    assert "default_site_type(self.iso3, income_id)" in inspect.getsource(city_params.City.site_only_estimate)
     assert inspect.getsource(city_params.City.load_andre_params).count("landfill_is_default(iso3, income_id)") == 3
 
 
