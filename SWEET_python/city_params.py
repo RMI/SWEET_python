@@ -26,7 +26,12 @@ from SWEET_python.singapore_k import compute_singapore_k
 import SWEET_python.defaults_2019 as defaults_2019
 import SWEET_python.mcf as mcf_defaults
 import SWEET_python.site_type_defaults as site_type_defaults
-from SWEET_python.population import average_growth_rates, country_population_series
+from SWEET_python.population import (
+    average_growth_rates,
+    city_population_series,
+    country_population_series,
+    parse_city_population,
+)
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from sqlalchemy import create_engine, text
@@ -3666,6 +3671,14 @@ class City:
             # WPP2024 per-year population series for this country (None -> the
             # frozen-CAGR growth_rate_* scalars are used instead).
             population_series = _population_series_from_pop_data(pop_data, self.iso3)
+            # Climate TRACE may hand in the site's nearby city's population. Where it does,
+            # the site grows with that city, and with the country's shape outside the
+            # city's years (population.city_population_series).
+            city_series = city_population_series(
+                parse_city_population(canonical_row.get("city_population_by_year")), population_series
+            )
+            if city_series is not None:
+                population_series = city_series
             # True once waste_generated already carries population growth (the
             # multi-row path bakes it into the projected series below), so the
             # later WasteGeneratedDF.create must not apply growth a second time.
