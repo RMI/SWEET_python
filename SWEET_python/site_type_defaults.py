@@ -14,8 +14,12 @@ when the individual site is in no registry: there are no unmanaged waste piles
 in Denmark or the United States. A country counts as engineered if any of these
 holds:
 
-- **It is high income** in the World Bank grouping Climate TRACE reads
-  (:mod:`SWEET_python.country_income`).
+- **It is high income** in the World Bank's grouping. SWEET holds no copy of
+  it: the caller passes the country's group. Climate TRACE passes the one on its
+  site row and WasteMAP the one its build reads; both come from the World Bank
+  list the ingestion pipeline loads (``supplementary.supplemented_facility``,
+  ``transformed.transformed_world_bank_income_classification``). A caller with
+  none gets the region and named-country rules alone.
 - **Its SWEET region is in** :data:`LANDFILL_DEFAULT_REGIONS`. That is
   ``defaults_2019.LANDFILL_DEFAULT_REGIONS`` plus Western Asia and Central Asia.
   Central Asia joins on the argument that admits Russia: the post-Soviet
@@ -44,7 +48,6 @@ from typing import Optional
 import pandas as pd
 
 from SWEET_python import defaults_2019
-from SWEET_python.country_income import INCOME_ID_BY_ISO3
 
 SANITARY_LANDFILL = "Sanitary Landfill"
 DUMPSITE = "Dumpsite"
@@ -60,22 +63,15 @@ def _blank(value) -> bool:
     return value is None or (not isinstance(value, str) and pd.isna(value)) or value == ""
 
 
-def income_for(iso3: Optional[str]) -> Optional[str]:
-    """The World Bank income group SWEET holds for a country, or None."""
-    if _blank(iso3):
-        return None
-    return INCOME_ID_BY_ISO3.get(str(iso3).upper())
-
-
 # decision: site-type-fill
 def landfill_is_default(iso3: Optional[str], income_id: Optional[str] = None) -> bool:
     """True where a site of unknown type should be assumed a sanitary landfill.
 
     Args:
         iso3: The country's ISO 3166 alpha-3 code.
-        income_id: The caller's own income group for the country, if it has
-            one. A missing value (None, NaN or empty) falls back to
-            :func:`income_for`, which reads the same World Bank table.
+        income_id: The country's World Bank income group ('HIC', 'UMC', 'LMC',
+            'LIC'), from the caller. A missing value (None, NaN or empty) is not
+            high income, so only the region and named-country rules apply.
 
     Returns:
         False for an unknown or unplaceable country.
@@ -85,10 +81,8 @@ def landfill_is_default(iso3: Optional[str], income_id: Optional[str] = None) ->
     iso3 = str(iso3).upper()
     if iso3 in DUMPSITE_COUNTRIES:
         return False
-    if _blank(income_id):
-        income_id = income_for(iso3)
     return (
-        income_id == "HIC"
+        (not _blank(income_id) and income_id == "HIC")
         or defaults_2019.REGION_LOOKUP_ISO3.get(iso3) in LANDFILL_DEFAULT_REGIONS
         or iso3 in LANDFILL_DEFAULT_COUNTRIES
     )

@@ -1507,7 +1507,7 @@ class City:
 
         self.baseline_parameters = city_parameters
 
-    def load_andre_params(self, row, backfill=False):
+    def load_andre_params(self, row, backfill=False, income_id: Optional[str] = None):
         """
         Loads model parameters from the internal RMI WasteMAP database. Defaults are used
         where data is missing, incomplete, or incompatible.
@@ -1515,6 +1515,10 @@ class City:
         Args:
             row (tuple): row[0] is the index of the row in the dataframe used for input,
             row[1] is the row itself.
+            income_id: The country's World Bank income group, for the landfill/dump
+                split's last fallback (the shared site-type rule).
+                SWEET holds no income table; without one, only region and named
+                countries decide.
 
         Returns:
             None
@@ -1885,7 +1889,7 @@ class City:
                         }
                         self.landfill_split_defaults = True
                     else:
-                        if site_type_defaults.landfill_is_default(iso3):
+                        if site_type_defaults.landfill_is_default(iso3, income_id):
                             split_fractions = {
                                 "landfill_w_capture": 0,
                                 "landfill_wo_capture": 1,
@@ -1976,7 +1980,7 @@ class City:
                         }
                         self.landfill_split_defaults = True
                     else:
-                        if site_type_defaults.landfill_is_default(iso3):
+                        if site_type_defaults.landfill_is_default(iso3, income_id):
                             split_fractions = {
                                 "landfill_w_capture": 0.0,
                                 "landfill_wo_capture": 1.0,
@@ -2009,7 +2013,7 @@ class City:
             # Normalize landfills to 1
             split_total = sum([x for x in split_fractions.values()])
             if split_total == 0:
-                if site_type_defaults.landfill_is_default(iso3):
+                if site_type_defaults.landfill_is_default(iso3, income_id):
                     split_fractions = {
                         "landfill_w_capture": 0.0,
                         "landfill_wo_capture": 1.0,
@@ -2771,13 +2775,16 @@ class City:
             self.estimate_diversion_emissions(scenario=0)
             self.sum_landfill_emissions(scenario=0)
 
-    def site_only_estimate(self, row=None, pop_data=None):
+    def site_only_estimate(self, row=None, pop_data=None, income_id: Optional[str] = None):
         """
         For generating estimates for sites only
 
         Args:
             id (int): The ID of the site.
             df (DataFrame): The DataFrame containing site data.
+            income_id: The country's World Bank income group, for a site with no
+                recorded type (the shared site-type rule). SWEET holds no income
+                table; without one, only region and named countries decide.
 
         Returns:
             None
@@ -2896,7 +2903,7 @@ class City:
         depth = None
         site_type = row["Site Type"].values[0]
         if site_type not in get_site_type_idx.keys():
-            site_type = site_type_defaults.default_site_type(self.iso3)
+            site_type = site_type_defaults.default_site_type(self.iso3, income_id)
         site_type_idx = get_site_type_idx[site_type]
         city_params_dict = baseline.update_cityparams_dict()
         baseline.city_params_dict = city_params_dict
@@ -4846,6 +4853,7 @@ class City:
         precipitation: float,
         temperature: float,
         population_series: Optional[pd.Series] = None,
+        income_id: Optional[str] = None,
     ) -> None:
         """
         Initializes the baseline scenario with given parameters for a blank/custom city.
@@ -4858,6 +4866,9 @@ class City:
                 out once by country_population_trajectory and stored. The city's waste
                 grows along it instead of along SWEET's own table. Only its shape
                 counts: the city's waste is set by ``population``.
+            income_id (str): the country's World Bank income group, from the caller,
+                for the disposal split's last fallback
+                (``defaults_2019.disposal_split_for``). SWEET holds no income table.
 
         Returns:
             None
@@ -4921,7 +4932,7 @@ class City:
         # Determine waste split fractions, as the cities table does for a city
         # with no landfill data
         split_fractions = SplitFractions(
-            **defaults_2019.disposal_split_for(iso3, region)
+            **defaults_2019.disposal_split_for(iso3, region, income_id)
         )
 
         # Instantiate landfill objects
@@ -9173,6 +9184,7 @@ class City:
         sites_list: pd.DataFrame,
         latlon: Optional[str] = None,
         site_id: Optional[int] = None,
+        income_by_iso3: Optional[Dict[str, str]] = None,
     ) -> None:
         """
         API endpoing function to prepopulate the SDST,
@@ -9188,6 +9200,11 @@ class City:
             sites_list (pd.DataFrame): DataFrame containing site information.
             latlon (Optional[str]): Latitude and longitude as a string. Defaults to None.
             site_id (Optional[int]): Site ID. Defaults to None.
+            income_by_iso3 (Optional[Dict[str, str]]): World Bank income group by
+                country, from the caller (WasteMAP reads it from the World Bank list
+                the ingestion pipeline loads). Looked up once the point's country is
+                known. SWEET holds no income table; a country missing from it gets
+                only the region and named-country rules.
         Returns:
             dict: Dictionary containing data for prepopulation.
         """
@@ -9211,6 +9228,7 @@ class City:
             region = defaults_2019.REGION_LOOKUP_ISO3.get(iso3)
             if region is None:
                 raise ValueError(f"Region for ISO3 code '{iso3}' not found.")
+            income_id = (income_by_iso3 or {}).get(iso3)
         else:
             location = geolocator.reverse((latlon[0], latlon[1]), language="en")
             # geopy gives None where Nominatim can't place the point (open sea), and
@@ -9226,13 +9244,14 @@ class City:
             region = defaults_2019.REGION_LOOKUP_ISO3.get(iso3)
             if region is None:
                 raise ValueError(f"Region for ISO3 code '{iso3}' not found.")
-            if site_type_defaults.landfill_is_default(iso3):
+            income_id = (income_by_iso3 or {}).get(iso3)
+            if site_type_defaults.landfill_is_default(iso3, income_id):
                 site_type = "Landfill"
             else:
                 site_type = "Dumpsite"
         # A site in the sites list with no recorded type takes the same rule.
         if pd.isna(site_type) or site_type == "":
-            site_type = site_type_defaults.default_site_type(iso3)
+            site_type = site_type_defaults.default_site_type(iso3, income_id)
 
         if site_type in ["Landfill", "Sanitary Landfill"]:
             site_type = 0

@@ -15,7 +15,7 @@ import pytest
 
 import SWEET_python.city_params as city_params
 import SWEET_python.site_type_defaults as std
-from SWEET_python.country_income import INCOME_ID_BY_ISO3
+from SWEET_python import defaults_2019
 
 
 # --------------------------------------------------------------------------- #
@@ -25,9 +25,6 @@ from SWEET_python.country_income import INCOME_ID_BY_ISO3
 @pytest.mark.parametrize(
     "iso3, why",
     [
-        ("AUS", "high income; its region is not in the list"),
-        ("ABW", "high income in the Caribbean"),
-        ("CHL", "high income in South America"),
         ("POL", "Eastern Europe"),
         ("KAZ", "Central Asia"),
         ("TUR", "Western Asia"),
@@ -41,6 +38,18 @@ from SWEET_python.country_income import INCOME_ID_BY_ISO3
 )
 def test_engineered_disposal_systems_default_to_landfill(iso3, why):
     assert std.default_site_type(iso3) == "Sanitary Landfill", why
+
+
+@pytest.mark.parametrize(
+    "iso3, why",
+    [
+        ("AUS", "its region is not in the list"),
+        ("ABW", "the Caribbean"),
+        ("CHL", "South America"),
+    ],
+)
+def test_a_high_income_country_defaults_to_landfill_when_the_caller_says_so(iso3, why):
+    assert std.default_site_type(iso3, income_id="HIC") == "Sanitary Landfill", why
 
 
 @pytest.mark.parametrize("iso3", ["NGA", "IND", "IDN", "PAK", "EGY", "PER", "ZAF"])
@@ -61,7 +70,7 @@ def test_an_unknown_country_is_an_open_dump(iso3):
 
 
 def test_a_lower_case_code_is_read_the_same():
-    assert std.default_site_type("aus") == "Sanitary Landfill"
+    assert std.default_site_type("pol") == "Sanitary Landfill"
     assert std.default_site_type("mng") == "Dumpsite"
 
 
@@ -72,39 +81,36 @@ def test_a_callers_own_income_is_used_when_it_has_one():
 
 
 @pytest.mark.parametrize("missing", [None, np.nan, pd.NA, ""])
-def test_a_missing_income_falls_back_to_sweets_table(missing):
-    assert std.default_site_type("AUS", income_id=missing) == "Sanitary Landfill"
+def test_without_an_income_only_region_and_named_countries_decide(missing):
+    """SWEET keeps no income table: a caller that passes none gets no high-income rule."""
+    assert std.default_site_type("AUS", income_id=missing) == "Dumpsite"
+    assert std.default_site_type("POL", income_id=missing) == "Sanitary Landfill"
     assert std.default_site_type("NGA", income_id=missing) == "Dumpsite"
 
 
+def test_sweet_holds_no_income_table():
+    from pathlib import Path
+
+    assert not Path(std.__file__).with_name("country_income.py").exists()
+    assert not hasattr(std, "income_for")
+
+
 def test_landfill_is_default_agrees_with_default_site_type():
-    for iso3 in INCOME_ID_BY_ISO3:
-        landfill = std.landfill_is_default(iso3)
-        assert std.default_site_type(iso3) == ("Sanitary Landfill" if landfill else "Dumpsite")
+    for iso3 in defaults_2019.region_lookup_iso3:
+        for income in (None, "HIC", "LIC"):
+            landfill = std.landfill_is_default(iso3, income)
+            assert std.default_site_type(iso3, income) == ("Sanitary Landfill" if landfill else "Dumpsite")
 
 
-# --------------------------------------------------------------------------- #
-# The income table
-# --------------------------------------------------------------------------- #
-
-def test_the_income_table_is_the_one_climate_trace_reads():
-    """217 countries, the What a Waste 2.0 classification (2018).
-
-    Pinned on three countries the World Bank has reclassified since, so a swap to
-    the current list fails here instead of quietly disagreeing with Climate TRACE.
-    """
-    assert len(INCOME_ID_BY_ISO3) == 217
-    assert set(INCOME_ID_BY_ISO3.values()) == {"HIC", "UMC", "LMC", "LIC"}
-    assert INCOME_ID_BY_ISO3["ARG"] == "HIC"
-    assert INCOME_ID_BY_ISO3["BGR"] == "UMC"
-    assert INCOME_ID_BY_ISO3["CRI"] == "UMC"
-
-
-def test_every_listed_country_has_a_sweet_region_except_the_channel_islands():
-    from SWEET_python import defaults_2019
-
-    unplaced = set(INCOME_ID_BY_ISO3) - set(defaults_2019.region_lookup_iso3)
-    assert unplaced == {"CHI"}
+def test_every_path_that_guesses_a_type_takes_income_from_the_caller():
+    andre = inspect.signature(city_params.City.load_andre_params).parameters
+    prefill = inspect.signature(city_params.City.sdst_prepopulate).parameters
+    site = inspect.signature(city_params.City.site_only_estimate).parameters
+    blank = inspect.signature(city_params.City.dst_baseline_blank).parameters
+    assert "income_id" in andre and "income_by_iso3" in prefill
+    assert "income_id" in site and "income_id" in blank
+    assert "default_site_type(self.iso3, income_id)" in inspect.getsource(city_params.City.site_only_estimate)
+    assert inspect.getsource(city_params.City.load_andre_params).count("landfill_is_default(iso3, income_id)") == 3
 
 
 # --------------------------------------------------------------------------- #
