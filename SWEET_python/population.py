@@ -104,8 +104,9 @@ def city_population_series(
     """A city's population in every year of ``country``'s index, its gaps filled.
 
     - **In a year the city has a number**, that number.
-    - **Between two of them**, constant growth from one to the next (log-linear), for a
-      source that reports every five years.
+    - **Between two of them**, constant growth from one to the next (log-linear), where a
+      year is missing. Climate TRACE's supplement lists every year from a city's first to
+      2050 (waste_data_ingestion_pipeline #299), so this only bridges a gap.
     - **Before its first year or after its last**, the city's nearest number moved by
       the country's population: ``city[first] * country[year] / country[first]``. A city
       appears in the UN's list only once it passes 50,000 people, so half the cities a

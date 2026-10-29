@@ -65,7 +65,7 @@ def test_years_after_the_city_follow_the_countrys_shape():
 
 
 def test_between_two_reported_years_growth_is_constant():
-    """For a source that reports every five years."""
+    """For a year missing between two listed ones."""
     series = city_population_series({2000: 100_000.0, 2005: 200_000.0}, USA)
     rate = 2 ** (1 / 5)
     assert series[2001] == pytest.approx(100_000.0 * rate)
