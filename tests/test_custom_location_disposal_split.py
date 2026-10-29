@@ -46,9 +46,9 @@ ZERO_COUNTRY_ROW = ["CAN", "CHE", "DEU"]
 ZEROED = sorted([iso3 for codes in NO_ROW.values() for iso3 in codes] + ZERO_COUNTRY_ROW)
 
 
-def _custom_location(iso3):
+def _custom_location(iso3, income_id=None):
     city = City("Custom Location")
-    city.dst_baseline_blank(iso3, POPULATION, PRECIPITATION, TEMPERATURE)
+    city.dst_baseline_blank(iso3, POPULATION, PRECIPITATION, TEMPERATURE, income_id=income_id)
     return city.baseline_parameters
 
 
@@ -145,14 +145,21 @@ def test_a_country_in_a_region_with_no_row_dumps_its_waste(iso3):
 
 
 def test_a_high_income_country_in_a_region_with_no_row_landfills_its_waste():
-    # Brunei, by Climate TRACE's site-type rule, as its cities-table rows do.
-    split = _custom_location("BRN").split_fractions
+    # Brunei, by Climate TRACE's site-type rule, as its cities-table rows do. The
+    # caller passes the income group; SWEET holds none.
+    split = _custom_location("BRN", income_id="HIC").split_fractions
 
     assert (split.landfill_w_capture, split.landfill_wo_capture, split.dumpsite) == (
         0.0,
         1.0,
         0.0,
     )
+
+
+def test_without_an_income_brunei_falls_to_its_regions_rule():
+    split = _custom_location("BRN").split_fractions
+
+    assert split.dumpsite == 1.0
 
 
 @pytest.mark.parametrize("iso3", ZERO_COUNTRY_ROW)

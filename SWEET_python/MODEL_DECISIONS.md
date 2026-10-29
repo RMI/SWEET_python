@@ -168,7 +168,7 @@ A site or city with no recorded type is assumed a sanitary landfill or an open d
 - **Why:** Site type sets MCF, oxidation and the gas-capture default, and most sites and many cities record no type.
 - **Options, best first:**
   1. `recorded`: the type the caller supplies.
-  2. `sanitary-by-country`: sanitary landfill if high income, in a listed region, or China, Russia, Mexico, Brazil or Costa Rica. Never Mongolia or Yemen.
+  2. `sanitary-by-country`: sanitary landfill if high income, in a listed region, or China, Russia, Mexico, Brazil or Costa Rica. Never Mongolia or Yemen. The caller passes the income group; SWEET holds none, so without one only region and named countries count.
   3. `dumpsite`: open dump otherwise, including a missing or unplaceable country. Never a controlled dump.
 - **Paths:**
   - `ct-site`: Climate TRACE fills the type before the call, with its own income groups; SWEET applies the rule again to a blank type.
@@ -178,7 +178,7 @@ A site or city with no recorded type is assumed a sanitary landfill or an open d
 - **Better:** Classify each site from its area, intake or imagery, not its country's income, and use one fallback order on every path.
 - **Value:** `SWEET_python.site_type_defaults`: `LANDFILL_DEFAULT_COUNTRIES`, `DUMPSITE_COUNTRIES`, `LANDFILL_DEFAULT_REGIONS`
 - **Code:** `SWEET_python/site_type_defaults.py`
-- **Reviewed:** 2026-10-22
+- **Reviewed:** 2026-10-29
 
 ### `waste-composition`
 

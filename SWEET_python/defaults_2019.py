@@ -1326,7 +1326,7 @@ FRACTION_LANDFILLED_COUNTRY = {
 }
 
 
-def disposal_split_for(iso3, region):
+def disposal_split_for(iso3, region, income_id=None):
     """Default disposal split for a city with no landfill data of its own.
 
     Returns the shares of disposed waste sent to ``landfill_w_capture``,
@@ -1335,7 +1335,9 @@ def disposal_split_for(iso3, region):
     with neither is all landfill where a site of unknown type is assumed a
     sanitary landfill (``site_type_defaults.landfill_is_default``, Climate TRACE's
     rule: high income, or a region or country it names), and all dumpsite
-    elsewhere.
+    elsewhere. ``income_id`` is the country's World Bank income group, from the
+    caller; SWEET holds no income table, so without one only region and named
+    countries decide.
 
     Southern Asia, South-Eastern Asia and Southern Africa have no regional row
     (the other regional tables carry them as ``0.0  # np.nan``), so their
@@ -1363,7 +1365,7 @@ def disposal_split_for(iso3, region):
     # Imported here: site_type_defaults imports this module.
     from SWEET_python.site_type_defaults import landfill_is_default
 
-    landfills = landfill_is_default(iso3)
+    landfills = landfill_is_default(iso3, income_id)
     return {
         "landfill_w_capture": 0.0,
         "landfill_wo_capture": 1.0 if landfills else 0.0,
