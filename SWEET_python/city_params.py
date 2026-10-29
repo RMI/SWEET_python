@@ -293,6 +293,113 @@ def _resolve_gas_capture(flag, site_type, canonical_row, time_series_rows, years
     return presence, oxidation_value, pd.Series(value, index=years_range)
 
 
+#: The city's own yearly waste, in tonnes, on a Climate TRACE city-site row (SINIR's
+#: ``city_waste.msw_generated_metric_tons_per_year`` for Brazil), and its year.
+CITY_WASTE_COLUMN = "city_waste_tonnes"
+CITY_WASTE_YEAR_COLUMN = "city_waste_year"
+#: True on a city-site row Climate TRACE adds for a year the city reported sending its
+#: waste to other sites and not this one. Its % is blank, so a SWEET without this rule
+#: fills it as it fills any unreported year; this one reads it as 0%.
+SENT_ELSEWHERE_COLUMN = "ctf_sent_elsewhere"
+
+
+def _city_sizes(citysite_rows):
+    """Each city's size for splitting a shared site: ``(sizes, basis)``.
+
+    The size is the city's own waste in tonnes when every city at the site has a
+    positive figure, else its population (``basis`` is ``"waste"`` or
+    ``"population"``). The two are never mixed at one site, because a share is a
+    size divided by the site's sum of sizes and tonnes plus people means nothing.
+    """
+    cities = citysite_rows.groupby('city_id').size().index
+    if CITY_WASTE_COLUMN in citysite_rows.columns:
+        rows = citysite_rows
+        if CITY_WASTE_YEAR_COLUMN in rows.columns:
+            rows = rows.sort_values(CITY_WASTE_YEAR_COLUMN)
+        waste = pd.to_numeric(rows[CITY_WASTE_COLUMN], errors='coerce')
+        waste = waste.where(waste > 0).groupby(rows['city_id']).last().reindex(cities)
+        if waste.notna().all():
+            return waste, "waste"
+    pop = (citysite_rows.sort_values('city_population_year')
+                        .groupby('city_id')['city_population'].last())
+    return pop.reindex(cities).fillna(0.0), "population"
+
+
+def _intake_years(years_range, open_date, close_date):
+    """1.0 in each year a site takes waste, from its open year through its close year; else 0.0."""
+    # decision: intake-through-close-year
+    accepting = pd.Series(0.0, index=years_range)
+    accepting.loc[open_date:close_date] = 1.0
+    return accepting
+
+
+def _city_shares_of_site(citysite_rows, years_range):
+    """Each city's share of a shared site's intake, per year (rows sum to 1).
+
+    A city's weight in a year is its size (:func:`_city_sizes`) times the % of its
+    waste it sent to this site that year. Weights are divided by the site's sum each
+    year, so the site keeps its own intake and only its split between cities depends
+    on them.
+
+    With sizes in tonnes, a weight is the tonnes the city reports sending, which is
+    what the split should follow. Population stood in for it, and collected waste
+    per person in Brazil runs from about 0.2 to 1.5 kg/day between cities, so a
+    small town sharing a site with a city took several times its own waste.
+
+    A year the city reported sending its waste elsewhere (``ctf_sent_elsewhere``) is
+    0%. A year it reported nothing takes its average % over the years it reported,
+    those zeros included. Averaging only the years a link appears gave a city that
+    switched sites 100% at both in every year outside the reports.
+    """
+    # decision: multi-city-site-split
+    sizes, _basis = _city_sizes(citysite_rows)
+
+    pct = pd.to_numeric(citysite_rows['ctf_percent_of_waste_sent'], errors='coerce').to_numpy()
+    sent_elsewhere = _sent_elsewhere(citysite_rows)
+    pct = np.where(sent_elsewhere, 0.0, pct)
+
+    # Reported % by (year, city), as a fraction 0..1. A year's rows are averaged
+    # first, so a year with more rows (one per gas-capture record) counts once.
+    reports = pd.DataFrame({
+        'ctf_year': citysite_rows['ctf_year'].to_numpy(),
+        'city_id': citysite_rows['city_id'].to_numpy(),
+        'pct': pct / 100.0,
+    })
+
+    def weights(rows):
+        obs = rows.groupby(['ctf_year', 'city_id'])['pct'].mean().unstack('city_id')
+        obs = obs.reindex(columns=sizes.index)
+        avg_pct = obs.mean().fillna(0.0)             # over the years each link reports
+        P = obs.reindex(index=years_range).fillna(avg_pct)
+        return P.mul(sizes, axis=1), avg_pct.mul(sizes)   # weight_i,t = size_i * pct_i,t
+
+    W, fill = weights(reports)
+
+    # Which years the site takes waste does not depend on the sent-elsewhere rows:
+    # it is decided from the reported rows alone, as before them, so only the split
+    # between cities moves. A year every linked city reported at 0% still takes none.
+    reported_W, _ = weights(reports[~sent_elsewhere])
+    takes_waste = reported_W.sum(axis=1) > 0
+
+    # A year the site takes waste but no linked city reported sending it any is split
+    # as an unreported year is. Failing that, by the cities' sizes.
+    # decision: site-year-no-sender
+    if not fill.sum() > 0:
+        fill = sizes
+    no_sender = takes_waste & ~(W.sum(axis=1) > 0)
+    W.loc[no_sender, :] = fill.to_numpy()
+    W.loc[~takes_waste, :] = 0.0
+    return W.div(W.sum(axis=1), axis=0).fillna(0.0)
+
+
+def _sent_elsewhere(citysite_rows):
+    """Which city-site rows Climate TRACE added for a year sent elsewhere (a bool array)."""
+    if SENT_ELSEWHERE_COLUMN not in citysite_rows.columns:
+        return np.zeros(len(citysite_rows), dtype=bool)
+    flag = citysite_rows[SENT_ELSEWHERE_COLUMN].astype('boolean').fillna(False)
+    return flag.to_numpy(dtype=bool)
+
+
 # The way this model is set up is based on the unit of a City, corresponding to the City class.
 # Cities can have multiple sets of CityParameters, one for each scenario.
 # Sets of CityParameters can have one or more landfills, dumpsites, waste to energy, etc.
@@ -305,6 +412,110 @@ UN_LISTED_CITY_MIN_POPULATION = 300_000
 #: city: the city's own population mixed with a larger agglomeration's (Manila City's
 #: 2020-2035 rate came out at +16.9% a year).
 PLAUSIBLE_CITY_GROWTH = (0.98, 1.07)
+
+
+#: A site's reports from this year on are the ones averaged for its intake level.
+INTAKE_AVERAGE_FROM_YEAR = 2010
+
+#: A site is shrinking when a straight line through its reported years (the ones that
+#: set its level) slopes down with p below SHRINKING_MAX_P and falls to at most
+#: SHRINKING_MAX_FIT_RATIO of where it starts, over at least SHRINKING_MIN_YEARS years.
+#: Such a site follows its line, not population, from its first report on.
+SHRINKING_MIN_YEARS = 3
+SHRINKING_MAX_P = 0.05
+SHRINKING_MAX_FIT_RATIO = 0.75
+
+
+def _shrinking_line(per_year):
+    """``(slope, intercept)`` of a site's reported intake when it is clearly shrinking, else None.
+
+    Ordinary least squares on one value per year. Clearly shrinking means at least
+    ``SHRINKING_MIN_YEARS`` years, a downward slope with two-sided p below
+    ``SHRINKING_MAX_P``, and a line that falls to at most ``SHRINKING_MAX_FIT_RATIO`` of
+    its value at the first reported year by the last.
+    """
+    if len(per_year) < SHRINKING_MIN_YEARS:
+        return None
+    x = per_year.index.to_numpy(dtype=float)
+    y = per_year.to_numpy(dtype=float)
+    if np.ptp(x) == 0:
+        return None
+    # Imported here, not at the top: WasteMAP installs SWEET with --no-deps and has no
+    # scipy, and only Climate TRACE's site path reaches this.
+    from scipy import stats
+
+    fit = stats.linregress(x, y)
+    start = fit.intercept + fit.slope * x.min()
+    end = fit.intercept + fit.slope * x.max()
+    if fit.slope < 0 and fit.pvalue < SHRINKING_MAX_P and start > 0 and end <= SHRINKING_MAX_FIT_RATIO * start:
+        return float(fit.slope), float(fit.intercept)
+    return None
+
+
+def _site_intake_series(report_years, report_tonnes, years, growth_factor, fallback_tonnes):
+    """A site's yearly intake from its reported years: the projection, then the reports.
+
+    1. One value per reported year (the mean of that year's rows), so a year reported
+       twice counts once.
+    2. Each year's value is moved to a common year along the population curve
+       (``growth_factor``), and those are averaged. That is the average of the reports
+       anchored at the years they describe, not at the latest one: an average of
+       2014-2019 grown from 2019 understated a growing site's whole series by two or
+       three years of growth.
+    3. Every model year is that level grown by population, and each reported year is
+       then overwritten with its own value.
+
+    A clearly shrinking site (:func:`_shrinking_line`) follows its straight line instead
+    between its first and last reports, never below zero: projected by population, a
+    site taking less and less waste jumped back to its average after its last report.
+    After its last report it keeps that report's value in every year, rather than
+    following the line down to zero. Before its first report it follows population up
+    to the line's value there, since a falling line climbs without limit going back.
+
+    Reports from ``INTAKE_AVERAGE_FROM_YEAR`` on set the level when there are any.
+    Undated values are averaged as they are, anchored at 2020, as before; with no
+    value at all, ``fallback_tonnes``.
+
+    ``growth_factor(years)`` gives population growth factors relative to any fixed
+    year; the result doesn't depend on which.
+    """
+    # decision: intake-follows-population
+    years = np.asarray(years)
+    reports = pd.DataFrame({
+        "year": pd.to_numeric(pd.Series(report_years), errors="coerce").to_numpy(dtype=float),
+        "tonnes": pd.to_numeric(pd.Series(report_tonnes), errors="coerce").to_numpy(dtype=float),
+    }).dropna(subset=["tonnes"])
+    dated = reports.dropna(subset=["year"])
+    per_year = dated.groupby(dated["year"].astype(int))["tonnes"].mean()
+
+    if per_year.empty:
+        level = reports["tonnes"].mean() if len(reports) else np.nan
+        if np.isnan(level):
+            level = fallback_tonnes
+        series = level * growth_factor(years) / growth_factor(np.array([2020]))[0]
+    else:
+        basis = per_year[per_year.index >= INTAKE_AVERAGE_FROM_YEAR]
+        if basis.empty:
+            basis = per_year
+        level = float(np.mean(basis.to_numpy() / growth_factor(basis.index.to_numpy())))
+        series = level * growth_factor(years)
+        # decision: shrinking-site-follows-its-line
+        line = _shrinking_line(basis)
+        if line is not None:
+            slope, intercept = line
+            first, last = int(basis.index.min()), int(basis.index.max())
+            at_first = max(intercept + slope * first, 0.0)
+            series = np.where(
+                years < first,
+                at_first * growth_factor(years) / growth_factor(np.array([first]))[0],
+                np.where(years <= last, np.maximum(intercept + slope * years, 0.0), float(basis[last])),
+            )
+
+    series = np.array(series, dtype=float)
+    for year, tonnes in per_year.items():
+        if years[0] <= year <= years[-1]:
+            series[year - years[0]] = tonnes
+    return series
 
 
 def _city_growth(iso3, anchor_year, population, city_historic, city_future):
@@ -2704,12 +2915,7 @@ class City:
         if open_date < MODEL_START_YEAR:
             open_date = MODEL_START_YEAR
         close_date = row['Site Close Year'].fillna(MODEL_END_YEAR + 1).values[0]
-        fration_of_waste_vector = pd.Series(
-                0.0, index=self.years_range
-            )
-        # Sites accept waste in open years but not the closure year.
-        # decision: intake-ends-before-close-year
-        fration_of_waste_vector.loc[open_date:close_date-1] = 1.0
+        fration_of_waste_vector = _intake_years(self.years_range, open_date, close_date)
         new_landfill = Landfill(
             open_date=open_date,
             close_date=close_date,
@@ -2926,11 +3132,7 @@ class City:
                 close_date = NEVER_CLOSES
             else:
                 close_date = int(close_date)
-        fraction_of_waste_vector = pd.Series(
-                0.0, index=self.years_range
-            )
-        # decision: intake-ends-before-close-year
-        fraction_of_waste_vector.loc[open_date:close_date-1] = 1.0
+        fraction_of_waste_vector = _intake_years(self.years_range, open_date, close_date)
         id = int(canonical_row['asset_identifier'])
         oxidation_series = _build_oxidation_series(
             oxidation_value, canonical_row, time_series_rows, self.years_range
@@ -3166,13 +3368,14 @@ class City:
         # decision: flaring-uniform
         flaring_series = pd.Series(DEFAULT_FLARE_EFFICIENCY, index=self.years_range)
         baseline._singapore_k(advanced_baseline=True)
+        if isinstance(citysite_rows, pd.DataFrame):
+            # A site with one reported link-year arrives as one row, which takes the
+            # site's whole intake. Rows added for years sent elsewhere don't change that.
+            reported = citysite_rows[~_sent_elsewhere(citysite_rows)]
+            if len(reported) == 1:
+                citysite_rows = reported.iloc[0]
         if (citysite_rows is None) or (isinstance(citysite_rows, pd.Series)):
-            fraction_of_waste_vector = pd.Series(
-                    0.0, index=self.years_range
-                )
-            # Sites accept waste in open years but not the closure year.
-            # decision: intake-ends-before-close-year
-            fraction_of_waste_vector.loc[open_date:close_date-1] = 1.0
+            fraction_of_waste_vector = _intake_years(self.years_range, open_date, close_date)
             new_landfill = Landfill(
                 open_date=open_date,
                 close_date=close_date,
@@ -3203,77 +3406,10 @@ class City:
             # Calculate a fraction_of_waste_vector for each city's waste contribution to the site
             # Simulates different city sources to the same landfill by making virtual extra landfills
             cities_to_model = citysite_rows['city_id'].unique()
-            populations = citysite_rows.groupby('city_id')['city_population'].mean()
-            population_weights = populations / populations.sum()
-            # total_weights = {}
-            # for city_id in cities_to_model:
-            #     specific_city_df = citysite_rows[citysite_rows['city_id'] == city_id]
-            #     population_weight = population_weights[city_id]
-            #     long_term_avg_pct = specific_city_df['ctf_percent_of_waste_sent'].mean()
-            #     total_weight = long_term_avg_pct * population_weight
-            #     total_weights[city_id] = total_weight
-            # total_weights = pd.Series(total_weights) / 100
-            # total_weights /= total_weights.sum()
-            # # Go through and add real data on top of the average time series
-
-            # fraction_of_waste_vectors = {}
-            # for city_id in cities_to_model:
-            #     fraction_of_waste_vectors[city_id] = pd.Series(total_weights[city_id], index=self.years_range)
-            # fraction_of_waste_df = pd.DataFrame(fraction_of_waste_vectors)
-
-            # for city_id in cities_to_model:
-            #     specific_city_df = citysite_rows[citysite_rows['city_id'] == city_id]
-            #     population_weight = population_weights[city_id]
-            #     pct_sent_annual = specific_city_df.groupby('ctf_year')['ctf_percent_of_waste_sent'].mean() / 100
-            #     pct_sent_mean = pct_sent_annual.mean()
-            #     diffs = (pct_sent_annual - pct_sent_mean)
-            #     fraction_of_waste_df.loc[pct_sent_annual.index, city_id] += diffs.values * population_weight
-            #     fraction_of_waste_df.loc[pct_sent_annual.index, ~city_id] -= diffs.values * population_weight
-
-            # decision: multi-city-site-split
-            # 1) Population weights per city (pick how you choose the city population)
-            # If you have city_population_year, use the latest per city:
-            pop = (citysite_rows.sort_values('city_population_year')
-                                .groupby('city_id')['city_population'].last())
-            # Otherwise, your .mean() is OK:
-            # pop = citysite_rows.groupby('city_id')['city_population'].mean()
-
-            pop = pop.dropna()
-            pop_w = pop / pop.sum()                         # weights sum to 1
-
-            # 2) Average % sent per city (as fraction 0..1)
-            avg_pct = (citysite_rows.groupby('city_id')['ctf_percent_of_waste_sent']
-                    .mean().div(100.0))
-            avg_pct = avg_pct.reindex(pop_w.index).fillna(0.0)
-
-            # 3) Observed % by (year, city) pivot (as fraction 0..1)
-            obs = (citysite_rows.groupby(['ctf_year','city_id'])['ctf_percent_of_waste_sent']
-                .mean().div(100.0)).unstack('city_id')
-
-            # Align to your target years and city set
-            obs = obs.reindex(index=self.years_range, columns=pop_w.index)
-
-            # 4) Fill missing observations with that city's average
-            P = obs.fillna(avg_pct)                          # per-year, per-city percent-to-this-landfill
-
-            # 5) Convert to shares of *landfill inflow* using population proxy and renormalize each year
-            W = P.mul(pop_w, axis=1)                         # weight_i,t = pop_w_i * pct_i,t
-            # row_sums = W.sum(axis=1)
-            # # Identify years with no information (sum == 0 or all NaN)
-            # zero_or_nan_rows = row_sums.isna() | (np.isclose(row_sums, 0.0))
-            # if zero_or_nan_rows.any():
-            #     # Fill those years with population weights so rows still sum to 1
-            #     # Ensure pop_w aligns to columns
-            #     pop_w_aligned = pop_w.reindex(W.columns).fillna(0.0)
-            #     # Assign the same weights across the problematic rows
-            #     W.loc[zero_or_nan_rows, :] = pop_w_aligned
-            fraction_of_waste_df = W.div(W.sum(axis=1), axis=0).fillna(0.0)
-            # Sites accept waste in open years but not the closure year. These
-            # per-city fractions are the only deposition gate for the virtual
+            fraction_of_waste_df = _city_shares_of_site(citysite_rows, self.years_range)
+            # These per-city fractions are the only deposition gate for the virtual
             # landfills below, so zero them outside the operating window.
-            operating_years = pd.Series(False, index=self.years_range)
-            # decision: intake-ends-before-close-year
-            operating_years.loc[open_date:close_date-1] = True
+            operating_years = _intake_years(self.years_range, open_date, close_date) > 0
             fraction_of_waste_df.loc[~operating_years] = 0.0
             baseline.fraction_of_waste_df = fraction_of_waste_df
 
@@ -3559,7 +3695,7 @@ class City:
                 if np.isnan(year_of_data_msw):
                     close_date = canonical_row['site_close_year']
                     if not np.isnan(close_date) and close_date < general_reference_year:
-                        year_of_data_msw = close_date - 1
+                        year_of_data_msw = close_date
                     else:
                         year_of_data_msw = general_reference_year
                 year_of_data_pop = year_of_data_msw
@@ -3597,18 +3733,6 @@ class City:
                 waste_mass_defaults = False
                 year_of_data_msw = time_series_rows['incoming_waste_year'].max()
 
-                # Get rows with incoming_waste_year >= 2010
-                recent_rows = time_series_rows[time_series_rows['incoming_waste_year'] >= 2010]
-
-                if len(recent_rows) > 0:
-                    # Calculate average annual incoming waste for recent years
-                    avg_annual_waste = recent_rows['annual_incoming_waste'].mean()
-                else:
-                    # Fallback if no recent data
-                    avg_annual_waste = time_series_rows['annual_incoming_waste'].mean()
-                if np.isnan(avg_annual_waste):
-                    avg_annual_waste = canonical_row['annual_incoming_waste']
-
                 # Get growth rates
                 growth_rate_historic = pop_data.at[self.iso3, 'growth_rate_historic']
                 growth_rate_future = pop_data.at[self.iso3, 'growth_rate_future']
@@ -3616,37 +3740,24 @@ class City:
                 # Create time series from 1990 to 2050
                 years = np.arange(MODEL_START_YEAR, MODEL_END_YEAR + 1)
 
-                # Anchor the projection at the data year (the latest observed waste
-                # year), the SAME pivot the single-row path uses -- so the two paths
-                # agree instead of differing by a 2020-vs-data-year offset. Fall back
-                # to 2020 only when the data year is unknown.
-                if pd.isna(year_of_data_msw):
-                    baseline_year = 2020
-                else:
-                    baseline_year = int(year_of_data_msw)
+                # Growth factors relative to the latest observed waste year (2020 when
+                # unknown). With a WPP series this is P(year)/P(pivot) -- the UN's
+                # decelerating trajectory; without one it is the frozen CAGR
+                # (growth_rate_future forward, growth_rate_historic backward).
+                pivot = 2020 if pd.isna(year_of_data_msw) else int(year_of_data_msw)
 
-                # Project the average waste around the baseline year by population
-                # growth. With a WPP series this is P(year)/P(baseline_year) -- the
-                # UN's decelerating trajectory; without one it is the frozen CAGR
-                # (growth_rate_future forward, growth_rate_historic backward), which
-                # growth_factors_for_years reproduces exactly around a single pivot.
-                growth_factors = growth_factors_for_years(
+                def growth_factor(at_years):
+                    return growth_factors_for_years(
+                        at_years, pivot, growth_rate_historic, growth_rate_future, population_series,
+                    )
+
+                waste_series = _site_intake_series(
+                    time_series_rows['incoming_waste_year'],
+                    time_series_rows['annual_incoming_waste'],
                     years,
-                    baseline_year,
-                    growth_rate_historic,
-                    growth_rate_future,
-                    population_series,
+                    growth_factor,
+                    canonical_row['annual_incoming_waste'],
                 )
-                waste_series = avg_annual_waste * growth_factors
-
-                # Overwrite with actual data where available
-                for _, data_row in time_series_rows.iterrows():
-                    if not pd.isna(data_row['incoming_waste_year']):
-                        year_idx = int(data_row['incoming_waste_year']) - MODEL_START_YEAR
-                        if 0 <= year_idx < len(waste_series):
-                            val = data_row['annual_incoming_waste']
-                            if not np.isnan(val):
-                                waste_series[year_idx] = val
 
                 # Store the time series. This series already carries population
                 # growth, so the later WasteGeneratedDF.create must not re-apply it
@@ -8363,7 +8474,7 @@ class City:
                 date_pairs = baseline_open_close_dates
             open_year, close_year = date_pairs[0]
             windowed = waste_masses_df.copy()
-            windowed.loc[int(close_year) :] = 0
+            windowed.loc[int(close_year) + 1 :] = 0  # decision: intake-through-close-year
             windowed.loc[: int(open_year) - 1] = 0
             return windowed
 

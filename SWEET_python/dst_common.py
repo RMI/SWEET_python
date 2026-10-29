@@ -149,21 +149,22 @@ def variant_series(
 def apply_window(mass_df: pd.DataFrame, open_year: int, close_year: int) -> pd.DataFrame:
     """Zero out waste deposited before the site opens or once it has closed.
 
-    **The closure year is not an intake year**: a site closing in 2050 last
-    accepts waste in 2049. This is the definition of that boundary for the
+    **The open and close years are both intake years**: a site closing in 2040
+    last accepts waste in 2040. This is the definition of that boundary for the
     advanced DST paths, and it matches the one ``city_params`` draws when it
     builds a landfill's vector
-    (``fraction_of_waste_vector.loc[open_date:close_date - 1] = 1.0``) and the
-    one Climate TRACE draws in
-    ``time_series_ops.zero_incoming_waste_from_close_year``. Pass
-    ``NEVER_CLOSES`` for a site that is still open when the model ends.
+    (``fraction_of_waste_vector.loc[open_date:close_date] = 1.0``) and the one
+    Climate TRACE draws in ``time_series_ops.zero_incoming_waste_from_close_year``
+    (from ``INTAKE_THROUGH_CLOSE_YEAR``). Pass ``NEVER_CLOSES`` for a site that is
+    still open when the model ends.
 
     Only intake stops at closure. Emissions continue, decaying out of the waste
     already in place.
     """
     windowed = mass_df.copy()
     windowed.loc[: int(open_year) - 1, :] = 0.0
-    windowed.loc[int(close_year):, :] = 0.0
+    # decision: intake-through-close-year
+    windowed.loc[int(close_year) + 1:, :] = 0.0
     return windowed
 
 
@@ -364,9 +365,8 @@ def validate_years(open_close_pairs: List[Tuple[int, int]], implement_year: int)
                 "invalid_year",
                 f"Landfill open year must be between {MODEL_YEAR_MIN} and {MODEL_YEAR_MAX} (got {open_year}).",
             )
-        # NEVER_CLOSES (MODEL_YEAR_MAX + 1) is admissible: a closure year is not
-        # an intake year, so it is the only way to say a site is still open in
-        # the model's final year.
+        # NEVER_CLOSES (MODEL_YEAR_MAX + 1) is admissible: it is how a site with no
+        # close year says it is still open when the model ends.
         if not (MODEL_YEAR_MIN <= close_year <= NEVER_CLOSES):
             raise CustomError(
                 "invalid_year",
