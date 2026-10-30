@@ -208,10 +208,9 @@ def test_a_pathway_the_request_never_uses_is_omitted_rather_than_sent_as_zeros()
     assert unused == {"anaerobic", "combustion", "recycling"}
 
 
-def test_diverted_is_net_of_the_reject_rates():
-    """The requested share is what is *collected*; each component rejects part of
-    it. A caller multiplying the share by the total would overstate diversion --
-    which is the approximation this payload exists to make unnecessary."""
+def test_diverted_is_the_whole_requested_share():
+    """A pathway keeps everything it is sent: no reject rate returns part of it to
+    the landfills, so composting 20% of the stream composts exactly 20% of it."""
     flow = run_advanced_dst_city(_busy_request(), with_mass_flow=True)["mass_flow"]["scenario"]
 
     landfilled_plus_diverted = float(
@@ -220,12 +219,36 @@ def test_diverted_is_net_of_the_reject_rates():
     net_generated = float(
         flow["generated"].loc[AFTER].sum() - flow["prevented"].loc[AFTER].sum()
     )
-    collected = 0.2 * net_generated
     actually_composted = float(flow["diverted"]["compost"].loc[AFTER].sum())
 
-    assert 0 < actually_composted < collected, "rejects should shrink the collected share"
-    # Nothing vanished: the rejects went to landfill.
+    assert actually_composted == pytest.approx(0.2 * net_generated)
+    # Nothing vanished: the rest went to landfill.
     assert landfilled_plus_diverted == pytest.approx(net_generated)
+
+
+def test_recycling_and_digestion_keep_everything_they_are_sent():
+    """The no-reject rule holds for every pathway, recycling's per-material yields
+    included, not only for compost."""
+    request = _request(
+        [_landfill()],
+        (1.0,),
+        diversion={
+            "recycling": {y: 0.15 for y in YEARS},
+            "anaerobic": {y: 0.05 for y in YEARS},
+        },
+        food_prevention=0.5,
+    )
+    flow = run_advanced_dst_city(request, with_mass_flow=True)["mass_flow"]["scenario"]
+    net_generated = float(
+        flow["generated"].loc[AFTER].sum() - flow["prevented"].loc[AFTER].sum()
+    )
+
+    assert float(flow["diverted"]["recycling"].loc[AFTER].sum()) == pytest.approx(
+        0.15 * net_generated
+    )
+    assert float(flow["diverted"]["anaerobic"].loc[AFTER].sum()) == pytest.approx(
+        0.05 * net_generated
+    )
 
 
 def test_compost_only_draws_on_the_components_it_can_take():

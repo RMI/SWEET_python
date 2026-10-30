@@ -44,12 +44,12 @@ def _fractions(mix=MIX, years=(YEAR,)):
 
 
 def _masses(diversion, mix=MIX, years=(YEAR,)):
-    """Gross diverted tonnes per pathway, years x components."""
+    """Diverted tonnes per pathway, years x components."""
     fractions = _fractions(mix, years)
     total = pd.Series(TOTAL_TONS, index=fractions.index)
     div = {p: {y: v for y in years} for p, v in diversion.items()}
-    _net, gross = _diverted_masses(fractions, total, div, City("Routing"), fractions.index)
-    return fractions, total, gross
+    diverted = _diverted_masses(fractions, total, div, City("Routing"), fractions.index)
+    return fractions, total, diverted
 
 
 def _assert_fits(diversion, mix=MIX):
