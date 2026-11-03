@@ -170,11 +170,12 @@ def test_a_shut_site_s_share_goes_to_other_landfills():
     )
 
     shares = _site_shares(result, "baseline")
-    assert shares.loc[: closes - 1, 0].to_numpy() == pytest.approx(0.25)
-    assert shares.loc[closes:, 0].to_numpy() == pytest.approx(0.0)
+    # The close year is an intake year (intake-through-close-year).
+    assert shares.loc[:closes, 0].to_numpy() == pytest.approx(0.25)
+    assert shares.loc[closes + 1 :, 0].to_numpy() == pytest.approx(0.0)
     assert shares[1].to_numpy() == pytest.approx(0.375)
-    assert shares.loc[: closes - 1, 2].to_numpy() == pytest.approx(0.375)
-    assert shares.loc[closes:, 2].to_numpy() == pytest.approx(0.625)
+    assert shares.loc[:closes, 2].to_numpy() == pytest.approx(0.375)
+    assert shares.loc[closes + 1 :, 2].to_numpy() == pytest.approx(0.625)
 
 
 def test_a_site_not_yet_open_leaves_its_share_to_other_landfills():
@@ -200,8 +201,8 @@ def test_a_scenario_closure_sends_the_share_to_other_landfills_in_the_scenario()
     baseline = _site_shares(result, "baseline")
     scenario = _site_shares(result, "scenario")
     assert baseline[2].to_numpy() == pytest.approx(0.375)
-    assert scenario.loc[: closes - 1, 2].to_numpy() == pytest.approx(0.375)
-    assert scenario.loc[closes:, 2].to_numpy() == pytest.approx(0.625)
+    assert scenario.loc[:closes, 2].to_numpy() == pytest.approx(0.375)
+    assert scenario.loc[closes + 1 :, 2].to_numpy() == pytest.approx(0.625)
     assert scenario[1].to_numpy() == pytest.approx(0.375)
 
 
