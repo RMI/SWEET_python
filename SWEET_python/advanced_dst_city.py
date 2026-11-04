@@ -44,7 +44,7 @@ per-landfill split, and emissions aggregation mirror the tested ``City`` machine
 """
 
 import copy
-from typing import Dict, List, Optional
+from typing import Dict, List, NamedTuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -742,6 +742,20 @@ def _accepting_mask(
     return accepting
 
 
+def _opening_mask(
+    windows: List[tuple[int, int]], columns: pd.Index, years: pd.Index
+) -> pd.DataFrame:
+    """years x landfill booleans: is this year before the landfill opens?
+
+    With ``_accepting_mask``, it tells the two ways a landfill can be shut
+    apart: not yet open, or already closed.
+    """
+    pending = pd.DataFrame(False, index=years, columns=columns)
+    for column, (open_year, _close_year) in zip(columns, windows):
+        pending.loc[years < int(open_year), column] = True
+    return pending
+
+
 def _renormalize_over_open(
     split: pd.DataFrame, accepting: pd.DataFrame
 ) -> pd.DataFrame:
@@ -793,6 +807,130 @@ def _validate_share_range(checked: pd.DataFrame, label: str) -> None:
         )
 
 
+#: Why other landfills hold part of a year's waste: a listed landfill's share in
+#: a year before it opens, its share in a year after it closes, and whatever the
+#: listed shares leave of the whole.
+OTHER_LANDFILLS_REASONS = ("before_opening", "after_closing", "unassigned")
+
+
+class _OtherLandfillsSplit(NamedTuple):
+    """One variant's shares once other landfills have taken what is left."""
+
+    #: years x listed landfill: the share each keeps.
+    listed: pd.DataFrame
+    #: Other landfills' share, per year.
+    leftover: pd.Series
+    #: years x `OTHER_LANDFILLS_REASONS`: ``leftover``, split by why.
+    reasons: pd.DataFrame
+
+
+def _split_with_other_landfills(
+    request: AdvancedDSTCityRequest,
+) -> tuple[int, Dict[str, _OtherLandfillsSplit]]:
+    """The year other landfills open, and each variant's shares with them.
+
+    The rule is ``_with_other_landfills``'s, which builds its request from
+    these. Kept apart so that a run asked why other landfills hold their waste
+    reads it off the very shares the model ran, rather than off a second copy
+    of the rule.
+    """
+    # Other landfills open with the model, so that every modelled year's
+    # leftover has a destination: at MODEL_START_YEAR, or with a listed
+    # landfill that states an earlier opening. `validate_years` checks the
+    # listed dates and returns that earliest open year.
+    pairs = [(MODEL_START_YEAR, common.NEVER_CLOSES)]
+    for spec in request.landfills:
+        baseline_dates = spec.landfill_open_close["baseline"]
+        scenario_dates = spec.landfill_open_close["scenario"] or baseline_dates
+        pairs += [tuple(baseline_dates), tuple(scenario_dates)]
+    open_year = common.validate_years(pairs, int(request.implement_year))
+    years = pd.Index(range(open_year, common.MODEL_YEAR_MAX + 1), name="year")
+
+    n_listed = len(request.landfills)
+    variants = ("baseline", "scenario")
+    splits: Dict[str, pd.DataFrame] = {}
+    accepting: Dict[str, pd.DataFrame] = {}
+    pending: Dict[str, pd.DataFrame] = {}
+    for variant in variants:
+        if n_listed:
+            # An empty scenario split means the baseline's, as in
+            # `run_advanced_dst_city`; `variant_get` falls back only on None.
+            timeline = (
+                request.landfill_split_timeline[variant]
+                or request.landfill_split_timeline["baseline"]
+            )
+            splits[variant] = _split_timeline_to_df(timeline, years, n_listed)
+            windows = _accepting_windows(request, variant)
+            accepting[variant] = _accepting_mask(windows, splits[variant].columns, years)
+            pending[variant] = _opening_mask(windows, splits[variant].columns, years)
+        else:
+            splits[variant] = pd.DataFrame(index=years)
+            accepting[variant] = pd.DataFrame(index=years)
+            pending[variant] = pd.DataFrame(index=years)
+    # The scenario tracks the baseline before changes take effect. Spliced
+    # before the check, as `run_advanced_dst_city` does, so a pre-implement
+    # scenario row the model discards can't get the request refused.
+    implement_year = int(request.implement_year)
+    for frames in (splits, accepting, pending):
+        frames["scenario"].loc[: implement_year - 1, :] = frames["baseline"].loc[
+            : implement_year - 1, :
+        ]
+
+    shares: Dict[str, _OtherLandfillsSplit] = {}
+    for variant in variants:
+        _validate_share_range(splits[variant], variant)
+        # The range check tolerates a share a rounding error outside [0, 1]. Used
+        # as given, -0.01 would bury negative waste at that site and hand other
+        # landfills 101% of the rest.
+        listed = splits[variant].where(accepting[variant], 0.0).clip(lower=0.0, upper=1.0)
+        claimed = listed.sum(axis=1)
+        over = claimed > 1.0
+        listed.loc[over] = listed.loc[over].div(claimed[over], axis=0)
+        leftover = (1.0 - listed.sum(axis=1)).clip(lower=0.0)
+        shares[variant] = _OtherLandfillsSplit(
+            listed=listed,
+            leftover=leftover,
+            reasons=_leftover_reasons(
+                splits[variant], accepting[variant], pending[variant], leftover
+            ),
+        )
+    return open_year, shares
+
+
+def _leftover_reasons(
+    split: pd.DataFrame,
+    accepting: pd.DataFrame,
+    pending: pd.DataFrame,
+    leftover: pd.Series,
+) -> pd.DataFrame:
+    """Other landfills' share of each year, split by why they hold it.
+
+    * ``before_opening``: the shares of listed landfills not open yet;
+    * ``after_closing``: the shares of listed landfills already closed;
+    * ``unassigned``: what all the listed shares leave of 1.
+
+    Where the listed shares add to 1 or less, the three add up to ``leftover``
+    as they stand. Where they add to more, the open landfills' shares are scaled
+    down first, so nothing is unassigned and the shut landfills' shares claim
+    more than is left: they are scaled to it, in proportion. Scaling every row
+    to ``leftover`` covers both, and keeps the reasons summing to the share the
+    model ran to the last float.
+    """
+    stated = split.clip(lower=0.0, upper=1.0)
+    shut = stated.where(~accepting, 0.0)
+    reasons = pd.DataFrame(
+        {
+            "before_opening": shut.where(pending, 0.0).sum(axis=1),
+            "after_closing": shut.where(~pending, 0.0).sum(axis=1),
+            "unassigned": (1.0 - stated.sum(axis=1)).clip(lower=0.0),
+        },
+        index=split.index,
+    )
+    total = reasons.sum(axis=1)
+    scale = (leftover / total.where(total > 0)).fillna(0.0)
+    return reasons.mul(scale, axis=0)
+
+
 def _with_other_landfills(request: AdvancedDSTCityRequest) -> AdvancedDSTCityRequest:
     """The request with its other landfills listed as one more landfill.
 
@@ -820,63 +958,15 @@ def _with_other_landfills(request: AdvancedDSTCityRequest) -> AdvancedDSTCityReq
     if other is None:
         return request
 
-    # Other landfills open with the model, so that every modelled year's
-    # leftover has a destination: at MODEL_START_YEAR, or with a listed
-    # landfill that states an earlier opening. `validate_years` checks the
-    # listed dates and returns that earliest open year.
-    pairs = [(MODEL_START_YEAR, common.NEVER_CLOSES)]
-    for spec in request.landfills:
-        baseline_dates = spec.landfill_open_close["baseline"]
-        scenario_dates = spec.landfill_open_close["scenario"] or baseline_dates
-        pairs += [tuple(baseline_dates), tuple(scenario_dates)]
-    open_year = common.validate_years(pairs, int(request.implement_year))
-    years = pd.Index(range(open_year, common.MODEL_YEAR_MAX + 1), name="year")
-
-    n_listed = len(request.landfills)
-    variants = ("baseline", "scenario")
-    splits: Dict[str, pd.DataFrame] = {}
-    accepting: Dict[str, pd.DataFrame] = {}
-    for variant in variants:
-        if n_listed:
-            # An empty scenario split means the baseline's, as in
-            # `run_advanced_dst_city`; `variant_get` falls back only on None.
-            timeline = (
-                request.landfill_split_timeline[variant]
-                or request.landfill_split_timeline["baseline"]
-            )
-            splits[variant] = _split_timeline_to_df(timeline, years, n_listed)
-            accepting[variant] = _accepting_mask(
-                _accepting_windows(request, variant), splits[variant].columns, years
-            )
-        else:
-            splits[variant] = pd.DataFrame(index=years)
-            accepting[variant] = pd.DataFrame(index=years)
-    # The scenario tracks the baseline before changes take effect. Spliced
-    # before the check, as `run_advanced_dst_city` does, so a pre-implement
-    # scenario row the model discards can't get the request refused.
-    implement_year = int(request.implement_year)
-    splits["scenario"].loc[: implement_year - 1, :] = splits["baseline"].loc[
-        : implement_year - 1, :
-    ]
-    accepting["scenario"].loc[: implement_year - 1, :] = accepting["baseline"].loc[
-        : implement_year - 1, :
-    ]
-
-    rows: Dict[str, Dict[int, List[float]]] = {}
-    for variant in variants:
-        _validate_share_range(splits[variant], variant)
-        # The range check tolerates a share a rounding error outside [0, 1]. Used
-        # as given, -0.01 would bury negative waste at that site and hand other
-        # landfills 101% of the rest.
-        listed = splits[variant].where(accepting[variant], 0.0).clip(lower=0.0, upper=1.0)
-        claimed = listed.sum(axis=1)
-        over = claimed > 1.0
-        listed.loc[over] = listed.loc[over].div(claimed[over], axis=0)
-        leftover = (1.0 - listed.sum(axis=1)).clip(lower=0.0)
-        rows[variant] = {
-            int(year): [float(x) for x in listed.loc[year]] + [float(leftover.loc[year])]
-            for year in years
+    open_year, shares = _split_with_other_landfills(request)
+    rows: Dict[str, Dict[int, List[float]]] = {
+        variant: {
+            int(year): [float(x) for x in split.listed.loc[year]]
+            + [float(split.leftover.loc[year])]
+            for year in split.leftover.index
         }
+        for variant, split in shares.items()
+    }
 
     always_open = (open_year, common.NEVER_CLOSES)
     listed_other = CityLandfillSpec.model_validate(
@@ -1588,6 +1678,46 @@ def _committed_emissions(parameters: CityParameters, before_year: int) -> pd.Dat
     return pd.DataFrame({"total": total})
 
 
+def _other_landfills_by_reason(
+    landfill, split: _OtherLandfillsSplit
+) -> Dict[str, pd.DataFrame]:
+    """Other landfills' share of each year's waste and their methane, by why.
+
+    ``share`` has the listed landfills' share (``named``) and other landfills'
+    by each of `OTHER_LANDFILLS_REASONS`; a year's row adds up to 1. These are
+    the shares the run used. ``emissions`` is other landfills' methane in tons
+    by the same reasons, adding up to their own (the last entry of the run's
+    ``site_emissions``, ``city``).
+
+    Each reason's methane is the landfill rerun on a copy holding only that
+    reason's part of every year's deposit, as ``_committed_emissions`` reruns
+    earlier waste. Exact, not an estimate: first-order decay is linear in what
+    is buried. A year's deposit is split by that year's shares alone, because
+    all of it is the same mix of the city's waste whichever reason sent it.
+    Capture, flaring and oxidation stay as the run has them.
+    """
+    site_inflow.require_linear(landfill)
+    mass = landfill.waste_mass_df
+    weights = split.reasons.div(split.leftover.where(split.leftover > 0), axis=0)
+    weights = weights.fillna(0.0).reindex(mass.index, fill_value=0.0)
+    index = landfill.emissions.index
+    emissions: Dict[str, pd.Series] = {}
+    for reason in OTHER_LANDFILLS_REASONS:
+        if not weights[reason].to_numpy().any():
+            emissions[reason] = pd.Series(0.0, index=index)
+            continue
+        part = copy.deepcopy(landfill)
+        part.waste_mass_df = mass.mul(weights[reason], axis=0)
+        part.estimate_emissions(skip_ox=True)
+        emissions[reason] = _m3_to_tons_ch4(part.emissions["total"]).reindex(
+            index, fill_value=0.0
+        )
+    share = pd.concat(
+        [split.listed.sum(axis=1).rename("named"), split.reasons], axis=1
+    )
+    return {"share": share, "emissions": pd.DataFrame(emissions, index=index)}
+
+
 # --------------------------------------------------------------------------- #
 # Public entry point
 # --------------------------------------------------------------------------- #
@@ -1598,6 +1728,7 @@ def run_advanced_dst_city(
     with_site_emissions: bool = False,
     with_methane_budget: bool = False,
     committed_before: Optional[int] = None,
+    with_other_landfills_reasons: bool = False,
 ) -> dict:
     """Run the city-level advanced DST.
 
@@ -1647,7 +1778,22 @@ def run_advanced_dst_city(
     after the listed ones: they are the last entry of ``site_emissions`` and of
     the mass flow's ``sites``. See ``_with_other_landfills`` for the shares they
     take.
+
+    With ``with_other_landfills_reasons=True`` the result carries an
+    ``"other_landfills"`` key: per variant, ``{"share", "emissions"}``, frames
+    by year of why other landfills hold their waste -- a listed landfill's
+    share before it opens (``before_opening``) or after it closes
+    (``after_closing``), or a share no listed landfill claims
+    (``unassigned``). ``share`` also has the listed landfills' own (``named``)
+    and adds up to 1; ``emissions`` is in tons of methane and adds up to other
+    landfills' own. ``None`` for a request without other landfills. See
+    ``_other_landfills_by_reason``. Asking for it changes no emissions.
     """
+    shares = (
+        _split_with_other_landfills(request)[1]
+        if with_other_landfills_reasons and request.other_landfills is not None
+        else None
+    )
     request = _with_other_landfills(request)
     implement_year = int(request.implement_year)
 
@@ -2048,6 +2194,20 @@ def run_advanced_dst_city(
             "baseline": _committed_emissions(baseline_parameters, before),
             "scenario": _committed_emissions(scenario_parameters, before),
         }
+    if with_other_landfills_reasons:
+        # Other landfills are the last landfill, as `_with_other_landfills` lists them.
+        result["other_landfills"] = (
+            None
+            if shares is None
+            else {
+                "baseline": _other_landfills_by_reason(
+                    baseline_landfills[-1], shares["baseline"]
+                ),
+                "scenario": _other_landfills_by_reason(
+                    scenario_landfills[-1], shares["scenario"]
+                ),
+            }
+        )
     if with_mass_flow:
         result["mass_flow"] = {
             "baseline": _mass_flow(
