@@ -800,7 +800,17 @@ class City:
             "wood": 0.05,
             "paper_cardboard": 0.1,
         }
-        self.combustion_reject_rate = 0.1
+        # The share of the waste sent to incineration that is landfilled unburned,
+        # as the material it was. None: everything sent to an incinerator stops
+        # producing methane. It was 0.1, SWEET's Excel "Reject Rate for
+        # Combustibles", sourced there as best professional judgement, and that
+        # 10% of food and paper was most of the modelled methane of a city that
+        # incinerates heavily. What an incinerator leaves is ash, nearly all of it
+        # mineral: the EU's Industrial Emissions Directive (Art. 50) holds its
+        # organic carbon under 3%, EPA's WARM counts no methane from it, and Japan
+        # landfills under 1% of the waste it processes unburned.
+        # decision: combustion-reject
+        self.combustion_reject_rate = 0.0
         self.recycling_reject_rates = {
             "wood": 0.8,
             "paper_cardboard": 0.775,
