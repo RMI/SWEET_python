@@ -932,13 +932,18 @@ PUBLISHED_CONTROLLED_DUMPSITE_PERCENT = "Percent of Waste to Controlled Dumpsite
 CONTROLLED_DUMPSITE_LANDFILL = 3
 
 
+def _is_blank(value) -> bool:
+    """None, NaN, or a string with nothing in it: a cell left empty."""
+    if isinstance(value, str):
+        return not value.strip()
+    return value is None or pd.isna(value)
+
+
 def _controlled_dumpsite_percent(row) -> float:
     """A cities-table row's controlled-dumpsite share in percent: NaN, like any
     other blank share, when the row leaves it blank or has no such column."""
     value = row.get(CONTROLLED_DUMPSITE_PERCENT)
-    if value is None or pd.isna(value):
-        return np.nan
-    return float(value)
+    return np.nan if _is_blank(value) else float(value)
 
 
 def _published_controlled_dumpsite_share(city_data: pd.DataFrame) -> float:
@@ -947,7 +952,7 @@ def _published_controlled_dumpsite_share(city_data: pd.DataFrame) -> float:
     if PUBLISHED_CONTROLLED_DUMPSITE_PERCENT not in city_data.columns:
         return 0.0
     value = city_data[PUBLISHED_CONTROLLED_DUMPSITE_PERCENT].values[0]
-    return 0.0 if pd.isna(value) else float(value) / 100
+    return 0.0 if _is_blank(value) else float(value) / 100
 
 
 def _move_to_existing_gas_capture(

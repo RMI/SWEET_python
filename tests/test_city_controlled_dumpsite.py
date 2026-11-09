@@ -143,9 +143,13 @@ def test_a_row_without_the_share_sends_the_controlled_dumpsite_nothing(reported)
     assert (split.dumpsite, split.controlled_dumpsite) == (1.0, 0.0)
 
 
-def test_the_row_share_reads_blank_and_missing_as_nan():
+@pytest.mark.parametrize("blank", [None, np.nan, "", "  "], ids=["none", "nan", "empty", "spaces"])
+def test_the_row_share_reads_a_blank_as_nan(blank):
+    assert np.isnan(_controlled_dumpsite_percent(pd.Series({CONTROLLED_DUMPSITE_PERCENT: blank})))
+
+
+def test_the_row_share_reads_a_missing_column_as_nan_and_a_value_as_itself():
     assert np.isnan(_controlled_dumpsite_percent(pd.Series({"other": 1.0})))
-    assert np.isnan(_controlled_dumpsite_percent(pd.Series({CONTROLLED_DUMPSITE_PERCENT: None})))
     assert _controlled_dumpsite_percent(pd.Series({CONTROLLED_DUMPSITE_PERCENT: 40})) == 40.0
 
 
@@ -157,9 +161,10 @@ def test_the_row_share_reads_blank_and_missing_as_nan():
     [
         ({}, 0.0),
         ({PUBLISHED_CONTROLLED_DUMPSITE_PERCENT: [np.nan]}, 0.0),
+        ({PUBLISHED_CONTROLLED_DUMPSITE_PERCENT: [""]}, 0.0),
         ({PUBLISHED_CONTROLLED_DUMPSITE_PERCENT: [25.0]}, 0.25),
     ],
-    ids=["published-before-the-column", "blank", "reported"],
+    ids=["published-before-the-column", "blank", "empty-string", "reported"],
 )
 def test_the_published_share_is_a_fraction_and_zero_when_absent(columns, expected):
     city_data = pd.DataFrame({"City": ["Juazeiro do Norte"], **columns})
