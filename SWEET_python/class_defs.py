@@ -143,9 +143,16 @@ class DivMassesAnnual(BaseModel):
 
 
 class SplitFractions(BaseModel):
+    """A city's disposed waste by the kind of site it goes to, as shares of 1.
+
+    ``controlled_dumpsite`` defaults to 0 so a split that only names the other three
+    (the country defaults, a cities table without the column) is unchanged.
+    """
+
     landfill_w_capture: float
     landfill_wo_capture: float
     dumpsite: float
+    controlled_dumpsite: float = 0.0
     new_w_capture: float = 0.0
 
 

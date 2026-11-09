@@ -919,6 +919,42 @@ class CustomError(Exception):
         super().__init__(self.message)
 
 
+#: A cities-table row's controlled-dumpsite share, in percent. WasteMAP's query
+#: reads it from city_waste, where the SINIR loader puts "aterro controlado"; a row
+#: from an older query has no such column.
+CONTROLLED_DUMPSITE_PERCENT = "waste_treatment_controlled_dumpsite_percent"
+
+#: The same share in the published cities table the city DST opens a city from.
+PUBLISHED_CONTROLLED_DUMPSITE_PERCENT = "Percent of Waste to Controlled Dumpsites (%)"
+
+#: Where the generic city model's controlled dumpsite sits in its landfills: after
+#: the landfill with capture (0), the landfill without (1) and the dumpsite (2).
+CONTROLLED_DUMPSITE_LANDFILL = 3
+
+
+def _is_blank(value) -> bool:
+    """None, NaN, or a string with nothing in it: a cell left empty."""
+    if isinstance(value, str):
+        return not value.strip()
+    return value is None or pd.isna(value)
+
+
+def _controlled_dumpsite_percent(row) -> float:
+    """A cities-table row's controlled-dumpsite share in percent: NaN, like any
+    other blank share, when the row leaves it blank or has no such column."""
+    value = row.get(CONTROLLED_DUMPSITE_PERCENT)
+    return np.nan if _is_blank(value) else float(value)
+
+
+def _published_controlled_dumpsite_share(city_data: pd.DataFrame) -> float:
+    """A published city's controlled-dumpsite share as a fraction. A table published
+    before the column existed sent nothing there, so a missing or blank value is 0."""
+    if PUBLISHED_CONTROLLED_DUMPSITE_PERCENT not in city_data.columns:
+        return 0.0
+    value = city_data[PUBLISHED_CONTROLLED_DUMPSITE_PERCENT].values[0]
+    return 0.0 if _is_blank(value) else float(value) / 100
+
+
 def _move_to_existing_gas_capture(
     split_fractions: SplitFractions, existing_gas_pct: float
 ) -> SplitFractions:
@@ -926,8 +962,8 @@ def _move_to_existing_gas_capture(
     landfills it already has with gas capture: the City DST's "move waste to
     existing gas capture" lever.
 
-    The landfill and dumpsite shares without capture take the rest,
-    ``1 - existing_gas_pct``, in the proportions they had to each other. A city
+    The landfill, dumpsite and controlled dumpsite shares without capture take the
+    rest, ``1 - existing_gas_pct``, in the proportions they had to each other. A city
     sending 34% of its waste to capture and 66% to a landfill without it, moved to
     90%, sends the other 10% to that landfill.
 
@@ -942,7 +978,11 @@ def _move_to_existing_gas_capture(
             f"not {existing_gas_pct}",
         )
     with_capture = split_fractions.landfill_w_capture
-    without_capture = split_fractions.landfill_wo_capture + split_fractions.dumpsite
+    without_capture = (
+        split_fractions.landfill_wo_capture
+        + split_fractions.dumpsite
+        + split_fractions.controlled_dumpsite
+    )
     if with_capture <= 0:
         if existing_gas_pct > 0:
             raise CustomError(
@@ -963,6 +1003,7 @@ def _move_to_existing_gas_capture(
         landfill_w_capture=existing_gas_pct,
         landfill_wo_capture=split_fractions.landfill_wo_capture * scale,
         dumpsite=split_fractions.dumpsite * scale,
+        controlled_dumpsite=split_fractions.controlled_dumpsite * scale,
         new_w_capture=split_fractions.new_w_capture,
     )
 
@@ -1042,6 +1083,7 @@ class City:
             ].values[0]
             / 100,
             dumpsite=city_data["Percent of Waste to Dumpsites (%)"].values[0] / 100,
+            controlled_dumpsite=_published_controlled_dumpsite_share(city_data),
         )
 
         div_component_fractions = DivComponentFractions(
@@ -1308,6 +1350,7 @@ class City:
             landfill_w_capture=city_data["Percent of Waste to Landfills with Gas Capture (%)"].values[0] / 100,
             landfill_wo_capture=city_data["Percent of Waste to Landfills without Gas Capture (%)"].values[0] / 100,
             dumpsite=city_data["Percent of Waste to Dumpsites (%)"].values[0] / 100,
+            controlled_dumpsite=_published_controlled_dumpsite_share(city_data),
         )
 
         div_component_fractions = DivComponentFractions(
@@ -1824,11 +1867,13 @@ class City:
 
             # Determine if we need to use defaults for landfills and diversion fractions
             # decision: other-treatment-shares-landfilled
+            controlled_dumpsite_percent = _controlled_dumpsite_percent(row)
             landfill_inputs = [
                 float(row["waste_treatment_sanitary_landfill_landfill_gas_system_percent"]),
                 float(row["waste_treatment_controlled_landfill_percent"]),
                 float(row["waste_treatment_landfill_unspecified_percent"]),
                 float(row["waste_treatment_open_dump_percent"]),
+                controlled_dumpsite_percent,
             ]
             all_nan_fill = all(np.isnan(value) for value in landfill_inputs)
             total_fill = sum(0 if np.isnan(x) else x for x in landfill_inputs) / 100
@@ -1918,6 +1963,7 @@ class City:
                     / 100,
                     "dumpsite": np.nan_to_num(row["waste_treatment_open_dump_percent"])
                     / 100,
+                    "controlled_dumpsite": np.nan_to_num(controlled_dumpsite_percent) / 100,
                 }
             elif all_nan_div and total_fill < 0.99:
                 if iso3 in defaults_2019.FRACTION_COMPOSTED_COUNTRY:
@@ -1950,6 +1996,7 @@ class City:
                     / 100,
                     "dumpsite": np.nan_to_num(row["waste_treatment_open_dump_percent"])
                     / 100,
+                    "controlled_dumpsite": np.nan_to_num(controlled_dumpsite_percent) / 100,
                 }
 
             # Third case to check: all landfills are nan, but diversions are not. Use defaults for landfills
@@ -2008,6 +2055,7 @@ class City:
                     / 100,
                     "dumpsite": np.nan_to_num(row["waste_treatment_open_dump_percent"])
                     / 100,
+                    "controlled_dumpsite": np.nan_to_num(controlled_dumpsite_percent) / 100,
                 }
 
             # Normalize landfills to 1
@@ -2176,6 +2224,8 @@ class City:
                 landfill_w_capture=split_fractions_old["landfill_w_capture"],
                 landfill_wo_capture=split_fractions_old["landfill_wo_capture"],
                 dumpsite=split_fractions_old["dumpsite"],
+                # The default splits above name only the other three.
+                controlled_dumpsite=split_fractions_old.get("controlled_dumpsite", 0.0),
             )
 
             waste_masses_df = waste_fractions.multiply(waste_mass, axis=0)
@@ -4625,13 +4675,30 @@ class City:
                 gas_capture=False,
                 fraction_of_waste_vector=pd.Series(city_parameters.split_fractions.dumpsite, index=years),
             )
+            # Last, so the first three keep the places the DST levers index them by.
+            # Like the dumpsite it has no depth, so it takes the uncategorised MCF,
+            # an open dump's too (see SWEET_python.mcf); its cover oxidises more
+            # than an open dump's (SWEET_python.oxidation).
+            controlled_dumpsite = Landfill(
+                open_date=MODEL_START_YEAR,
+                close_date=MODEL_END_YEAR,
+                site_type="controlled_dumpsite",
+                mcf=pd.Series(mcf_defaults.MCF_UNCATEGORISED, index=years),
+                city_params_dict=city_params_dict,
+                city_instance_attrs=city_parameters.city_instance_attrs,
+                landfill_index=CONTROLLED_DUMPSITE_LANDFILL,
+                fraction_of_waste=city_parameters.split_fractions.controlled_dumpsite,
+                gas_capture=False,
+                # Stated, as for the landfill without capture: left blank, Landfill
+                # would take a controlled dump's default with capture (45%).
+                gas_capture_efficiency=0.0,
+                fraction_of_waste_vector=pd.Series(
+                    city_parameters.split_fractions.controlled_dumpsite, index=years
+                ),
+            )
 
-            landfills = [landfill_w_capture, landfill_wo_capture, dumpsite]
-            non_zero_landfills = [
-                x
-                for x in [landfill_w_capture, landfill_wo_capture, dumpsite]
-                if x.fraction_of_waste > 0
-            ]
+            landfills = [landfill_w_capture, landfill_wo_capture, dumpsite, controlled_dumpsite]
+            non_zero_landfills = [x for x in landfills if x.fraction_of_waste > 0]
 
             city_parameters.landfills = landfills
             city_parameters.non_zero_landfills = non_zero_landfills
@@ -7072,6 +7139,10 @@ class City:
         scenario_parameters.landfills[2].fraction_of_waste = (
             scenario_parameters.split_fractions.dumpsite
         )
+        # This lever sets the whole split: what is not landfill goes to the dumpsite,
+        # so a controlled dumpsite share would make it sum to more than 1.
+        scenario_parameters.split_fractions.controlled_dumpsite = 0.0
+        scenario_parameters.landfills[CONTROLLED_DUMPSITE_LANDFILL].fraction_of_waste = 0.0
         for lf in scenario_parameters.landfills:
             lf.scenario = 1
         scenario_parameters.non_zero_landfills = [
@@ -7375,9 +7446,26 @@ class City:
                     mcf_defaults.MCF_UNCATEGORISED,
                     index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1),
                 )
+                # The controlled dumpsite gets gas capture and stays a controlled
+                # dumpsite: a controlled dump's capture with a system (45%) and its
+                # oxidation with one, from the year after implementation. Its MCF
+                # is unchanged.
+                controlled_dumpsite = scenario_parameters.landfills[CONTROLLED_DUMPSITE_LANDFILL]
+                controlled_dumpsite.gas_capture_efficiency = pd.Series(
+                    gas_capture.GAS_CAPTURE_EFFICIENCY["controlled_dumpsite"],
+                    index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1),
+                )
+                controlled_dumpsite.gas_capture_efficiency.loc[:implement_year] = 0.0
+                controlled_dumpsite.oxidation_factor = pd.Series(
+                    oxidation.OX_WITH_CAPTURE["controlled_dumpsite"],
+                    index=range(MODEL_START_YEAR, MODEL_END_YEAR + 1),
+                )
+                controlled_dumpsite.oxidation_factor.loc[:implement_year] = (
+                    oxidation.OX_NO_CAPTURE["controlled_dumpsite"]
+                )
                 # Keep these oxidation factors: Landfill.estimate_emissions would
-                # reset them from gas_capture, which is still False for the two
-                # converted sites, to 0.1 and 0.
+                # reset them from gas_capture, which is still False for the three
+                # converted sites, to 0.1, 0 and 0.05.
                 skip_ox = True
 
             if move_gas:
@@ -7394,11 +7482,14 @@ class City:
                     split.landfill_wo_capture
                 )
                 scenario_parameters.landfills[2].fraction_of_waste = split.dumpsite
+                scenario_parameters.landfills[
+                    CONTROLLED_DUMPSITE_LANDFILL
+                ].fraction_of_waste = split.controlled_dumpsite
 
             if new_gas_pct > 0:
-                scenario_parameters.landfills.append(
-                    copy.deepcopy(scenario_parameters.landfills[0])
-                )
+                # Appended after the controlled dumpsite, so it is not landfills[3].
+                new_w_capture = copy.deepcopy(scenario_parameters.landfills[0])
+                scenario_parameters.landfills.append(new_w_capture)
                 scenario_parameters.split_fractions.new_w_capture = new_gas_pct
                 scenario_parameters.split_fractions.landfill_w_capture *= (
                     1 - new_gas_pct
@@ -7407,6 +7498,7 @@ class City:
                     1 - new_gas_pct
                 )
                 scenario_parameters.split_fractions.dumpsite *= 1 - new_gas_pct
+                scenario_parameters.split_fractions.controlled_dumpsite *= 1 - new_gas_pct
                 total = sum(scenario_parameters.split_fractions.model_dump().values())
                 if abs(total - 1.0) > 1e-3:
                     raise CustomError(
@@ -7422,7 +7514,10 @@ class City:
                 scenario_parameters.landfills[2].fraction_of_waste = (
                     scenario_parameters.split_fractions.dumpsite
                 )
-                scenario_parameters.landfills[3].fraction_of_waste = (
+                scenario_parameters.landfills[
+                    CONTROLLED_DUMPSITE_LANDFILL
+                ].fraction_of_waste = scenario_parameters.split_fractions.controlled_dumpsite
+                new_w_capture.fraction_of_waste = (
                     scenario_parameters.split_fractions.new_w_capture
                 )
 
@@ -7719,7 +7814,9 @@ class City:
                     landfill.fraction_of_waste,
                     self.components,
                 ).df
-                if i == 3:
+                # A landfill the baseline does not have (the new one with gas
+                # capture) opens at implementation, so takes no waste before it.
+                if i >= len(self.baseline_parameters.landfills):
                     landfill.waste_mass_df.loc[: (implement_year - 1), :] *= 0.0
                 else:
                     landfill.waste_mass_df.loc[: (implement_year - 1), :] = (

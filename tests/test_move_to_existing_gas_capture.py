@@ -144,8 +144,9 @@ def test_landfills_receive_the_moved_split(city_with_capture, existing_gas_pct):
     assert (split.landfill_w_capture, split.landfill_wo_capture, split.dumpsite) == pytest.approx(
         expected, abs=1e-12
     )
+    # The last landfill is the controlled dumpsite, which this city sends nothing to.
     fractions = [landfill.fraction_of_waste for landfill in scenario.landfills]
-    assert fractions == pytest.approx(list(expected), abs=1e-12)
+    assert fractions == pytest.approx(list(expected) + [0.0], abs=1e-12)
     assert sum(fractions) == pytest.approx(1.0, abs=1e-12)
 
 
@@ -190,7 +191,9 @@ def test_moving_and_adding_a_new_landfill_with_gas_capture(city_with_capture):
     inflated split failed the sum check with a TypeError (an API 500)."""
     scenario = _implement(city_with_capture, 1, 0.9, new_gas_pct=0.2)
 
-    expected = [share * 0.8 for share in _moved_split(0.9)] + [0.2]
+    # Then the controlled dumpsite, which this city sends nothing to, and the new
+    # landfill last.
+    expected = [share * 0.8 for share in _moved_split(0.9)] + [0.0, 0.2]
     fractions = [landfill.fraction_of_waste for landfill in scenario.landfills]
     assert fractions == pytest.approx(expected, abs=1e-12)
 
@@ -249,4 +252,4 @@ def test_lahore_moved_to_ninety_percent():
         (0.9, 0.1, 0.0), abs=1e-12
     )
     fractions = [landfill.fraction_of_waste for landfill in scenario.landfills]
-    assert fractions == pytest.approx([0.9, 0.1, 0.0], abs=1e-12)
+    assert fractions == pytest.approx([0.9, 0.1, 0.0, 0.0], abs=1e-12)

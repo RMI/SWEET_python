@@ -155,10 +155,11 @@ def test_a_city_that_landfills_everything_falls_64_percent():
 
 def test_without_add_gas_each_site_keeps_its_default_oxidation(city_without_capture):
     """The no-change scenario is untouched: every site takes the default for its
-    type and gas capture, and the landfills emit what the baseline does."""
+    type and gas capture, and the landfills emit what the baseline does. The last
+    is the controlled dumpsite, which this city sends nothing to."""
     scenario = _implement(city_without_capture, 0)
 
-    assert [lf.oxidation_factor for lf in scenario.landfills] == [0.22, 0.1, 0]
+    assert [lf.oxidation_factor for lf in scenario.landfills] == [0.22, 0.1, 0, 0.05]
     for scenario_lf, baseline_lf in zip(
         scenario.landfills, city_without_capture.baseline_parameters.landfills
     ):
@@ -190,4 +191,4 @@ def test_each_branch_passes_its_own_skip_ox(
     monkeypatch.setattr(Landfill, "estimate_emissions", recording)
     _implement(city_without_capture, add_gas, sites_method=sites_method)
 
-    assert passed == [skip_ox] * 3
+    assert passed == [skip_ox] * len(city_without_capture.baseline_parameters.landfills)
