@@ -140,7 +140,7 @@ the unknown close year (see `flaring-uniform`, `gas-capture-efficiency`, `missin
 - **What counts as capturing** (`oxidation`): `ct-site` uses Climate TRACE's capture-system flag, the
   site tool and advanced DST use an efficiency above 0, and the city paths use the capture bucket.
 - **MCF** (`mcf-by-type-and-depth`): a city's controlled-landfill share is modelled as a landfill
-  (1.0); a site typed controlled dump gets 0.6.
+  (1.0); a city's controlled-dumpsite share, like a site typed controlled dump, gets 0.6.
 - **No population series** (`population-growth`): the city model uses the city's rates, a Custom
   Location world urban rates, `ct-site` Climate TRACE's rates, and the site tool asks the user.
 - **Two engines** (`monthly-from-decay-model`): `ct-site` runs the monthly engine; every other path
@@ -454,12 +454,12 @@ A city or place with no treatment data takes its country's, else its region's, c
 
 ### `city-treatment-buckets`
 
-A city's reported treatment shares map onto three buckets: sanitary landfill with gas collection is "with capture"; controlled landfill and unspecified landfill are "without capture"; advanced thermal treatment counts as incineration.
+A city's reported treatment shares map onto four buckets: sanitary landfill with gas collection is "with capture"; controlled landfill and unspecified landfill are "without capture"; open dump is "dumpsite"; controlled dumpsite is "controlled dumpsite". Advanced thermal treatment counts as incineration.
 
 - **Kind:** method choice
-- **Why:** A controlled landfill is engineered, so it takes a sanitary landfill's MCF; an unspecified landfill is assumed to be one too, not typed by the country's rule.
+- **Why:** A controlled landfill is engineered, so it takes a sanitary landfill's MCF; an unspecified landfill is assumed to be one too, not typed by the country's rule. A controlled dumpsite (SINIR's "aterro controlado") takes a controlled dump's values.
 - **Paths:**
-  - `city-model`: in `load_andre_params`; diversion shares above 100% are scaled down. The city DST reads the split the cities table publishes.
+  - `city-model`: in `load_andre_params`; diversion shares above 100% are scaled down. A row or published table without the controlled-dumpsite column sends it nothing. The city DST reads the split the cities table publishes.
 - **Confidence:** low
 - **Better:** Model an unspecified landfill by the country's site-type rule. In a country SWEET's rule calls dumps, the "without capture" bucket gives about 50% more methane than a dump.
 - **Code:** `SWEET_python/city_params.py`
@@ -545,7 +545,7 @@ MCF is 1.0 at a sanitary landfill and 0.6 at either kind of dump. A dump with a 
 - **Why:** These are the IPCC 2006 defaults. Depth is unknown at nearly every dump, so dumps take IPCC's value for an uncategorised site.
 - **Paths:**
   - `ct-site`, `site-tool`, `adst-site`, `adst-city`: by type and the depth given. Climate TRACE sends 10 m, 2 m or none.
-  - `city-model`, `city-dst-scenario`, `custom-location`: the same values, never with a depth: `MCF_MANAGED_ANAEROBIC` for the two landfill buckets, `MCF_UNCATEGORISED` for the dumpsite bucket.
+  - `city-model`, `city-dst-scenario`, `custom-location`: the same values, never with a depth: `MCF_MANAGED_ANAEROBIC` for the two landfill buckets, `MCF_UNCATEGORISED` for the dumpsite and controlled dumpsite buckets.
 - **Confidence:** medium
 - **Better:** Record depth at dumps, and send the city buckets through `mcf_for_site` so a change to the table reaches them.
 - **Value:** `SWEET_python.mcf`: `MCF_BY_TYPE`, `DEEP_SITE_DEPTH_M`
@@ -623,7 +623,7 @@ A site captures its reported efficiency, else a default: the remediated value fo
   - `adst-site`, `adst-city`: the caller's value, by year where it gives years; none given means 0.
   - `city-model`: 0.6 on the share sent to landfills with capture; the cities table's efficiency is read but never used.
   - `custom-location`: 0.6 on a capture share, but the default split has none, so a Custom Location captures nothing.
-  - `city-dst-scenario`: "add gas capture" sets 0.6 on both landfill shares, and `remediated` (30%) on the dumpsite, which it makes a controlled dumpsite, from the year after implementation.
+  - `city-dst-scenario`: "add gas capture" sets 0.6 on both landfill shares, `remediated` (30%) on the dumpsite, which it makes a controlled dumpsite, and `type-default` (45%) on the controlled dumpsite, which stays one, from the year after implementation.
 - **Confidence:** medium
 - **Better:** Let the city model read each city's reported efficiency.
 - **Value:** `SWEET_python.gas_capture`: `GAS_CAPTURE_EFFICIENCY`, `CONVERTED_DUMP_CAPTURE_EFFICIENCY`, `UPGRADED_CONTROLLED_DUMP_CAPTURE_EFFICIENCY`
