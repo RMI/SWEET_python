@@ -23,6 +23,7 @@ import socket
 from fastapi import HTTPException
 from SWEET_python.landfill import Landfill
 from SWEET_python.singapore_k import compute_singapore_k
+from SWEET_python import after_diversion
 import SWEET_python.defaults_2019 as defaults_2019
 import SWEET_python.mcf as mcf_defaults
 import SWEET_python.site_type_defaults as site_type_defaults
@@ -1577,7 +1578,13 @@ class City:
 
         self.baseline_parameters = city_parameters
 
-    def load_andre_params(self, row, backfill=False, income_id: Optional[str] = None):
+    def load_andre_params(
+        self,
+        row,
+        backfill=False,
+        income_id: Optional[str] = None,
+        composition_after_diversion: bool = False,
+    ):
         """
         Loads model parameters from the internal RMI WasteMAP database. Defaults are used
         where data is missing, incomplete, or incompatible.
@@ -1589,6 +1596,12 @@ class City:
                 split's last fallback (the shared site-type rule).
                 SWEET holds no income table; without one, only region and named
                 countries decide.
+            composition_after_diversion: The row's composition was surveyed on the
+                waste left after diversion (what reached the landfill or dump), not on
+                what the city generates. The diverted waste is added back
+                (`after_diversion.composition_before_diversion`); the tonnage is not
+                touched. Raises ValueError if the row has no usable composition. Not
+                read when ``backfill`` is set.
 
         Returns:
             None
@@ -2149,6 +2162,26 @@ class City:
                 sum(x for x in div_fractions_dict.values()) <= 1
             ), "Diversion fractions sum to more than 1"
             div_fractions = pd.DataFrame(div_fractions_dict, index=years)
+
+            # decision: composition-after-diversion
+            # The survey weighed the waste left after diversion, so add back what each
+            # pathway took; diverting from the result leaves the surveyed composition.
+            if composition_after_diversion:
+                if self.waste_fractions_defaults:
+                    raise ValueError(
+                        f"{self.city_name}: composition_after_diversion was given, but "
+                        "the city has no usable composition of its own, so it takes "
+                        "the default, which is already what a city generates."
+                    )
+                generated = after_diversion.composition_before_diversion(
+                    waste_fractions.iloc[0].to_dict(),
+                    div_fractions_dict,
+                    self.div_components,
+                )
+                waste_fractions = pd.DataFrame(generated, index=years)
+                mef_compost = defaults_2019.compost_emission_factor(
+                    generated["food"], generated["green"]
+                )
 
             # # Use IPCC defaults if no data
             # if s == 0:
