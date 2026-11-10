@@ -2165,7 +2165,10 @@ class City:
 
             # decision: composition-after-diversion
             # The survey weighed the waste left after diversion, so add back what each
-            # pathway took; diverting from the result leaves the surveyed composition.
+            # pathway took; diverting from the result leaves the surveyed composition
+            # (before the rejects SWEET landfills too). mef_compost stays as worked out
+            # above: it depends only on food against green, which the add-back keeps,
+            # since every pathway that takes one takes the other.
             if composition_after_diversion:
                 if self.waste_fractions_defaults:
                     raise ValueError(
@@ -2179,9 +2182,6 @@ class City:
                     self.div_components,
                 )
                 waste_fractions = pd.DataFrame(generated, index=years)
-                mef_compost = defaults_2019.compost_emission_factor(
-                    generated["food"], generated["green"]
-                )
 
             # # Use IPCC defaults if no data
             # if s == 0:

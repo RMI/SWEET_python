@@ -1,17 +1,22 @@
 """A composition surveyed after diversion gets the diverted waste added back.
 
-Six of WasteMAP's cities report diverting more of a material than their surveyed
-composition holds: Seattle recycles 58.0% of its waste, and 46.1% of its composition is
-material SWEET can recycle. Their surveys weighed what reached the landfill, after
-diversion, so SWEET took the diverted materials out a second time and stopped with a
-CustomError. WasteMAP left the six off its map.
+Seattle's composition comes from a survey of its residential garbage at the transfer
+stations, which says it "measured waste disposal, not generation". Read as generated
+waste, its recycled materials come out twice: Seattle recycles 58.0% of its waste, 46.1%
+of its surveyed composition is material SWEET can recycle, and SWEET stops with a
+CustomError.
 
 `load_andre_params(..., composition_after_diversion=True)` adds the diverted waste back
-first (`after_diversion.composition_before_diversion`). Diverting from the result has to
-leave exactly the surveyed composition, and the tonnage must not move.
+first (`after_diversion.composition_before_diversion`). SWEET's diversion from the result
+has to leave exactly the surveyed composition, the tonnage must not move, and SWEET
+still landfills its rejects on top, as it does for every city.
 
-The fixture is the six cities' rows from WasteMAP's cities table (dev database,
-2026-11-10), as `load_andre_params` receives them.
+The fixture is six cities' rows from WasteMAP's cities table (dev database,
+2026-11-10), as `load_andre_params` receives them. All six report diverting more than
+their mix holds, which makes them good inputs for the switch. Whether a city's survey
+was really taken after diversion is WasteMAP's call: it reads only Seattle's and
+Bristol's that way, because adding the diversion back makes the other four's mixes less
+like their countries' (WasteMAP's check_composition_after_diversion.py).
 """
 
 import contextlib
@@ -106,7 +111,8 @@ def test_with_the_diversion_added_back_the_city_models(name):
 
 @pytest.mark.parametrize("name", sorted(CITIES))
 def test_diverting_from_the_composition_leaves_the_survey(name):
-    """Checked on the objects SWEET built: its composition and its pathways' shares of it."""
+    """Checked on the objects SWEET built: its composition and its pathways' shares of it.
+    This is what each pathway takes before its rejects, which the next test covers."""
     city = _load(name, composition_after_diversion=True)
     baseline = city.baseline_parameters
     year = baseline.waste_fractions.index[0]
@@ -122,6 +128,50 @@ def test_diverting_from_the_composition_leaves_the_survey(name):
     assert generated.sum() == pytest.approx(1.0)
 
 
+@pytest.mark.parametrize("name", sorted(CITIES))
+def test_sweet_also_landfills_the_rejects(name):
+    """The landfills get the survey's waste plus each pathway's rejects (`diversion-rejects`):
+    the recycling and compost residue a survey of garbage trucks does not see."""
+    city = _load(name, composition_after_diversion=True)
+    baseline = city.baseline_parameters
+    year = baseline.waste_fractions.index[0]
+    generated = float(baseline.waste_generated_df.loc[year].sum())
+    taken = float(baseline.div_fractions.loc[year].sum())
+    surveyed = pd.Series(_surveyed(_row(name)))
+    landfilled = pd.DataFrame(baseline.net_masses).loc[year]
+    survey_part = (1 - taken) * generated * surveyed.reindex(landfilled.index)
+    rejects = landfilled - survey_part
+    assert (rejects > -1e-6 * generated).all()
+    assert rejects.sum() > 0
+    if name == "Seattle":
+        assert landfilled.sum() / generated == pytest.approx(0.515, abs=5e-4)
+
+
+def test_a_flagged_survey_with_no_food_or_green_loads():
+    """The compost emission factor needs food or green; with neither it is 0, as unflagged."""
+    row = _row("Seattle").copy()
+    for column in ("composition_food_organic_waste_percent", "composition_other_percent",
+                   "composition_metal_percent"):
+        row[column] = np.nan
+    row["composition_paper_cardboard_percent"] = 50.0
+    row["composition_plastic_percent"] = 30.0
+    row["composition_glass_percent"] = 20.0
+    row["waste_treatment_recycling_percent"] = 20.0
+    row["waste_treatment_controlled_landfill_percent"] = 80.0
+    city = _load("Seattle", row=row, composition_after_diversion=True)
+    assert city.baseline_parameters.mef_compost == 0
+
+
+def test_diversion_scaled_to_a_hair_under_100_percent_is_refused():
+    """10 + 30 + 70 scales to 0.9999999999999999, not 1: nothing is left to survey."""
+    row = _row("Seattle").copy()
+    row["waste_treatment_compost_percent"] = 10.0
+    row["waste_treatment_incineration_percent"] = 30.0
+    row["waste_treatment_recycling_percent"] = 70.0
+    with pytest.raises(ValueError, match="none was left to survey"):
+        _load("Seattle", row=row, composition_after_diversion=True)
+
+
 @pytest.mark.parametrize("name", ["Seattle", "Canberra"])
 def test_the_tonnage_is_not_touched(name):
     """Both surveyed their tonnage in their population year, so the loader keeps it as is."""
@@ -134,7 +184,7 @@ def test_the_tonnage_is_not_touched(name):
 
 def test_seattle_gets_back_the_recyclables_it_recycled():
     generated = _load("Seattle", composition_after_diversion=True).baseline_parameters.waste_fractions.iloc[0]
-    # 58.04% recycled, from the recyclable 46.2% of the 41.96% landfilled: paper goes
+    # 58.04% recycled, from the recyclable 46.1% of the 41.96% landfilled: paper goes
     # from 20.3% of the landfilled waste to 34.1% of the generated waste.
     assert generated["paper_cardboard"] == pytest.approx(0.341, abs=5e-4)
     assert generated["food"] == pytest.approx(0.2257, abs=5e-4)

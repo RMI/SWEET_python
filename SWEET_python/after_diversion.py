@@ -13,6 +13,11 @@ diversion, which takes each pathway's share of the waste from the types that pat
 take, in proportion to how much of each the city generates (`diversion-eligibility`).
 Its answer is the composition that, once SWEET diverts from it, leaves the surveyed
 composition behind. The city's tonnage is not touched.
+
+That is the waste sent straight to disposal. SWEET then landfills each pathway's rejects
+as well (`diversion-rejects`), as it does for every city: the recycling and compost
+residue a survey of garbage trucks or bins does not see. So what SWEET landfills is the
+survey plus those rejects; for Seattle, 51% of its waste against the survey's 42%.
 """
 
 from __future__ import annotations
@@ -21,12 +26,17 @@ from collections.abc import Collection, Mapping
 
 from SWEET_python.constants import DIVERSION_ELIGIBILITY
 
-#: The answer is final when no share moves by more than this between two passes.
+#: The answer is final when no share moves by more than this between two passes. A pass
+#: moves each share by exactly its round-trip error, so this also bounds that error.
 TOLERANCE = 1e-12
-#: Each pass narrows the gap by at least the largest pathway's share of the types it
-#: takes, so a city that diverts most of a material converges slowest. Navi Mumbai,
-#: composting 82%, needs about 200 passes.
+#: A single pathway, or several whose types don't overlap, is exact after one pass:
+#: within one pathway's types the add-back keeps their proportions. Overlapping ones
+#: iterate. Bristol (recycling with incineration) takes 20 passes; the slowest of 4,000
+#: adversarial mixes took 4,970.
 MAX_PASSES = 100_000
+#: Below this share of the waste left undiverted there is too little to survey, and
+#: floating-point noise, not the survey, would decide the answer.
+LEAST_LEFT = 1e-9
 
 
 # decision: composition-after-diversion
@@ -49,9 +59,11 @@ def composition_before_diversion(
         and summing to 1.
 
     Raises:
-        ValueError: if the pathways divert all of the waste, so none was left to survey;
-            or a pathway diverts some of it, but the surveyed waste has none of the types
-            that pathway takes, so nothing says which types it took.
+        ValueError: if the pathways divert all of the waste, or all but LEAST_LEFT of
+            it, so none was left to survey; or a pathway diverts some of it, but the
+            surveyed waste has none of the types that pathway takes, so nothing says
+            which types it took.
+        RuntimeError: if the answer has not settled after MAX_PASSES passes.
     """
     total = sum(surveyed.values())
     if not total > 0:
@@ -60,7 +72,8 @@ def composition_before_diversion(
 
     shares = {path: float(share) for path, share in diverted.items() if share > 0}
     taken = sum(shares.values())
-    if taken >= 1:
+    # Shares scaled down to 100% can add up to a hair under it (0.9999999999999999).
+    if 1 - taken < LEAST_LEFT:
         raise ValueError(
             f"The diversion shares add up to {taken:.1%} of the waste, so none was "
             "left to survey."
