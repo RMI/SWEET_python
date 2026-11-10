@@ -371,8 +371,11 @@ def _mass_flow(
     because the split timeline they come from is stated per landfill and not per
     material.
 
-    Every frame here is one the emissions were computed from, so a caller
-    rendering this is showing the model rather than a parallel estimate of it.
+    Every frame here but ``sites_received`` is one the emissions were computed
+    from, so a caller rendering this is showing the model rather than a parallel
+    estimate of it. ``sites_received`` is the model's own figure too, taken from
+    the same frame before a burning site's share is destroyed, but it is
+    reporting only: the emissions read ``sites``.
     That matters most for ``diverted``: compost and anaerobic digestion draw only
     on organics and recycling only on recyclables, so the split is per waste type and approximating it as one scalar on
     the total quietly composts metal and glass.
@@ -2077,9 +2080,11 @@ def run_advanced_dst_city(
         windows = ((b_open, b_close), (s_open, s_close), implement_year)
 
         # What the city sends here, whether the site buries it or burns it.
-        received_base, received_scen = _windowed_pair(mass_base, mass_scen, *windows)
-        baseline_received.append(received_base)
-        scenario_received.append(received_scen)
+        # Only the mass flow reports it, so it is built only when that is asked for.
+        if with_mass_flow:
+            received_base, received_scen = _windowed_pair(mass_base, mass_scen, *windows)
+            baseline_received.append(received_base)
+            scenario_received.append(received_scen)
 
         # A combusting facility burns its intake and deposits only the reject
         # (none, at the default rate).
