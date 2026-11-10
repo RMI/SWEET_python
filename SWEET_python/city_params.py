@@ -188,6 +188,33 @@ def _build_oxidation_series(default_value, canonical_row, time_series_rows, year
 GAS_EFF_OPTIONS = gas_capture.GAS_CAPTURE_EFFICIENCY_BY_SITE_TYPE_NAME
 OX_OPTIONS = oxidation.OX_OPTIONS_BY_SITE_TYPE_NAME
 
+# How far a waste type's diversion may exceed what is generated, as a share of the city's
+# waste, and still count as all of it. `mass_checker_math` accepts a diversion within
+# this of the type's fraction, and `_calculate_net_masses` sets a leftover within it to 0.
+# Before, the second step rejected any value below zero. Where a city incinerates all of
+# a type, floating-point arithmetic leaves a few nanotonnes below zero (Osaka's paper
+# -6e-11 t, Yokohama's food -9e-5 t, ~1e-10 of their waste), and `load_andre_params`
+# returned with no landfills, which stopped WasteMAP's cities build.
+MASS_CHECK_TOLERANCE = 1e-5
+
+
+def _zero_accepted_deficits(net, total):
+    """*net* with every deficit the mass check accepts set to 0.
+
+    *net* is the leftover of each waste type after diversion: a Series of types with
+    *total* the city's waste, or a DataFrame of years x types with *total* each year's
+    waste. A leftover between ``-MASS_CHECK_TOLERANCE * total`` and 0 is rounding, not
+    over-diversion, and becomes 0. A larger deficit stays negative, so the checks after
+    this still refuse it.
+    """
+    if isinstance(net, pd.DataFrame):
+        limit = MASS_CHECK_TOLERANCE * pd.Series(total, index=net.index).abs()
+        accepted = net.lt(0) & net.ge(-limit, axis=0)
+    else:
+        limit = MASS_CHECK_TOLERANCE * abs(float(total))
+        accepted = (net < 0) & (net >= -limit)
+    return net.mask(accepted, 0.0)
+
 
 def _resolve_gas_capture(flag, site_type, canonical_row, time_series_rows, years_range):
     """Gas-capture presence, oxidation default and per-year capture efficiency.
@@ -6273,7 +6300,7 @@ class City:
                 for div in div_fractions.model_dump().keys()
             )
             net[waste] = getattr(waste_fractions, waste) - s
-            if net[waste] < -1e-5:
+            if net[waste] < -MASS_CHECK_TOLERANCE:
                 negative_catcher = True
 
         # Under-delivery: a requested treatment whose proportional component
@@ -6285,7 +6312,7 @@ class City:
                 getattr(div_fractions, div)
                 - sum(components_multiplied_through[div].values())
             )
-            > 1e-5
+            > MASS_CHECK_TOLERANCE
             for div in div_fractions.model_dump().keys()
         )
 
@@ -6991,12 +7018,14 @@ class City:
                 waste_masses = pd.DataFrame(
                     parameters.waste_masses.model_dump(), index=self.years_range
                 )
-                new_masses_df = waste_masses.sub(combined_divs, fill_value=0)
             else:
-                new_masses_df = parameters.waste_masses.sub(combined_divs, fill_value=0)
+                waste_masses = parameters.waste_masses
+            new_masses_df = waste_masses.sub(combined_divs, fill_value=0)
 
-            # Assign the result to parameters.net_masses
-            parameters.net_masses = new_masses_df
+            # Assign the result to parameters.net_masses, rounding noise set to 0
+            parameters.net_masses = _zero_accepted_deficits(
+                new_masses_df, waste_masses.sum(axis=1)
+            )
 
             return
 
@@ -7035,14 +7064,18 @@ class City:
             }
 
         try:
-            parameters.net_masses = parameters.waste_generated_df - combined_diversions
+            net_masses = parameters.waste_generated_df - combined_diversions
+            total = parameters.waste_generated_df.sum(axis=1)
         except:
+            masses = parameters.waste_masses.model_dump()
             net = {
-                waste: parameters.waste_masses.model_dump()[waste]
-                - diverted.get(waste, 0)
+                waste: masses[waste] - diverted.get(waste, 0)
                 for waste in self.waste_types
             }
-            parameters.net_masses = pd.Series(net)
+            net_masses = pd.Series(net)
+            total = sum(masses[waste] for waste in self.waste_types)
+        # Rounding noise the mass check accepted is 0, not a deficit.
+        parameters.net_masses = _zero_accepted_deficits(net_masses, total)
 
         # return net
 
