@@ -23,6 +23,7 @@ all multiplicative fractions, and k does not depend on mass -- so scaling a
 site's deposits by the rate scales its emissions by the rate to floating point.
 """
 
+import pandas as pd
 import pytest
 
 from SWEET_python import advanced_dst_city
@@ -176,6 +177,68 @@ def test_converting_a_landfill_to_an_incinerator_starts_at_implement_year():
     assert scenario[2050] / baseline[2050] < 0.2
 
 
+# --------------------------------------------------------------------------- #
+# The mass flow says what an incinerator receives, not only what it deposits
+# --------------------------------------------------------------------------- #
+def _flow(request, variant="baseline"):
+    return run_advanced_dst_city(request, with_mass_flow=True)["mass_flow"][variant]
+
+
+def test_a_burning_site_receives_its_share_and_deposits_none_of_it():
+    """Before ``sites_received`` the mass flow said only what a site deposits,
+    so an incinerator taking half the city's waste read as taking none."""
+    flow = _flow(_request([_landfill(), _landfill(combusts=BURNS)], [0.5, 0.5]))
+    landfilled = flow["landfilled"].sum(axis=1)
+
+    for year in YEARS:
+        assert landfilled[year] > 0
+        assert flow["sites_received"][1][year] == pytest.approx(0.5 * landfilled[year])
+        assert flow["sites"][1][year] == 0.0
+        # The landfill beside it is untouched: it buries all it receives.
+        assert flow["sites"][0][year] == pytest.approx(flow["sites_received"][0][year])
+
+
+def test_what_the_sites_receive_adds_up_to_what_the_city_disposed_of():
+    """Burning does not open a gap between ``landfilled`` and the sites."""
+    flow = _flow(_request([_landfill(), _landfill(combusts=BURNS)], [0.3, 0.7]))
+    received = sum(flow["sites_received"])
+    landfilled = flow["landfilled"].sum(axis=1)
+
+    for year in YEARS:
+        assert received[year] == pytest.approx(landfilled[year])
+
+
+def test_a_site_that_starts_burning_receives_the_same_waste_throughout():
+    """A conversion at implement_year changes what the site deposits from then
+    on, and not what the city sends it."""
+    flow = run_advanced_dst_city(
+        _request([_landfill(combusts={"baseline": False, "scenario": True})], [1.0]),
+        with_mass_flow=True,
+    )["mass_flow"]
+    baseline, scenario = flow["baseline"], flow["scenario"]
+
+    pd.testing.assert_series_equal(
+        scenario["sites_received"][0], baseline["sites_received"][0]
+    )
+    for year in YEARS:
+        if year < IMPLEMENT_YEAR:
+            assert scenario["sites"][0][year] == pytest.approx(baseline["sites"][0][year])
+        else:
+            assert scenario["sites"][0][year] == 0.0
+            assert scenario["sites_received"][0][year] > 0
+
+
+def test_a_burning_site_receives_nothing_outside_its_working_life():
+    spec = _landfill(combusts=BURNS)
+    spec["landfill_open_close"] = {"baseline": [2010, 2030], "scenario": [2010, 2030]}
+    flow = _flow(_request([_landfill(), spec], [0.5, 0.5]))
+    received = flow["sites_received"][1]
+
+    assert received.loc[:2009].eq(0.0).all()
+    assert received.loc[2031:].eq(0.0).all()
+    assert (received.loc[2010:2030] > 0).all()
+
+
 def test_the_combustion_pathway_diverts_all_it_takes():
     """Upstream combustion, the city DST's way, keeps nothing back either."""
     combustion = {"combustion": {y: 0.4 for y in YEARS}}
@@ -204,6 +267,15 @@ def test_a_reject_is_deposited_as_its_share_of_intake(with_a_reject):
     for year in YEARS:
         assert burning[year] == pytest.approx(
             depositing[year] * with_a_reject, rel=1e-9, abs=1e-12
+        )
+
+
+def test_a_reject_is_what_the_site_deposits_of_what_it_receives(with_a_reject):
+    flow = _flow(_request([_landfill(combusts=BURNS)], [1.0]))
+
+    for year in YEARS:
+        assert flow["sites"][0][year] == pytest.approx(
+            with_a_reject * flow["sites_received"][0][year]
         )
 
 

@@ -362,29 +362,41 @@ def _mass_flow(
     divs: DivsDF,
     net: pd.DataFrame,
     site_masses: List[pd.DataFrame],
+    site_received: List[pd.DataFrame],
 ) -> dict:
     """Where one variant's tonnage went, per year.
 
-    Per waste type throughout, with one exception: ``sites`` is a per-landfill
-    total, summed across the components, because the split timeline it comes
-    from is stated per landfill and not per material.
+    Per waste type throughout, with two exceptions: ``sites`` and
+    ``sites_received`` are per-landfill totals, summed across the components,
+    because the split timeline they come from is stated per landfill and not per
+    material.
 
-    Every frame here is one the emissions were computed from, so a caller
-    rendering this is showing the model rather than a parallel estimate of it.
+    Every frame here but ``sites_received`` is one the emissions were computed
+    from, so a caller rendering this is showing the model rather than a parallel
+    estimate of it. ``sites_received`` is the model's own figure too, taken from
+    the same frame before a burning site's share is destroyed, but it is
+    reporting only: the emissions read ``sites``.
     That matters most for ``diverted``: compost and anaerobic digestion draw only
     on organics and recycling only on recyclables, so the split is per waste type and approximating it as one scalar on
     the total quietly composts metal and glass.
 
-    ``sites`` is per landfill in request order, already windowed by each one's
-    open/close years, with other landfills last when the request has them. It
-    sums to ``landfilled`` in every year that has at least one open landfill,
-    because the split is renormalized over whichever ones are accepting waste
-    (see ``_renormalize_over_open``) -- and other landfills are open in every
-    year. The one case where the two
-    differ is a year with *no* landfill open at all: that city's post-diversion
-    waste has nowhere to go, and the gap is reported rather than hidden —
-    ``landfilled`` is what the city disposed of, ``sites`` is what arrived
-    somewhere.
+    ``sites_received`` is what the city sends each site, and ``sites`` is what
+    each site deposits, the mass its methane comes from. They are the same
+    except at a site that burns its waste (``combusts``): it receives its share
+    and deposits only the reject, which is none at the default rate. So an
+    incinerator taking half the city's waste reads half of ``landfilled`` in
+    ``sites_received`` and nothing in ``sites``. A caller saying how much waste
+    goes to a site reads ``sites_received``.
+
+    Both are per landfill in request order, already windowed by each one's
+    open/close years, with other landfills last when the request has them.
+    ``sites_received`` sums to ``landfilled`` in every year that has at least
+    one open landfill, because the split is renormalized over whichever ones are
+    accepting waste (see ``_renormalize_over_open``) -- and other landfills are
+    open in every year. The one case where the two differ is a year with *no*
+    landfill open at all: that city's post-diversion waste has nowhere to go,
+    and the gap is reported rather than hidden — ``landfilled`` is what the city
+    disposed of, ``sites_received`` is what arrived somewhere.
     """
     def shaped(frame: pd.DataFrame) -> pd.DataFrame:
         """All ten components, in one order, zero-filled.
@@ -410,6 +422,7 @@ def _mass_flow(
         "diverted": diverted,
         "landfilled": shaped(net),
         "sites": [frame.sum(axis=1) for frame in site_masses],
+        "sites_received": [frame.sum(axis=1) for frame in site_received],
     }
 
 
@@ -708,6 +721,34 @@ def _deposited_share(combusts: bool, city: City) -> float:
     return float(city.combustion_reject_rate) if combusts else 1.0
 
 
+def _windowed_pair(
+    base: pd.DataFrame,
+    scen: pd.DataFrame,
+    base_window: tuple[int, int],
+    scen_window: tuple[int, int],
+    implement_year: int,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """One site's baseline and scenario frames, each limited to its working life.
+
+    Each variant is windowed on its own open/close years first, and only then
+    does the scenario take baseline's pre-implement rows. The other order
+    spliced baseline's mass in and let the *scenario* window zero it again: a
+    site stated as opening later in the scenario than in the baseline buried
+    nothing in the years between, though those years are before
+    `implement_year` and are supposed to match baseline exactly.
+
+    Every per-site stream goes through this one function -- what the city sends
+    the site, what it deposits there, and waste from outside the baseline -- so
+    the streams agree at every boundary: a closure year, an implement year, the
+    year a site starts burning. That is exactly where a reader would notice a
+    difference and could not explain it.
+    """
+    base = common.apply_window(base, *base_window)
+    scen = common.apply_window(scen, *scen_window)
+    scen.loc[: implement_year - 1, :] = base.loc[: implement_year - 1, :]
+    return base, scen
+
+
 def _accepting_windows(
     request: "AdvancedDSTCityRequest", variant: str
 ) -> List[tuple[int, int]]:
@@ -769,8 +810,8 @@ def _renormalize_over_open(
     A year in which no landfill is open renormalizes to all zeros rather than
     raising. That city has nowhere to put its waste, which is a real thing for a
     single-site city past its site's closure, and the mass flow reports it as
-    ``sites`` falling short of ``landfilled`` — the honest description of waste
-    with no destination, and now the only way that gap can arise.
+    ``sites_received`` falling short of ``landfilled`` — the honest description
+    of waste with no destination, and now the only way that gap can arise.
 
     A caller that already zeroes shut landfills and normalizes over the rest
     gets its own numbers back untouched.
@@ -1736,8 +1777,10 @@ def run_advanced_dst_city(
     With ``with_mass_flow=True`` the result carries an extra ``"mass_flow"`` key
     describing where the tonnage went, per variant: ``generated`` (per component,
     before prevention), ``prevented``, ``diverted`` (per pathway per component,
-    everything the pathway was sent), ``landfilled`` (the residual per component), and
-    ``sites`` (per landfill, in request order). A diversion pathway the request
+    everything the pathway was sent), ``landfilled`` (the residual per component),
+    ``sites_received`` (what the city sends each landfill, in request order) and
+    ``sites`` (what each one deposits: nothing, at a site that burns its waste).
+    See ``_mass_flow``. A diversion pathway the request
     never uses is omitted from ``diverted`` rather than sent as zeros — the
     payload is several times the emissions one, so this is worth the asymmetry;
     a missing pathway reads as zero. Those are the very frames the
@@ -1773,7 +1816,7 @@ def run_advanced_dst_city(
 
     A request with ``other_landfills`` has them modelled as one more landfill,
     after the listed ones: they are the last entry of ``site_emissions`` and of
-    the mass flow's ``sites``. See ``_with_other_landfills`` for the shares they
+    the mass flow's ``sites`` and ``sites_received``. See ``_with_other_landfills`` for the shares they
     take.
 
     With ``with_other_landfills_reasons=True`` the result carries an
@@ -1953,6 +1996,11 @@ def run_advanced_dst_city(
     scenario_landfills: List = []
     baseline_masses: List[pd.DataFrame] = []
     scenario_masses: List[pd.DataFrame] = []
+    # What the city sends each site. The same as what it deposits there, except
+    # at a site that burns: that one receives its share and deposits only the
+    # reject. Reported in the mass flow; the emissions read the deposits.
+    baseline_received: List[pd.DataFrame] = []
+    scenario_received: List[pd.DataFrame] = []
     baseline_ox: List[pd.Series] = []
     scenario_ox: List[pd.Series] = []
     # One entry per site, `None` where the site takes only the city's waste.
@@ -2029,38 +2077,36 @@ def run_advanced_dst_city(
                 residual_mix["scenario"],
             )
 
+        windows = ((b_open, b_close), (s_open, s_close), implement_year)
+
+        # What the city sends here, whether the site buries it or burns it.
+        # Only the mass flow reports it, so it is built only when that is asked for.
+        if with_mass_flow:
+            received_base, received_scen = _windowed_pair(mass_base, mass_scen, *windows)
+            baseline_received.append(received_base)
+            scenario_received.append(received_scen)
+
         # A combusting facility burns its intake and deposits only the reject
         # (none, at the default rate).
         # Scaled per variant here, ahead of both the window and the pre-implement
-        # splice below, so a site that starts combusting at implement_year keeps
+        # splice, so a site that starts combusting at implement_year keeps
         # depositing everything until then -- and one that stops burning starts to.
-        mass_base = mass_base * _deposited_share(base_combusts, city)
-        mass_scen = mass_scen * _deposited_share(scen_combusts, city)
-        # Each variant is windowed on its own open/close years first, and only
-        # then does the scenario take baseline's pre-implement rows. The other
-        # order spliced baseline's mass in and let the *scenario* window zero it
-        # again: a site stated as opening later in the scenario than in the
-        # baseline buried nothing in the years between, though those years are
-        # before `implement_year` and are supposed to match baseline exactly.
-        mass_base = common.apply_window(mass_base, b_open, b_close)
-        mass_scen = common.apply_window(mass_scen, s_open, s_close)
-        mass_scen.loc[: implement_year - 1, :] = mass_base.loc[: implement_year - 1, :]
+        mass_base, mass_scen = _windowed_pair(
+            mass_base * _deposited_share(base_combusts, city),
+            mass_scen * _deposited_share(scen_combusts, city),
+            *windows,
+        )
         baseline_masses.append(mass_base)
         scenario_masses.append(mass_scen)
 
         # The surplus is the same waste in the same hole, so it takes the same
-        # three transformations in the same order. Anything else and the two
-        # streams disagree at a boundary -- a closure year, an implement year,
-        # the year a site starts burning -- which is exactly where a reader
-        # would notice and could not explain it.
+        # three transformations in the same order.
         if surplus_base_masses is not None:
-            surplus_base_masses = surplus_base_masses * _deposited_share(base_combusts, city)
-            surplus_scen_masses = surplus_scen_masses * _deposited_share(scen_combusts, city)
-            surplus_base_masses = common.apply_window(surplus_base_masses, b_open, b_close)
-            surplus_scen_masses = common.apply_window(surplus_scen_masses, s_open, s_close)
-            surplus_scen_masses.loc[: implement_year - 1, :] = surplus_base_masses.loc[
-                : implement_year - 1, :
-            ]
+            surplus_base_masses, surplus_scen_masses = _windowed_pair(
+                surplus_base_masses * _deposited_share(base_combusts, city),
+                surplus_scen_masses * _deposited_share(scen_combusts, city),
+                *windows,
+            )
             # A stated total at or below the city's allocation in every year
             # leaves nothing to model, and running the kernel on an all-zero
             # frame would only produce an all-zero frame.
@@ -2210,11 +2256,11 @@ def run_advanced_dst_city(
         result["mass_flow"] = {
             "baseline": _mass_flow(
                 generated_baseline, wgen_baseline, divs_baseline,
-                net_masses["baseline"], baseline_masses,
+                net_masses["baseline"], baseline_masses, baseline_received,
             ),
             "scenario": _mass_flow(
                 generated_scenario, wgen_scenario, divs_scenario,
-                net_masses["scenario"], scenario_masses,
+                net_masses["scenario"], scenario_masses, scenario_received,
             ),
         }
     return result

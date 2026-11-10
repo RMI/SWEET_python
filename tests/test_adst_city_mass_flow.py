@@ -15,7 +15,9 @@ approximating it as one scalar on the total quietly composts metal and glass.
 
 The bands are ``generated`` (per component, before prevention), ``prevented``,
 ``diverted`` (per pathway per component, net of rejects), ``landfilled`` (the
-residual) and ``sites`` (per landfill, in request order, windowed by open/close).
+residual), ``sites_received`` (what the city sends each landfill, in request
+order, windowed by open/close) and ``sites`` (what each one deposits, the same
+but at a site that burns).
 They balance per component per year, with one deliberate exception that
 ``test_the_only_gap_left_is_a_year_with_nowhere_to_put_the_waste`` pins.
 """
@@ -117,7 +119,9 @@ def test_both_variants_are_reported():
     mass_flow = run_advanced_dst_city(_busy_request(), with_mass_flow=True)["mass_flow"]
     assert sorted(mass_flow) == ["baseline", "scenario"]
     for variant in mass_flow.values():
-        assert sorted(variant) == ["diverted", "generated", "landfilled", "prevented", "sites"]
+        assert sorted(variant) == [
+            "diverted", "generated", "landfilled", "prevented", "sites", "sites_received",
+        ]
 
 
 # --------------------------------------------------------------------------- #
@@ -149,6 +153,23 @@ def test_sites_is_one_series_per_landfill_in_request_order():
     assert second > 0
     # 0.75 / 0.25 -- position in the list is the identity, so a reorder shows up here.
     assert first == pytest.approx(3.0 * second)
+
+
+def test_where_nothing_burns_a_site_receives_what_it_deposits():
+    """``sites_received`` and ``sites`` part only at a site that burns
+    (``test_adst_city_incineration.py``). Everywhere else they are one series,
+    closures and the implement-year splice included."""
+    landfills = [_landfill(), _landfill(open_close=(2005, 2030))]
+    flow = run_advanced_dst_city(
+        _busy_request(shares=(0.6, 0.4), landfills=landfills), with_mass_flow=True
+    )["mass_flow"]
+
+    for variant in ("baseline", "scenario"):
+        assert len(flow[variant]["sites_received"]) == len(landfills)
+        for received, deposited in zip(
+            flow[variant]["sites_received"], flow[variant]["sites"]
+        ):
+            pd.testing.assert_series_equal(received, deposited)
 
 
 # --------------------------------------------------------------------------- #
