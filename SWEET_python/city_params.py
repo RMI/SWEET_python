@@ -6312,7 +6312,7 @@ class City:
                 getattr(div_fractions, div)
                 - sum(components_multiplied_through[div].values())
             )
-            > 1e-5
+            > MASS_CHECK_TOLERANCE
             for div in div_fractions.model_dump().keys()
         )
 

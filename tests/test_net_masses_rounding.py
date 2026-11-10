@@ -20,7 +20,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from SWEET_python.city_params import MASS_CHECK_TOLERANCE, City, _zero_accepted_deficits
+from SWEET_python.city_params import (
+    CONTROLLED_DUMPSITE_LANDFILL,
+    MASS_CHECK_TOLERANCE,
+    City,
+    _zero_accepted_deficits,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "city_rows_osaka_yokohama.json"
 CITIES = json.loads(FIXTURE.read_text())
@@ -44,7 +49,9 @@ def test_a_city_that_incinerates_a_whole_waste_type_keeps_its_landfills(name):
     baseline = city.baseline_parameters
     assert "Invalid new value" not in printed
     assert not baseline.input_problems
-    assert baseline.landfills, "load_andre_params returned before building the landfills"
+    # Gas capture, no gas capture, dumpsite, controlled dumpsite (CONTROLLED_DUMPSITE_LANDFILL).
+    assert baseline.landfills is not None, "load_andre_params returned before building the landfills"
+    assert len(baseline.landfills) == CONTROLLED_DUMPSITE_LANDFILL + 1 == 4
     assert (pd.DataFrame(baseline.net_masses) >= 0).all().all()
 
 
