@@ -1,6 +1,11 @@
 """
 Prototype: robust DST diversion allocation via min-cost max-flow.
 
+Since November 2026 the model uses max-flow only to decide whether a request fits.
+The split itself keeps each diversion's own mix (incineration's included), as
+`SWEET_python.dst_allocation.proportional_allocation`; the cost tiers and the
+uniform combustion remainder below describe the split it replaced.
+
 WHY THIS EXISTS
 ---------------
 `City.mass_checker_math` (SWEET_python/city_params.py) tries to split user-
