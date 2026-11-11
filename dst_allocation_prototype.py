@@ -2,9 +2,10 @@
 Prototype: robust DST diversion allocation via min-cost max-flow.
 
 Since November 2026 the model uses max-flow only to decide whether a request fits.
-The split itself keeps each diversion's own mix (incineration's included), as
-`SWEET_python.dst_allocation.proportional_allocation`; the cost tiers and the
-uniform combustion remainder below describe the split it replaced.
+Composting, digestion and recycling keep their own mixes
+(`SWEET_python.dst_allocation.proportional_allocation`), and incineration always
+burns a uniform share of what they leave (`incineration_mix`), not only when they
+over-draw. The cost tiers below describe the split they replaced.
 
 WHY THIS EXISTS
 ---------------

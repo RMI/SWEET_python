@@ -4,12 +4,16 @@ An end-to-end check of WasteMAP's cities on 2026-11-10 found two bugs.
 
 - `load_csv_new` read incineration's metal, glass and other shares as 0, though
   incineration takes every type and the cities table publishes all three. So every
-  scenario with incineration fell short of its share and took the re-split, which
+  scenario with incineration fell short of its share and took the solver, which
   moved recycling off paper: London's no-change scenario was 19% above its baseline
   in 2040, Bristol's 7%, and 5 more points of incineration raised Seattle's 14%.
-- The re-split steered each diversion to the types fewest diversions take, and burned
-  a uniform share of the rest. 5 points of recycling raised Navi Mumbai's 2040
-  methane 24%: composting took all the food first and paper was landfilled.
+- The solver steered each diversion to the types fewest diversions take. 5 points of
+  recycling raised Navi Mumbai's 2040 methane 24%: composting took all the food
+  first and paper was landfilled.
+
+Now composting, digestion and recycling keep their own mixes, and incineration burns
+what they leave, in the baseline and every scenario alike. The DST works that mix
+out itself rather than reading the table's incineration columns.
 
 The rows are the four cities as the review's cities table published them (WasteMAP
 #969 with SWEET #126, built 2026-11-10), cut to the columns `load_csv_new` reads.
@@ -24,7 +28,13 @@ import pandas as pd
 import pytest
 
 from SWEET_python import defaults_2019
-from SWEET_python.city_params import City, CustomError, DiversionFractions
+from SWEET_python.city_params import (
+    City,
+    CustomError,
+    DiversionFractions,
+    DivComponentFractions,
+    WasteFractions,
+)
 
 ROWS = json.loads(
     (Path(__file__).parent / "fixtures" / "city_rows_dst_review_20261110.json").read_text()
@@ -70,23 +80,57 @@ def _baseline(city):
     return city.baseline_parameters.total_emissions["total"]
 
 
-def test_incineration_reads_its_published_metal_glass_and_other():
-    city = _load("London")
-    mix = city.baseline_parameters.div_component_fractions.combustion.iloc[0]
-    assert mix["metal"] == pytest.approx(0.04)
-    assert mix["glass"] == pytest.approx(0.12)
-    assert mix["other"] == pytest.approx(0.08)
-    assert mix.sum() == pytest.approx(1.0, abs=1e-4)
+def test_incineration_burns_what_the_others_leave():
+    """London recycles 30% of its waste and none of it is food, so 34 of the 70 points
+    left are food: its incinerator burns 49% food, not the 34% of the whole mix."""
+    mix = _load("London").baseline_parameters.div_component_fractions.combustion.iloc[0]
+    assert mix.sum() == pytest.approx(1.0)
+    assert mix["food"] == pytest.approx(0.34 / 0.70, rel=1e-4)
+    assert mix["metal"] == pytest.approx((0.04 - 0.30 * 0.04 / 0.66) / 0.70, rel=1e-3)
 
 
-def test_a_table_from_before_those_columns_burns_none_of_them():
-    """Tables built before WasteMAP #716 (August 2026) have no such columns."""
-    row = {
-        k: v for k, v in ROWS["London"].items()
-        if not any(f"Incinerated {label} " in k for label in ("Metal", "Glass", "Other"))
-    }
-    mix = _load("London", row).baseline_parameters.div_component_fractions.combustion.iloc[0]
-    assert (mix[["metal", "glass", "other"]] == 0).all()
+@pytest.mark.parametrize(
+    "variant",
+    ["without metal, glass and other (before WasteMAP #716)", "all food"],
+)
+def test_the_tables_incineration_mix_is_not_read(variant):
+    """The DST works incineration out from the other diversions, so a table's own
+    incineration columns, however built, change nothing."""
+    columns = [k for k in ROWS["London"] if "Incinerated" in k]
+    if variant.startswith("without"):
+        row = {k: v for k, v in ROWS["London"].items()
+               if not any(f"Incinerated {label} " in k for label in ("Metal", "Glass", "Other"))}
+    else:
+        row = dict(ROWS["London"], **{k: (100.0 if "Incinerated Food " in k else 0.0) for k in columns})
+    city = _load("London", row)
+    pd.testing.assert_series_equal(_baseline(city), _baseline(_load("London")), rtol=1e-12)
+    pd.testing.assert_series_equal(_scenario(city), _baseline(city), check_names=False, rtol=1e-12)
+
+
+def test_a_city_that_diverts_all_its_waste_fits():
+    """Kitakyushu incinerates 74.95% of its waste and recycles the other 25.05%. What
+    recycling leaves can come out a hair under 74.95%; that still fits."""
+    city = City("Kitakyushu-like")
+    city._divs_from_component_fractions = lambda *a, **k: None  # no masses needed here
+    waste = {w: 0.0 for w in city.waste_types}
+    waste.update(food=0.4915, paper_cardboard=0.2643, plastic=0.0871, metal=0.008,
+                 glass=0.006, other=0.1431)
+    recyclable = [w for w in city.waste_types if w in city.div_components["recycling"]]
+    pool = sum(waste[w] for w in recyclable)
+    mixes = {d: WasteFractions(**{w: 0.0 for w in city.waste_types})
+             for d in ("compost", "anaerobic", "combustion")}
+    mixes["recycling"] = WasteFractions(**{w: (waste[w] / pool if w in recyclable else 0.0)
+                                           for w in city.waste_types})
+    adjusted, _, _, fractions = city.mass_checker_math(
+        div_fractions=DiversionFractions(compost=0.0, anaerobic=0.0,
+                                         combustion=0.7494817885697365,
+                                         recycling=0.2505182114302635),
+        div_component_fractions=DivComponentFractions(**mixes),
+        waste_fractions=WasteFractions(**waste),
+        scenario=0,
+    )
+    assert not adjusted
+    assert sum(fractions.combustion.model_dump().values()) == pytest.approx(1.0)
 
 
 @pytest.mark.parametrize("name", ["London", "Bristol", "Seattle", "Navi Mumbai"])

@@ -1,31 +1,36 @@
 """
 Diversion allocation for the city model and the city DST.
 
-Each diversion (composting, anaerobic digestion, incineration, recycling) takes a
-share of a city's waste. It draws that share from the waste types it can take, in
-the proportions of its own mix: the component fractions the caller passes (a city's
-published mix in the DST), else the waste mix. `City.mass_checker_math` uses those
-proportions as they are whenever they fit.
+Composting, anaerobic digestion and recycling each take a share of a city's waste.
+Each draws its share from the waste types it can take, in the proportions of its own
+mix: the component fractions the caller passes (a city's published mix in the DST),
+else the waste mix. `City.mass_checker_math` uses those proportions as they are
+whenever they fit.
 
-When they don't fit, because the diversions together ask for more of a type than the
-city has, `proportional_allocation` re-splits them. A type that is over-drawn is
-shared among the diversions that take it, and each diversion makes up the rest from
-its other types, still in its own proportions. Formally it is the allocation closest
-to the asked-for one (in relative entropy) that hits every target and over-draws
-nothing. Two properties follow, and the tests hold the code to both:
+Incineration burns what those three leave: the same share of every type left
+(`incineration_mix`). An incinerator takes the waste left after separate collection
+for recycling and composting, so when composting grows, the incinerator and the
+landfill each give up food in proportion to what they had.
+
+When the three's mixes don't fit, because together they ask for more of a type than
+the city has, `proportional_allocation` re-splits them. A type that is over-drawn is
+shared among the diversions that take it, and each makes up the rest from its other
+types, still in its own proportions. Formally it is the allocation closest to the
+asked-for one (in relative entropy) that hits every target and over-draws nothing.
+Two properties follow, and the tests hold the code to both:
 
 - It continues the proportional split. At the point where a type first runs out, the
   re-split equals the proportional one, so moving a slider across that point doesn't
   jump.
-- Raising any diversion never diverts less of any type. So the waste left for the
-  landfill only shrinks.
+- Raising any of the three never diverts less of any type. With incineration burning
+  a fixed share of what is left, raising any slider never landfills more of any type.
 
 The previous solver here split over-drawn waste by min-cost max-flow, steering each
 diversion to the types fewest diversions take. Composting took all the food and green
 waste first and recycling took plastic, metal and glass, so paper was landfilled
 instead. Raising Navi Mumbai's recycling from 0 to 5% raised its 2040 methane 24%.
-It also burned a uniform share of whatever the others left, unlike the proportional
-split, so a scenario that crossed into the solver jumped.
+And only that solver burned what the others left; a split that fit burned the
+published mix, so a scenario jumped as a slider crossed into the solver.
 
 The exact max-flow test below still decides whether a request fits at all, and
 supplies the numbers in the error messages (`max_feasible_target`).
@@ -33,6 +38,7 @@ supplies the numbers in the error messages (`max_feasible_target`).
 
 from __future__ import annotations
 
+import math
 from collections import deque
 from fractions import Fraction
 
@@ -243,10 +249,43 @@ def treatment_mixes(waste: dict, mixes: dict = None, eligibility: dict = None,
     return out
 
 
+def left_after(waste: dict, taken: dict) -> dict:
+    """What composting, digestion and recycling leave of each type, as fractions of
+    the city's waste (never below 0). `taken` is {treatment: {waste_type: fraction}}.
+
+    Every caller goes through here, in the same order, so a city DST baseline and its
+    no-change scenario burn exactly the same."""
+    left = {}
+    for w, available in waste.items():
+        used = sum(_number(taken.get(t, {}).get(w)) for t in NON_COMBUSTION)
+        left[w] = max(_number(available) - used, 0.0)
+    return left
+
+
+def _number(value) -> float:
+    """A float, with a blank (None or NaN) as 0: a table cell left empty."""
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return value if math.isfinite(value) else 0.0
+
+
+# decision: diversion-split
+def incineration_mix(waste: dict, taken: dict) -> dict:
+    """What incineration burns, as shares summing to 1: what composting, digestion and
+    recycling leave (`left_after`), in its own proportions. {} when nothing is left."""
+    left = left_after(waste, taken)
+    total = sum(left.values())
+    if total <= 0:
+        return {}
+    return {w: v / total for w, v in left.items() if v > 0}
+
+
 # decision: diversion-split
 def proportional_allocation(waste: dict, targets: dict, mixes: dict = None,
                             eligibility: dict = None,
-                            treatments: tuple = TREATMENTS) -> dict:
+                            treatments: tuple = NON_COMBUSTION) -> dict:
     """
     Split each treatment's target across its types, keeping its own mix where the
     waste allows (see the module docstring).
@@ -257,7 +296,8 @@ def proportional_allocation(waste: dict, targets: dict, mixes: dict = None,
         mixes: {treatment: {waste_type: weight}}, each treatment's own proportions
             (e.g. a city's published component fractions). Missing: the waste mix.
         eligibility: {treatment: set(waste_types)} (defaults to DEFAULT_ELIGIBILITY).
-        treatments: the treatments to allocate (default all four).
+        treatments: the treatments to allocate (default composting, digestion and
+            recycling; incineration burns what they leave, `incineration_mix`).
 
     Returns dict: {feasible, allocation {t: {w: fraction_of_total}}, support
     {t: set(waste_types)}, converged}. `support` is the types each treatment can take
