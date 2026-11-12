@@ -7,7 +7,7 @@ from pathlib import Path
 
 import SWEET_python.gas_capture as gas_capture
 import SWEET_python.oxidation as oxidation
-from SWEET_python.constants import GWP100_CH4, SHORT_TONS_PER_TONNE
+from SWEET_python.constants import GWP100_CH4, SHORT_TONS_PER_TONNE, WASTE_TYPES
 
 # The path to the current module's directory
 current_dir = Path(__file__).parent
@@ -422,6 +422,207 @@ def waste_composition_for(iso3, region):
         row = WASTE_FRACTION_DEFAULTS.loc[region, :]
     total = row.sum()
     return row / total if total else row
+
+
+# --------------------------------------------------------------------------- #
+# Generated and disposed country mixes, kept apart
+# --------------------------------------------------------------------------- #
+# A country's waste mix describes one of two different wastes:
+#   generated: all the municipal waste the country produces, before any of it is
+#     recycled, composted or burned;
+#   disposed: the waste that reaches a landfill or dump.
+# The city model starts from generated tonnes and takes diversion out itself, so a
+# generated mix suits it. A Climate TRACE site, the site tool and a national landfill
+# total start from the tonnes disposed, so a disposed mix suits them.
+#
+# WASTE_FRACTIONS_COUNTRY above is IPCC 2019 Table 2A.2 as first printed (November
+# 2019). IPCC reissued the chapter at the same address in July 2023 with a corrected
+# Italy row, which also moves the Southern Europe average; WASTE_FRACTIONS_COUNTRY and
+# WASTE_FRACTION_DEFAULTS keep the 2019 printing. The country rows are of both kinds,
+# whatever their label: many European rows are inventory mixes of the waste sent to
+# landfill, most others are surveys of the waste generated or collected, often in one
+# city, and for some the source is unknown. waste_composition_for() still reads the
+# table for every path.
+#
+# The two tables below keep the kinds apart and name a source for every row. No path
+# reads them yet; waste_composition_by_basis() returns one of their rows. Both are in
+# percent, in WASTE_TYPES order, with nappies inside "other" as in the table above.
+
+# European Reference Model on Municipal Waste, 2018 update (ETC/WMGE for the European
+# Environment Agency), Annex 2, Appendix 1, p.125: the composition of total municipal
+# waste fed into the model for 2015, in percent, as printed. Each country supplied its
+# own figures; some sent a residual-waste mix that the authors combined with separate
+# collection, and the Annex's country notes say which.
+# https://www.eionet.europa.eu/etcs/etc-wmge/products/etc-wmge-reports/scenarios-for-municipal-waste-recycling-based-on-the-european-reference-model-on-municipal-wast/support_to_early-warning_-annex_2_final.pdf/@@download/file/support_to_early-warning_-annex_2_final.pdf
+ERM_2015_SOURCE = "European Reference Model on Municipal Waste, 2018 update, Annex 2, Appendix 1 (2015)"
+ERM_2015_COLUMNS = (
+    "food", "garden", "other_biowaste", "wood", "paper_cardboard", "textiles", "glass",
+    "metals", "plastics", "weee", "rubble_soil", "batteries", "hazardous", "fines",
+    "inerts", "other",
+)
+ERM_2015_COMPOSITION = {
+    "AUT": [18.2, 18.6, 0.0, 5.1, 17.3, 3.2, 5.9, 3.8, 9.6, 1.6, 0.0, 0.1, 0.6, 2.7, 1.8, 11.5],  # Austria
+    "BEL": [9.3, 15.6, 5.4, 6.4, 18.1, 3.4, 8.0, 2.9, 7.4, 2.0, 0.0, 0.2, 0.7, 0.4, 2.8, 17.6],  # Belgium
+    "BGR": [23.0, 17.5, 0.0, 2.2, 18.6, 2.0, 6.0, 2.8, 10.7, 3.1, 0.1, 0.0, 0.8, 0.0, 9.8, 3.3],  # Bulgaria
+    "HRV": [20.9, 7.0, 0.5, 1.1, 28.0, 2.5, 5.9, 2.3, 17.5, 1.4, 2.4, 0.0, 0.1, 0.0, 0.0, 10.5],  # Croatia
+    "CYP": [29.6, 11.8, 0.0, 2.1, 24.2, 6.0, 3.9, 3.2, 14.6, 0.5, 0.0, 0.0, 0.0, 0.0, 1.3, 2.7],  # Cyprus
+    "CZE": [23.9, 13.0, 0.0, 5.0, 18.4, 4.0, 7.8, 3.6, 14.8, 0.5, 0.0, 0.0, 0.0, 0.0, 3.0, 6.0],  # Czech Republic
+    "DNK": [24.6, 22.4, 0.0, 3.5, 20.0, 0.0, 5.7, 4.9, 7.3, 1.7, 0.0, 0.3, 0.0, 0.0, 1.1, 8.4],  # Denmark
+    "EST": [21.0, 3.0, 0.9, 1.7, 22.8, 3.7, 9.5, 5.6, 15.4, 2.2, 0.0, 0.0, 1.2, 0.0, 2.5, 10.5],  # Estonia
+    "FIN": [27.1, 3.3, 2.1, 2.2, 29.6, 2.4, 4.3, 5.6, 11.9, 2.8, 1.3, 0.1, 0.2, 0.0, 1.2, 5.8],  # Finland
+    "FRA": [19.9, 16.6, 0.0, 2.7, 19.9, 2.1, 12.6, 5.5, 10.7, 3.9, 0.0, 0.0, 0.5, 1.9, 2.3, 1.1],  # France
+    "DEU": [19.4, 12.4, 0.0, 3.3, 20.9, 2.7, 6.7, 2.2, 16.6, 1.5, 0.0, 0.0, 0.2, 4.7, 1.7, 7.7],  # Germany
+    "GRC": [41.3, 3.0, 0.0, 0.0, 22.2, 0.0, 4.3, 3.9, 13.9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 11.4],  # Greece
+    "HUN": [20.9, 5.7, 0.0, 0.6, 18.6, 2.9, 3.3, 5.7, 15.5, 0.7, 0.0, 0.0, 0.6, 11.9, 4.4, 9.2],  # Hungary
+    "IRL": [16.2, 5.9, 0.0, 3.4, 24.3, 5.5, 8.3, 3.6, 12.1, 2.8, 0.0, 0.0, 0.9, 7.7, 0.0, 9.4],  # Ireland
+    "ITA": [21.0, 11.4, 2.5, 3.0, 22.9, 3.8, 7.5, 2.7, 12.9, 0.8, 0.0, 0.0, 0.0, 0.0, 0.8, 10.7],  # Italy
+    "LVA": [15.1, 4.3, 7.1, 2.8, 28.7, 2.4, 9.2, 1.9, 8.4, 0.4, 1.7, 0.0, 0.0, 12.4, 2.6, 3.3],  # Latvia
+    "LTU": [9.8, 9.4, 8.0, 1.2, 13.1, 5.1, 7.4, 6.8, 10.7, 1.6, 0.0, 0.0, 0.2, 0.0, 9.7, 16.8],  # Lithuania
+    "LUX": [22.1, 12.7, 0.0, 3.6, 18.9, 2.6, 7.0, 2.1, 10.0, 1.8, 0.3, 0.5, 0.7, 3.7, 2.6, 11.5],  # Luxembourg
+    "MLT": [39.9, 1.8, 0.0, 0.6, 20.3, 3.2, 5.4, 4.2, 12.0, 1.0, 0.0, 0.0, 0.1, 1.6, 0.0, 9.9],  # Malta
+    "NLD": [12.8, 19.4, 11.4, 5.0, 19.1, 2.9, 6.1, 2.7, 7.8, 0.8, 0.9, 0.0, 0.2, 0.0, 0.0, 10.7],  # Netherlands
+    "POL": [20.7, 11.7, 0.0, 0.4, 11.4, 2.6, 10.0, 2.3, 12.3, 0.0, 0.0, 0.0, 0.8, 9.8, 4.2, 13.8],  # Poland
+    "PRT": [28.5, 6.5, 4.9, 0.9, 13.6, 3.5, 6.7, 1.9, 10.8, 0.2, 0.0, 0.0, 0.3, 11.1, 0.0, 11.1],  # Portugal
+    "ROU": [44.8, 14.9, 0.0, 2.0, 12.5, 0.8, 5.0, 3.2, 13.1, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.8],  # Romania
+    "SVK": [23.6, 21.0, 0.1, 2.7, 12.8, 2.9, 8.1, 3.8, 10.3, 0.5, 3.1, 0.0, 0.8, 0.0, 1.1, 9.2],  # Slovakia
+    "SVN": [12.9, 7.8, 1.2, 7.1, 26.0, 1.1, 7.8, 4.7, 7.9, 1.3, 0.0, 0.0, 0.7, 0.0, 0.0, 21.6],  # Slovenia
+    "ESP": [40.1, 8.7, 0.0, 1.8, 15.5, 4.7, 7.7, 3.4, 9.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 9.0],  # Spain
+    "SWE": [23.7, 8.5, 0.0, 5.0, 25.2, 1.7, 5.3, 5.4, 9.5, 3.6, 0.0, 0.2, 0.1, 0.0, 0.0, 11.8],  # Sweden
+    "GBR": [16.8, 16.2, 2.2, 3.6, 19.3, 3.0, 6.9, 3.7, 10.4, 2.4, 2.1, 0.1, 0.6, 1.3, 0.0, 11.5],  # United Kingdom
+}
+# Where each Reference Model category goes among the ten waste types. "Other
+# biowaste" is biodegradable waste a country did not call food or garden; the IPCC
+# groups other organic putrescible waste with garden waste (2006 Guidelines, Vol.5
+# Ch.3, Table 3.3), so it goes to green. The model has no rubber category; any rubber
+# sits in its "other".
+ERM_TO_WASTE_TYPE = {
+    "food": "food",
+    "garden": "green",
+    "other_biowaste": "green",
+    "wood": "wood",
+    "paper_cardboard": "paper_cardboard",
+    "textiles": "textiles",
+    "glass": "glass",
+    "metals": "metal",
+    "plastics": "plastic",
+    "weee": "other",
+    "rubble_soil": "other",
+    "batteries": "other",
+    "hazardous": "other",
+    "fines": "other",
+    "inerts": "other",
+    "other": "other",
+}
+# Rows of WASTE_FRACTIONS_COUNTRY whose cited source says they describe waste
+# generated (checked 2026-11-11), for countries the Reference Model does not cover.
+# They are read from that table, not copied. Bulgaria and Sweden are generated rows
+# too, but the Reference Model covers them. Left out: Moldova (IPCC mixed columns
+# from two surveys) and Russia (plastics dropped, and its inventory does not say what
+# waste the mix describes). Most other rows are surveys of waste generated or
+# collected, often one city's, and were not checked.
+GENERATED_ROWS_FROM_IPCC_TABLE = {
+    "GHA": "Ghana NIR 2015: composition of the municipal waste generated in 2012",
+    "ZWE": "Zimbabwe Third National Communication 2018: solid waste generated in 2007, mean of 11 cities",
+}
+WASTE_FRACTIONS_GENERATED_COUNTRY = pd.concat(
+    [
+        pd.DataFrame.from_dict(ERM_2015_COMPOSITION, orient="index", columns=list(ERM_2015_COLUMNS))
+        .T.groupby(ERM_TO_WASTE_TYPE).sum().T
+        .reindex(columns=list(WASTE_TYPES), fill_value=0.0),
+        WASTE_FRACTIONS_COUNTRY.loc[list(GENERATED_ROWS_FROM_IPCC_TABLE)].reindex(columns=list(WASTE_TYPES)),
+    ]
+).sort_index()
+WASTE_FRACTIONS_GENERATED_SOURCES = {
+    **{iso3: ERM_2015_SOURCE for iso3 in ERM_2015_COMPOSITION},
+    **{iso3: f"IPCC 2019 Table 2A.2, from the {source}" for iso3, source in GENERATED_ROWS_FROM_IPCC_TABLE.items()},
+}
+
+# Rows of WASTE_FRACTIONS_COUNTRY whose cited source says they describe waste sent to
+# landfill (checked 2026-11-11). They are read from that table, not copied. Left out:
+# inventory rows that their inventory calls generated (Bulgaria, Moldova, Russia,
+# Sweden, Zimbabwe), whose numbers are not in the inventory cited (Germany, the
+# Netherlands), or whose inventory could not be read (Turkiye, Lithuania, Slovenia);
+# rows only inferred to be disposed (Australia, New Zealand, Portugal, Denmark);
+# Latvia, which IPCC misread (its inventory's 47.9% organic waste went into "other",
+# so food shows 0); and Italy, corrected in the 2023 reissue (that row is below).
+DISPOSED_ROWS_FROM_IPCC_TABLE = {
+    "CHE": "Switzerland NIR: municipal waste going to landfill, 2010 onward; its plastic includes other inert waste",
+    "CZE": "Czechia NIR: municipal waste in landfills, from landfill surveys in 2001 and 2005-09",
+    "FRA": "France NIR (2019 edition): waste stored in non-hazardous landfills, 2010",
+    "GBR": (
+        "UK NIR 2018: mixed municipal waste (EWC 20 03 01) sorted at landfills in England "
+        "and Wales in 2010-11 (Resource Futures WR1003); unchanged in the UK NID 2026, "
+        "Annex Table A 5.1.61"
+    ),
+    "HRV": "Croatia NIR: mixed municipal waste (EWC 20 03 01) sent to landfill, 2015-16",
+    "IRL": "Ireland NIR 2018: waste landfilled, 2016",
+    "ISL": "Iceland NIR: waste landfilled at Alfsnes (Sorpa samples); plastic, metal and glass are in other",
+    "LUX": "Luxembourg NIR: mixed residual municipal waste sent to landfill",
+    "POL": "Poland NIR: municipal waste landfilled, from facility reports",
+    "USA": "US NIR 2018: EPA Facts and Figures 2014, municipal waste landfilled by material",
+}
+# Inventory mixes that WASTE_FRACTIONS_COUNTRY has no usable row for, in percent and
+# WASTE_TYPES order, with their sources.
+WASTE_FRACTIONS_DISPOSED_OWN = {
+    "AUT": (
+        [35.2, 4.8, 0.0, 12.0, 6.0, 10.0, 3.0, 4.0, 0.0, 24.0],
+        "Austria NID 2025 (Umweltbundesamt REP-0964), Table 319, 2008 column: residual "
+        "waste landfilled untreated, in its last year. The printed shares sum to 99. "
+        "Biogenic components (40) are split 88.1/11.9 food/garden, as measured in the "
+        "Upper Austria residual-waste analysis 2018/19; composites (10), hygiene "
+        "products (8), minerals (3), residual fraction (2) and hazardous waste (1) are other.",
+    ),
+    "ESP": (
+        [37.27, 7.07, 2.02, 16.68, 10.62, 13.95, 3.43, 4.95, 0.0, 4.01],
+        "Spain NID 2026, Annex V, Tabla AV.18, 2012-2024: mixed waste not collected "
+        "separately (residuos masa) that goes to landfill. Metal is ferrous 2.86 plus "
+        "non-ferrous 0.57; textiles include sanitary textiles.",
+    ),
+    "ITA": (
+        [21.9, 5.6, 1.6, 23.9, 3.0, 11.8, 2.3, 6.4, 0.0, 23.5],
+        "IPCC 2019 Table 2A.2 as reissued in July 2023, Italy, from the Italy NIR 2018. "
+        "The 2019 printing, which WASTE_FRACTIONS_COUNTRY keeps, had food 12.6, paper "
+        "39.2 and plastic 27.6.",
+    ),
+}
+WASTE_FRACTIONS_DISPOSED_COUNTRY = pd.concat(
+    [
+        WASTE_FRACTIONS_COUNTRY.loc[list(DISPOSED_ROWS_FROM_IPCC_TABLE)].reindex(columns=list(WASTE_TYPES)),
+        pd.DataFrame.from_dict(
+            {iso3: shares for iso3, (shares, _) in WASTE_FRACTIONS_DISPOSED_OWN.items()},
+            orient="index",
+            columns=list(WASTE_TYPES),
+        ),
+    ]
+).sort_index()
+WASTE_FRACTIONS_DISPOSED_SOURCES = {
+    **{iso3: f"IPCC 2019 Table 2A.2, from the {source}" for iso3, source in DISPOSED_ROWS_FROM_IPCC_TABLE.items()},
+    **{iso3: source for iso3, (_, source) in WASTE_FRACTIONS_DISPOSED_OWN.items()},
+}
+
+
+def waste_composition_by_basis(iso3, basis):
+    """A country's generated or disposed mix, as fractions summing to 1, or None.
+
+    ``basis`` is "generated" (all municipal waste, before recycling, composting or
+    burning) or "disposed" (the waste that reaches a landfill or dump). Returns None
+    when the country has no row of that kind, so the caller chooses its own fallback.
+    The row's source is in WASTE_FRACTIONS_GENERATED_SOURCES or
+    WASTE_FRACTIONS_DISPOSED_SOURCES.
+
+    Nothing in SWEET calls this yet: waste_composition_for() serves every path.
+    """
+    tables = {
+        "generated": WASTE_FRACTIONS_GENERATED_COUNTRY,
+        "disposed": WASTE_FRACTIONS_DISPOSED_COUNTRY,
+    }
+    if basis not in tables:
+        raise ValueError(f"basis must be 'generated' or 'disposed', not {basis!r}")
+    table = tables[basis]
+    if iso3 not in table.index:
+        return None
+    row = table.loc[iso3, :]
+    return row / row.sum()
 
 
 REGION_LOOKUP = {

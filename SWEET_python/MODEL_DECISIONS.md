@@ -196,7 +196,7 @@ A site or city with no usable composition takes its country's mix, else its regi
   - `site-tool`: the caller's mix, except over the years a Climate TRACE series covers, which keep that series' mix (or split a total by the caller's). The location prefill uses `country`, else `region`.
   - `adst-site`, `adst-city`: the caller's mix, which may change by year.
 - **Confidence:** medium
-- **Better:** Use a site's own composition when reported (Climate TRACE issue #146), and let the mix change over time.
+- **Better:** Use a site's own composition when reported (Climate TRACE issue #146), and let the mix change over time. Give `city-model` a generated mix and `ct-site` and `site-tool` a disposed one; `defaults_2019` now keeps both apart.
 - **Value:** `SWEET_python.defaults_2019`: `WASTE_FRACTIONS_COUNTRY`, `WASTE_FRACTION_DEFAULTS`
 - **Code:** `SWEET_python/defaults_2019.py`, `SWEET_python/city_params.py`
 - **Reviewed:** 2026-10-22
