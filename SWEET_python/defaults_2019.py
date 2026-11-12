@@ -447,6 +447,7 @@ def waste_composition_for(iso3, region):
 # The two tables below keep the kinds apart and name a source for every row. No path
 # reads them yet; waste_composition_by_basis() returns one of their rows. Both are in
 # percent, in WASTE_TYPES order, with nappies inside "other" as in the table above.
+# docs/WASTE_COMPOSITION_DEFAULTS.md lists every row's source and why rows were left out.
 
 # European Reference Model on Municipal Waste, 2018 update (ETC/WMGE for the European
 # Environment Agency), Annex 2, Appendix 1, p.125: the composition of total municipal
