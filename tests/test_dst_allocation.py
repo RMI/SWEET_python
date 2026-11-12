@@ -1,13 +1,19 @@
 """
-Unit tests for the DST min-cost-max-flow allocator (SWEET_python.dst_allocation).
+Unit tests for the DST diversion allocator (SWEET_python.dst_allocation).
 
 These are pure (no City / DB / geopy needed). They:
   - lock in the documented bug fix and the audit regression suite;
-  - cross-check the solver against an INDEPENDENT exact-rational Hall/Gale
-    feasibility oracle (different math, no shared quantization) on a fuzz sweep;
-  - verify combustion's leftover-remainder feasibility + the divide-by-zero guard.
+  - cross-check the max-flow feasibility test against an INDEPENDENT
+    exact-rational Hall/Gale oracle (different math, no shared quantization) on
+    a fuzz sweep;
+  - check incineration's feasibility as the fourth treatment;
+  - check the split: composting, digestion and recycling keep their mixes where
+    nothing is over-drawn (`proportional_allocation`), share an over-drawn type
+    in the same proportion, and don't jump where a type runs out; incineration
+    burns what they leave (`incineration_mix`); and raising any slider never
+    landfills more of a type.
 
-The full standalone harness (~400k-case fuzz) is SWEET_python/dst_allocation_prototype.py.
+The standalone feasibility harness (~400k-case fuzz) is dst_allocation_prototype.py.
 """
 
 import itertools
@@ -20,8 +26,13 @@ from SWEET_python.dst_allocation import (
     DEFAULT_ELIGIBILITY,
     NON_COMBUSTION,
     SCALE,
-    solve_allocation,
+    TREATMENTS,
+    incineration_mix,
+    left_after,
     max_feasible_target,
+    proportional_allocation,
+    solve_allocation,
+    treatment_mixes,
 )
 
 ELIG = DEFAULT_ELIGIBILITY
@@ -161,24 +172,13 @@ def test_repro_full_band_reachable():
 
 
 # --------------------------------------------------------------------------- #
-# Combustion (caller-side remainder step) — validated via the prototype's logic
+# Combustion: the fourth treatment in the same max-flow
 #   (name, waste, targets WITH combustion, expected_feasible)
 # --------------------------------------------------------------------------- #
 def solve_with_combustion(waste, targets):
-    """Mirror of City.mass_checker_math's intended combustion handling, for
-    test purposes: solve the 3 with combustible-sparing, then check the
-    leftover-remainder ceiling."""
-    three = {t: targets.get(t, 0.0) for t in NON_COMBUSTION}
-    tc = targets.get("combustion", 0.0)
-    res = solve_allocation(waste, three, ELIG, spare_combustibles=(tc > 0))
-    if not res["feasible"]:
-        return False
-    alloc = res["allocation"]
-    leftover_comb = sum(
-        waste.get(w, 0.0) - sum(alloc[t].get(w, 0.0) for t in NON_COMBUSTION)
-        for w in COMBUSTIBLE
-    )
-    return tc <= leftover_comb + 1e-9
+    """City.mass_checker_math's feasibility test: all four treatments in one
+    max-flow, incineration eligible for every type."""
+    return solve_allocation(waste, targets, ELIG, treatments=TREATMENTS)["feasible"]
 
 
 COMBUSTION_CASES = [
@@ -256,3 +256,204 @@ def test_fuzz_solver_matches_exact_oracle():
             invalid += 1
     assert genuine == 0
     assert invalid == 0
+
+
+# --------------------------------------------------------------------------- #
+# The split: composting, digestion and recycling keep their own mixes
+# (proportional_allocation), and incineration burns what they leave
+# (incineration_mix).
+# --------------------------------------------------------------------------- #
+def _taken(allocation):
+    """How much of each type the diversions take together."""
+    return {w: sum(allocation.get(t, {}).get(w, 0.0) for t in TREATMENTS) for w in WASTE_TYPES}
+
+
+def _check_resplit(waste, targets, mixes, tol=1e-8):
+    res = proportional_allocation(waste, targets, mixes)
+    assert res["feasible"]
+    alloc = res["allocation"]
+    for t in NON_COMBUSTION:
+        assert sum(alloc.get(t, {}).values()) == pytest.approx(targets.get(t, 0.0), abs=tol)
+    taken = _taken(alloc)
+    assert all(taken[w] <= waste[w] + tol for w in WASTE_TYPES)
+    return alloc
+
+
+def _landfilled(waste, targets, mixes):
+    """What is left for the landfill: the three's split, then incineration's share of
+    what they leave, as City.mass_checker_math does. None when it doesn't fit."""
+    res = proportional_allocation(waste, targets, mixes)
+    if not res["feasible"]:
+        return None
+    alloc = dict(res["allocation"])
+    left = left_after(waste, alloc)
+    burn = targets.get("combustion", 0.0)
+    if burn > sum(left.values()) + 1e-8:
+        return None
+    alloc["combustion"] = {w: burn * p for w, p in incineration_mix(waste, alloc).items()}
+    taken = _taken(alloc)
+    return {w: waste[w] - taken[w] for w in WASTE_TYPES}
+
+
+# London in the cities table: incineration 47% and recycling 30%.
+LONDON = wf(food=0.34, paper_cardboard=0.36, plastic=0.06, metal=0.04, glass=0.12, other=0.08)
+# Navi Mumbai: composting 82%, recycling 0.
+NAVI_MUMBAI = wf(food=0.64276, green=0.06064, paper_cardboard=0.25953, other=0.03708)
+
+
+def test_a_mix_that_fits_is_used_as_it_is():
+    mixes = treatment_mixes(LONDON)
+    alloc = _check_resplit(LONDON, {"recycling": 0.30}, mixes)
+    for w, p in mixes["recycling"].items():
+        assert alloc["recycling"][w] == pytest.approx(0.30 * p, abs=1e-12)
+
+
+def test_incineration_burns_what_the_others_leave():
+    """London recycles 30% of its waste, none of it food, so 34 of the 70 points left
+    are food: incineration burns 49% food, not the 34% of the whole mix."""
+    alloc = _check_resplit(LONDON, {"recycling": 0.30}, treatment_mixes(LONDON))
+    burned = incineration_mix(LONDON, alloc)
+    assert sum(burned.values()) == pytest.approx(1.0)
+    assert burned["food"] == pytest.approx(0.34 / 0.70)
+    assert burned["metal"] == pytest.approx((0.04 - 0.30 * 0.04 / 0.66) / 0.70)
+
+
+def test_incineration_reads_a_blank_share_as_none():
+    taken = {"recycling": {"paper_cardboard": float("nan"), "plastic": 0.06}}
+    assert incineration_mix(wf(paper_cardboard=0.5, plastic=0.5), taken) == pytest.approx(
+        {"paper_cardboard": 0.5 / 0.94, "plastic": 0.44 / 0.94}
+    )
+    assert incineration_mix(wf(plastic=1.0), {"recycling": {"plastic": 1.0}}) == {}
+
+
+def test_an_over_drawn_type_is_held_back_alike_for_every_diversion():
+    """In proportion to the mix: every diversion that takes two types takes them in
+    its own ratio times the same factor, so no diversion is steered to a type."""
+    rng = random.Random(11)
+    checked = 0
+    for _ in range(300):
+        waste = _random_waste(rng)
+        mixes = treatment_mixes(waste)
+        targets = {t: round(rng.random() * 0.5, 3) for t in NON_COMBUSTION if mixes[t] and rng.random() < 0.9}
+        res = proportional_allocation(waste, targets, mixes)
+        if not res["feasible"] or not res["converged"]:
+            continue
+        alloc = res["allocation"]
+        # held[t][w] = x[t][w] / (target * mix): the hold-back on w, times t's own factor.
+        held = {t: {w: alloc[t].get(w, 0.0) / (targets[t] * p) for w, p in mixes[t].items()}
+                for t in targets if targets[t] > 0}
+        for t, s in itertools.combinations(held, 2):
+            for w, u in itertools.combinations(sorted(set(held[t]) & set(held[s])), 2):
+                if min(held[t][w], held[t][u], held[s][w], held[s][u]) < 1e-6:
+                    continue  # a type held back to nothing; the ratio is noise
+                assert held[t][w] / held[t][u] == pytest.approx(held[s][w] / held[s][u], rel=1e-6)
+                checked += 1
+    assert checked > 100
+
+
+def test_crossing_into_the_re_split_does_not_jump():
+    """Navi Mumbai composts 82%. Recycling uses up its paper at about 4.4%, and the
+    split just past that point is the split at it."""
+    mixes = treatment_mixes(NAVI_MUMBAI)
+    paper = "paper_cardboard"
+    at = (NAVI_MUMBAI[paper] - 0.82 * mixes["compost"][paper]) / mixes["recycling"][paper]
+    before = _check_resplit(NAVI_MUMBAI, {"compost": 0.82, "recycling": at}, mixes)
+    past = _check_resplit(NAVI_MUMBAI, {"compost": 0.82, "recycling": at + 1e-6}, mixes)
+    for t in NON_COMBUSTION:
+        for w in WASTE_TYPES:
+            assert abs(past.get(t, {}).get(w, 0.0) - before.get(t, {}).get(w, 0.0)) < 1e-5
+    assert _taken(before)[paper] == pytest.approx(NAVI_MUMBAI[paper], abs=1e-9)
+
+
+def test_more_recycling_in_navi_mumbai_landfills_less_of_everything():
+    """The old solver composted all food and green first, so 5% recycling
+    landfilled 13 points of paper instead of 4: methane +24% in 2040."""
+    mixes = treatment_mixes(NAVI_MUMBAI)
+    before = _landfilled(NAVI_MUMBAI, {"compost": 0.82}, mixes)
+    after = _landfilled(NAVI_MUMBAI, {"compost": 0.82, "recycling": 0.05}, mixes)
+    for w in WASTE_TYPES:
+        assert after[w] <= before[w] + 1e-12
+    assert after["paper_cardboard"] < 1e-9
+
+
+def test_raising_any_slider_never_landfills_more_of_a_type():
+    """Fuzz over all four sliders, incineration's included, with mixes proportional or
+    not (an older table's mix may name fewer types)."""
+    rng = random.Random(20261110)
+    compared = 0
+    for _ in range(1500):
+        waste = _random_waste(rng)
+        mixes = treatment_mixes(waste)
+        for t in NON_COMBUSTION:
+            if mixes[t] and rng.random() < 0.4:
+                keep = [w for w in mixes[t] if rng.random() < 0.7] or list(mixes[t])[:1]
+                mixes[t] = {w: rng.random() for w in keep}
+        targets = {t: round(rng.random() * 0.4, 3) for t in TREATMENTS if rng.random() < 0.7}
+        if not targets:
+            continue
+        before = _landfilled(waste, targets, mixes)
+        if before is None:
+            continue
+        raised = dict(targets)
+        t = rng.choice(list(targets))
+        raised[t] += rng.choice([1e-4, 0.01, 0.05])
+        after = _landfilled(waste, raised, mixes)
+        if after is None:
+            continue
+        assert all(after[w] <= before[w] + 1e-8 for w in WASTE_TYPES), (waste, targets, t)
+        compared += 1
+    assert compared > 500
+
+
+def test_a_slider_at_its_maximum_is_split_validly():
+    """At the maximum some diversion must take none of a type its mix names, which
+    the re-split only approaches; it still hits every target within 1e-8."""
+    rng = random.Random(7)
+    done = 0
+    for _ in range(400):
+        waste = _random_waste(rng)
+        mixes = treatment_mixes(waste)
+        targets = {t: round(rng.random() * 0.4, 3) for t in NON_COMBUSTION if mixes[t] and rng.random() < 0.8}
+        if not targets:
+            continue
+        t = rng.choice(list(targets))
+        others = {k: v for k, v in targets.items() if k != t}
+        if not solve_allocation(waste, others, ELIG)["feasible"]:
+            continue
+        targets[t] = max_feasible_target(t, waste, others, ELIG)
+        if targets[t] <= 0:
+            continue
+        _check_resplit(waste, targets, mixes)
+        done += 1
+    assert done > 100
+
+
+def test_a_type_the_mix_leaves_out_is_used_once_the_rest_runs_out():
+    """Coimbatore's published composting is all food, from the solver this replaced.
+    Composting more takes food first, then paper, up to the same maximum as before."""
+    waste = wf(food=0.6, paper_cardboard=0.4)
+    mixes = treatment_mixes(waste, {"compost": {"food": 1.0}})
+    assert mixes["compost"]["paper_cardboard"] == pytest.approx(1e-6)
+    alloc = _check_resplit(waste, {"compost": 0.5}, mixes)
+    assert alloc["compost"]["paper_cardboard"] < 1e-6
+    alloc = _check_resplit(waste, {"compost": 0.7}, mixes)
+    assert alloc["compost"]["food"] == pytest.approx(0.6, abs=1e-8)
+    assert alloc["compost"]["paper_cardboard"] == pytest.approx(0.1, abs=1e-8)
+    assert max_feasible_target("compost", waste, {}, ELIG) == pytest.approx(1.0)
+
+
+def test_a_missing_mix_takes_the_waste_mix():
+    mixes = treatment_mixes(LONDON, {"recycling": {"food": 0.5}})
+    assert mixes["recycling"] == pytest.approx(
+        {w: LONDON[w] / 0.66 for w in ("paper_cardboard", "plastic", "metal", "glass", "other")}
+    )
+
+
+def test_diverting_all_the_waste_fits_though_the_grid_rounds_it_short():
+    """Composting a third and recycling two thirds diverts all of this waste. On the
+    1e-9 grid the max-flow comes out a step short; that still fits."""
+    waste = wf(food=1 / 3, paper_cardboard=1 / 3, plastic=1 / 3)
+    targets = {"compost": 1 / 3, "recycling": 2 / 3}
+    assert solve_allocation(waste, targets, ELIG)["shortfall"] == pytest.approx(1e-9)
+    alloc = _check_resplit(waste, targets, treatment_mixes(waste))
+    assert alloc["recycling"]["plastic"] == pytest.approx(1 / 3, abs=1e-8)

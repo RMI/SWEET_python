@@ -982,6 +982,33 @@ def _published_controlled_dumpsite_share(city_data: pd.DataFrame) -> float:
     return 0.0 if _is_blank(value) else float(value) / 100
 
 
+# decision: diversion-split
+def _incineration_burns_the_rest(waste: dict, shares: dict, mixes: dict) -> dict:
+    """A published city's incineration mix: what its composting, digestion and
+    recycling leave, worked out exactly as `mass_checker_math` does, so the city DST's
+    baseline and a scenario that changes nothing burn the same.
+
+    The table's own incineration columns are not read. Before WasteMAP #716 they left
+    out metal, glass and other, which load_csv_new read as 0, so every scenario with
+    incineration missed its baseline. A table built before SWEET #127 burns in
+    proportion to all of the city's waste instead.
+
+    Args:
+        waste: {waste_type: fraction of the city's waste}.
+        shares: {diversion: fraction of the city's waste}.
+        mixes: {diversion: {waste_type: fraction of that diversion}} for composting,
+            digestion and recycling.
+    """
+    from SWEET_python import dst_allocation
+
+    taken = {
+        t: {w: shares.get(t, 0.0) * share for w, share in mixes[t].items()}
+        for t in dst_allocation.NON_COMBUSTION
+    }
+    burned = dst_allocation.incineration_mix(waste, taken)
+    return {w: burned.get(w, 0.0) for w in waste}
+
+
 def _move_to_existing_gas_capture(
     split_fractions: SplitFractions, existing_gas_pct: float
 ) -> SplitFractions:
@@ -1162,39 +1189,8 @@ class City:
                 rubber=0,
                 other=0,
             ),
-            combustion=WasteFractions(
-                food=city_data[
-                    "Diversion Components: Incinerated Food (% of Total Incinerated)"
-                ].values[0]
-                / 100,
-                green=city_data[
-                    "Diversion Components: Incinerated Green (% of Total Incinerated)"
-                ].values[0]
-                / 100,
-                wood=city_data[
-                    "Diversion Components: Incinerated Wood (% of Total Incinerated)"
-                ].values[0]
-                / 100,
-                paper_cardboard=city_data[
-                    "Diversion Components: Incinerated Paper and Cardboard (% of Total Incinerated)"
-                ].values[0]
-                / 100,
-                textiles=city_data[
-                    "Diversion Components: Incinerated Textiles (% of Total Incinerated)"
-                ].values[0]
-                / 100,
-                plastic=city_data[
-                    "Diversion Components: Incinerated Plastic (% of Total Incinerated)"
-                ].values[0]
-                / 100,
-                metal=0,
-                glass=0,
-                rubber=city_data[
-                    "Diversion Components: Incinerated Rubber/Leather (% of Total Incinerated)"
-                ].values[0]
-                / 100,
-                other=0,
-            ),
+            # Worked out below from what the other three leave.
+            combustion=WasteFractions(**{w: 0.0 for w in self.waste_types}),
             recycling=WasteFractions(
                 wood=city_data[
                     "Diversion Components: Recycled Wood (% of Total Recycled)"
@@ -1231,6 +1227,18 @@ class City:
                 food=0,
                 green=0,
             ),
+        )
+
+        # Incineration burns what composting, digestion and recycling leave.
+        div_component_fractions.combustion = WasteFractions(
+            **_incineration_burns_the_rest(
+                {w: 0.0 if pd.isna(v) else v for w, v in waste_fractions.model_dump().items()},
+                {d: 0.0 if pd.isna(v) else v for d, v in div_fractions.model_dump().items()},
+                {
+                    d: getattr(div_component_fractions, d).model_dump()
+                    for d in ("compost", "anaerobic", "recycling")
+                },
+            )
         )
 
         # ks = DecompositionRates(
@@ -1405,18 +1413,8 @@ class City:
                 rubber=0,
                 other=0,
             ),
-            combustion=WasteFractions(
-                food=city_data["Diversion Components: Incinerated Food (% of Total Incinerated)"].values[0] / 100,
-                green=city_data["Diversion Components: Incinerated Green (% of Total Incinerated)"].values[0] / 100,
-                wood=city_data["Diversion Components: Incinerated Wood (% of Total Incinerated)"].values[0] / 100,
-                paper_cardboard=city_data["Diversion Components: Incinerated Paper and Cardboard (% of Total Incinerated)"].values[0] / 100,
-                textiles=city_data["Diversion Components: Incinerated Textiles (% of Total Incinerated)"].values[0] / 100,
-                plastic=city_data["Diversion Components: Incinerated Plastic (% of Total Incinerated)"].values[0] / 100,
-                metal=0,
-                glass=0,
-                rubber=city_data["Diversion Components: Incinerated Rubber/Leather (% of Total Incinerated)"].values[0] / 100,
-                other=0,
-            ),
+            # Worked out below from what the other three leave.
+            combustion=WasteFractions(**{w: 0.0 for w in self.waste_types}),
             recycling=WasteFractions(
                 wood=city_data["Diversion Components: Recycled Wood (% of Total Recycled)"].values[0] / 100,
                 paper_cardboard=city_data["Diversion Components: Recycled Paper and Cardboard (% of Total Recycled)"].values[0] / 100,
@@ -1429,6 +1427,18 @@ class City:
                 food=0,
                 green=0,
             ),
+        )
+
+        # Incineration burns what composting, digestion and recycling leave.
+        div_component_fractions.combustion = WasteFractions(
+            **_incineration_burns_the_rest(
+                waste_fractions_dict,
+                div_fractions.iloc[0].to_dict(),
+                {
+                    d: getattr(div_component_fractions, d).model_dump()
+                    for d in ("compost", "anaerobic", "recycling")
+                },
+            )
         )
 
         compost_dict = div_component_fractions.compost.model_dump()
@@ -6284,210 +6294,156 @@ class City:
         Returns:
             tuple: A tuple containing adjusted diversion constituents, input problems, divs, and div component fractions.
         """
-        components_multiplied_through = {}
-        for div in div_component_fractions.model_dump().keys():
-            components_multiplied_through[div] = {}
-            for waste in getattr(div_component_fractions, div).model_dump().keys():
-                components_multiplied_through[div][waste] = getattr(
-                    div_fractions, div
-                ) * getattr(getattr(div_component_fractions, div), waste)
-
-        net = {}
-        negative_catcher = False
-        for waste in waste_fractions.model_dump().keys():
-            s = sum(
-                components_multiplied_through[div].get(waste, 0)
-                for div in div_fractions.model_dump().keys()
-            )
-            net[waste] = getattr(waste_fractions, waste) - s
-            if net[waste] < -MASS_CHECK_TOLERANCE:
-                negative_catcher = True
-
-        # Under-delivery: a requested treatment whose proportional component
-        # fractions don't actually sum to its target (e.g. an empty/insufficient
-        # eligible pool -> 0-ton "silent accept"). Such cases must NOT take the
-        # happy path; route them through the solver, which reallocates or raises.
-        under_delivery = any(
-            np.abs(
-                getattr(div_fractions, div)
-                - sum(components_multiplied_through[div].values())
-            )
-            > MASS_CHECK_TOLERANCE
-            for div in div_fractions.model_dump().keys()
-        )
-
-        if (not negative_catcher) and (not under_delivery):
-            # divs = self._divs_from_component_fractions(div_fractions, div_component_fractions, scenario=scenario)
-            # parameters.divs = divs
-            adjusted_diversion_constituents = False
-            input_problems = False
-            divs = self._divs_from_component_fractions(
-                div_fractions,
-                div_component_fractions,
-                scenario=scenario,
-                advanced=True,
-                year=corresponding_year,
-            )
-            return (
-                adjusted_diversion_constituents,
-                input_problems,
-                divs,
-                div_component_fractions,
-            )
-
-        # --- Robust diversion allocation (replaces the legacy redistribution) ---
-        # The old guard-ladder + redistribution loop that lived here falsely
-        # rejected many *feasible* slider combinations, silently accepted some
-        # impossible ones (diverting 0 tons), and could crash on a bare assert.
-        # It is replaced by an exact min-cost max-flow allocation of the three
-        # contended treatments (compost/anaerobic/recycling). Combustion stays a
-        # uniform fraction of the leftover combustible mass (handled just below).
-        # See SWEET_python/dst_allocation.py (+ dst_allocation_prototype.py).
         from SWEET_python import dst_allocation
 
+        three = dst_allocation.NON_COMBUSTION
         waste_dict = waste_fractions.model_dump()
-        three_targets = {
-            "compost": div_fractions.compost,
-            "anaerobic": div_fractions.anaerobic,
-            "recycling": div_fractions.recycling,
+        targets = {div: getattr(div_fractions, div) for div in dst_allocation.TREATMENTS}
+        components_multiplied_through = {
+            div: {
+                waste: targets[div] * share
+                for waste, share in getattr(div_component_fractions, div).model_dump().items()
+            }
+            for div in three
         }
-        alloc_result = dst_allocation.solve_allocation(
-            waste_dict,
-            three_targets,
-            eligibility=self.div_components,
-            spare_combustibles=(div_fractions.combustion > 0),
+
+        # Composting, digestion and recycling take their own mixes as they are, when
+        # those fit: no type over-drawn, and each mix adding up to its share.
+        over_drawn = any(
+            waste_dict[waste]
+            - sum(components_multiplied_through[div].get(waste, 0) for div in three)
+            < -MASS_CHECK_TOLERANCE
+            for waste in waste_dict
         )
+        # Under-delivery: a requested treatment whose proportional component
+        # fractions don't actually sum to its target (e.g. an empty/insufficient
+        # eligible pool -> 0-ton "silent accept"). Such cases must NOT pass as they
+        # are; route them through the re-split, which reallocates or raises.
+        under_delivery = any(
+            np.abs(targets[div] - sum(components_multiplied_through[div].values()))
+            > MASS_CHECK_TOLERANCE
+            for div in three
+        )
+        adjusted_diversion_constituents = bool(over_drawn or under_delivery)
 
-        if not alloc_result["feasible"]:
-            # Build an actionable message naming a specific slider + its cap.
-            def _cap(t, others):
-                return dst_allocation.max_feasible_target(
-                    t, waste_dict, others, eligibility=self.div_components
-                )
+        if adjusted_diversion_constituents:
+            # --- The re-split (SWEET_python/dst_allocation.py) ---
+            # Keep each of the three's mix where the waste allows: an over-drawn
+            # type is shared among the diversions that take it, and each makes up
+            # the rest from its other types in its own proportions. Where nothing is
+            # over-drawn this gives the mixes as they are, so a slider moving into
+            # this branch doesn't jump, and raising a slider never diverts less of
+            # any type.
+            alloc_result = dst_allocation.proportional_allocation(
+                waste_dict,
+                targets,
+                mixes={
+                    div: getattr(div_component_fractions, div).model_dump()
+                    for div in three
+                },
+                eligibility=self.div_components,
+            )
 
-            # Stage 1: a slider that on its own exceeds its eligible-waste pool
-            # (clearest message -- a fixed, city-specific ceiling).
-            for t in ("compost", "anaerobic", "recycling"):
-                if three_targets[t] <= 0:
-                    continue
-                standalone = _cap(t, {k: 0.0 for k in three_targets if k != t})
-                if three_targets[t] > standalone + 1e-6:
-                    raise CustomError(
-                        "INVALID_PARAMETERS",
-                        f"{t.capitalize()} can be at most {standalone * 100:.1f}% "
-                        f"of this city's waste (only that much is eligible for "
-                        f"{t}), but {three_targets[t] * 100:.1f}% was requested.",
+            if not alloc_result["feasible"]:
+                # Build an actionable message naming a specific slider + its cap.
+                support = alloc_result["support"]
+
+                def _cap(t, others, treatments):
+                    return dst_allocation.max_feasible_target(
+                        t, waste_dict, others, eligibility=support, treatments=treatments
                     )
-            # Stage 2: each fits alone but the combination over-draws a shared
-            # waste type -- name a slider whose reduction restores feasibility.
-            for t in ("compost", "anaerobic", "recycling"):
-                if three_targets[t] <= 0:
-                    continue
-                cond = _cap(t, {k: v for k, v in three_targets.items() if k != t})
-                if three_targets[t] > cond + 1e-6:
-                    raise CustomError(
-                        "INVALID_PARAMETERS",
-                        f"{t.capitalize()} can be at most {cond * 100:.1f}% given "
-                        f"the other diversion selections for this city, but "
-                        f"{three_targets[t] * 100:.1f}% was requested. Reduce "
-                        f"{t} or the other diversion sliders.",
-                    )
-            raise CustomError(
-                "INVALID_PARAMETERS",
-                "The requested diversion combination cannot be met by this "
-                "city's waste composition. Reduce one or more diversion sliders.",
-            )
 
-        # Overwrite the three contended treatments with the flow allocation
-        # (fraction-of-total-waste units, exactly what
-        # components_multiplied_through holds).
-        allocation = alloc_result["allocation"]
-        for div in ("compost", "anaerobic", "recycling"):
-            components_multiplied_through[div] = {w: 0.0 for w in self.waste_types}
-            for w, val in allocation.get(div, {}).items():
-                components_multiplied_through[div][w] = val
-
-        # Combustion takes a uniform fraction of the leftover combustible mass.
-        combustion_all = {}
-        for waste in self.waste_types:
-            consumed = sum(
-                components_multiplied_through[div].get(waste, 0.0)
-                for div in ("compost", "anaerobic", "recycling")
-            )
-            combustion_all[waste] = getattr(waste_fractions, waste) - consumed
-
-        remainder = sum(
-            combustion_all[w] for w in self.div_components["combustion"]
-        )
-        if div_fractions.combustion > remainder + 1e-9:
-            raise CustomError(
-                "INVALID_PARAMETERS",
-                f"Incineration can be at most {remainder * 100:.1f}% of waste "
-                f"after the requested compost, anaerobic digestion, and "
-                f"recycling, but {div_fractions.combustion * 100:.1f}% was "
-                f"requested. Reduce incineration or the other diversion sliders.",
-            )
-        combustion_fraction_of_remainder = (
-            div_fractions.combustion / remainder if remainder > 1e-12 else 0.0
-        )
-
-        components_multiplied_through["combustion"] = {
-            w: 0.0 for w in self.waste_types
-        }
-        for waste in self.div_components["combustion"]:
-            components_multiplied_through["combustion"][waste] = (
-                combustion_fraction_of_remainder * combustion_all[waste]
-            )
-
-        # Defensive invariants -> actionable CustomError instead of bare assert
-        # (asserts are stripped under `python -O` and would surface as 500s).
-        for d in div_fractions.model_dump().keys():
-            if (
-                np.abs(
-                    getattr(div_fractions, d)
-                    - sum(components_multiplied_through[d].values())
-                )
-                > 1e-3
-            ):
+                # Stage 1: a slider that on its own exceeds its eligible-waste pool
+                # (clearest message -- a fixed, city-specific ceiling).
+                for t in three:
+                    if targets[t] <= 0:
+                        continue
+                    standalone = _cap(t, {}, (t,))
+                    if targets[t] > standalone + 1e-6:
+                        raise CustomError(
+                            "INVALID_PARAMETERS",
+                            f"{t.capitalize()} can be at most {standalone * 100:.1f}% "
+                            f"of this city's waste (only that much is eligible for "
+                            f"{t}), but {targets[t] * 100:.1f}% was requested.",
+                        )
+                # Stage 2: each fits alone but the combination over-draws a shared
+                # waste type -- name a slider whose reduction restores feasibility.
+                for t in three:
+                    if targets[t] <= 0:
+                        continue
+                    cond = _cap(t, {k: targets[k] for k in three if k != t}, three)
+                    if targets[t] > cond + 1e-6:
+                        raise CustomError(
+                            "INVALID_PARAMETERS",
+                            f"{t.capitalize()} can be at most {cond * 100:.1f}% given "
+                            f"the other diversion selections for this city, but "
+                            f"{targets[t] * 100:.1f}% was requested. Reduce "
+                            f"{t} or the other diversion sliders.",
+                        )
                 raise CustomError(
                     "INVALID_PARAMETERS",
-                    f"Could not satisfy the requested {d} fraction with this "
-                    f"city's waste composition. Adjust the diversion sliders.",
+                    "The requested diversion combination cannot be met by this "
+                    "city's waste composition. Reduce one or more diversion sliders.",
                 )
-            for w in components_multiplied_through[d]:
-                if abs(components_multiplied_through[d][w]) < 1e-9:
-                    components_multiplied_through[d][w] = 0
-                if components_multiplied_through[d][w] < 0:
+
+            # Overwrite the three with the re-split (fraction-of-total-waste units,
+            # exactly what components_multiplied_through holds).
+            for div in three:
+                components_multiplied_through[div] = {w: 0.0 for w in self.waste_types}
+                for w, val in alloc_result["allocation"].get(div, {}).items():
+                    components_multiplied_through[div][w] = val
+
+            # Defensive invariants -> actionable CustomError instead of bare assert
+            # (asserts are stripped under `python -O` and would surface as 500s).
+            for d in three:
+                if np.abs(targets[d] - sum(components_multiplied_through[d].values())) > 1e-3:
                     raise CustomError(
                         "INVALID_PARAMETERS",
-                        f"Could not satisfy the requested diversion mix for "
-                        f"'{w}'. Reduce composting, recycling, or anaerobic "
-                        f"digestion.",
+                        f"Could not satisfy the requested {d} fraction with this "
+                        f"city's waste composition. Adjust the diversion sliders.",
                     )
+                for w in components_multiplied_through[d]:
+                    if abs(components_multiplied_through[d][w]) < 1e-9:
+                        components_multiplied_through[d][w] = 0
+                    if components_multiplied_through[d][w] < 0:
+                        raise CustomError(
+                            "INVALID_PARAMETERS",
+                            f"Could not satisfy the requested diversion mix for "
+                            f"'{w}'. Reduce composting, recycling, or anaerobic "
+                            f"digestion.",
+                        )
 
-        adjusted_div_component_fractions = {
-            div: {
-                waste: (
-                    components_multiplied_through[div][waste]
-                    / getattr(div_fractions, div)
-                    if getattr(div_fractions, div) != 0
-                    else 0
-                )
-                for waste in components_multiplied_through[div]
-            }
-            for div in components_multiplied_through
+        # Incineration burns what the three leave: the same share of every type
+        # left, so it gives up food in proportion as composting grows. load_csv_new
+        # works out a published city's mix the same way, so its baseline matches.
+        left = dst_allocation.left_after(waste_dict, components_multiplied_through)
+        if targets["combustion"] > sum(left.values()) + dst_allocation.ACCEPT_TOLERANCE:
+            raise CustomError(
+                "INVALID_PARAMETERS",
+                f"Incineration can be at most {sum(left.values()) * 100:.1f}% of waste "
+                f"after the requested compost, anaerobic digestion, and "
+                f"recycling, but {targets['combustion'] * 100:.1f}% was "
+                f"requested. Reduce incineration or the other diversion sliders.",
+            )
+        burned = dst_allocation.incineration_mix(waste_dict, components_multiplied_through)
+
+        component_fractions = {}
+        for div in three:
+            if adjusted_diversion_constituents:
+                component_fractions[div] = {
+                    waste: (mass / targets[div] if targets[div] != 0 else 0)
+                    for waste, mass in components_multiplied_through[div].items()
+                }
+            else:
+                component_fractions[div] = getattr(div_component_fractions, div).model_dump()
+        component_fractions["combustion"] = {
+            waste: burned.get(waste, 0.0) for waste in self.waste_types
         }
-
-        adjusted_div_component_fractions = DivComponentFractions(
-            **adjusted_div_component_fractions
-        )
+        div_component_fractions = DivComponentFractions(**component_fractions)
 
         divs = self._divs_from_component_fractions(
-            div_fractions, adjusted_div_component_fractions, scenario=scenario
+            div_fractions, div_component_fractions, scenario=scenario
         )
-
-        div_component_fractions = adjusted_div_component_fractions
-        adjusted_diversion_constituents = True
         input_problems = False
 
         return (
@@ -7684,10 +7640,8 @@ class City:
                             / sum_relevant_fractions
                         )
                     else:
-                        div_component_fractions.loc[:, waste] = (
-                            scenario_parameters.waste_fractions.at[2000, waste]
-                            / sum_relevant_fractions
-                        )
+                        # A type the diversion can't take gets none of it.
+                        div_component_fractions.loc[:, waste] = 0.0
 
                 # Set the div_component_fractions in the scenario_parameters
                 setattr(
