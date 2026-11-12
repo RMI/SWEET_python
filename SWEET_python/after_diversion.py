@@ -24,19 +24,26 @@ from __future__ import annotations
 
 from collections.abc import Collection, Mapping
 
+import numpy as np
+
 from SWEET_python.constants import DIVERSION_ELIGIBILITY
 
-#: The answer is final when no share moves by more than this between two passes. A pass
-#: moves each share by exactly its round-trip error, so this also bounds that error.
+#: The answer is final when adding each pathway's take back onto what was left moves no
+#: share by more than this, which bounds the round trip's error.
 TOLERANCE = 1e-12
-#: A single pathway, or several whose types don't overlap, is exact after one pass:
-#: within one pathway's types the add-back keeps their proportions. Overlapping ones
-#: iterate. Bristol (recycling with incineration) takes 20 passes; the slowest of 4,000
-#: adversarial mixes took 4,970.
-MAX_PASSES = 100_000
+#: Where some type is almost all diverted, rounding stops the answer short of TOLERANCE:
+#: its share is known to about 1e-16 over the fraction of it left. An answer is still
+#: used within this, a thousandth of what the city model's mass check allows (1e-5).
+PRECISE_ENOUGH = 1e-8
+#: Newton steps allowed. The slowest of 14,000 random mixes, up to 99.99999% diverted,
+#: took 38.
+MAX_STEPS = 200
+#: Newton's decrement under which the cost no longer tells steps apart from rounding, so
+#: they are taken whole.
+NEAR = 1e-13
 #: Below this share of the waste left undiverted there is too little to survey, and
-#: floating-point noise, not the survey, would decide the answer.
-LEAST_LEFT = 1e-9
+#: rounding, not the survey, would decide the answer.
+LEAST_LEFT = 1e-7
 
 
 # decision: composition-after-diversion
@@ -63,7 +70,9 @@ def composition_before_diversion(
             it, so none was left to survey; or a pathway diverts some of it, but the
             surveyed waste has none of the types that pathway takes, so nothing says
             which types it took.
-        RuntimeError: if the answer has not settled after MAX_PASSES passes.
+        RuntimeError: if rounding keeps the answer further than PRECISE_ENOUGH from
+            the round trip, which happens only where a type is almost all diverted
+            (one in about 50 random mixes diverting 99.99999%, none below 99.99%).
     """
     total = sum(surveyed.values())
     if not total > 0:
@@ -86,27 +95,67 @@ def composition_before_diversion(
                 f"has none of the types it takes ({', '.join(sorted(eligibility[path]))})."
             )
 
-    # Each type's generated share is what was left of it plus what each pathway took of
-    # it. A pathway takes its share in proportion to the generated shares, the unknowns,
-    # so iterate. Every pass keeps the shares summing to 1.
+    # Each pathway takes the same fraction of every type it takes, its rate: its share
+    # over the generated size of its pool. A type's generated share is then what was
+    # left of it over what all its pathways' rates leave of it, kept*left / (1 - rates).
+    # The rates that make every pathway's take come to its share are the minimum of a
+    # strictly convex function, so there is one answer, and Newton's method finds it.
+    if not shares:
+        return dict(left)
     kept = 1 - taken
-    generated = dict(left)
-    for _ in range(MAX_PASSES):
-        pool_sizes = {
-            path: sum(generated[w] for w in types) for path, types in pools.items()
-        }
-        updated = {
-            waste: kept * left[waste]
-            + sum(
-                shares[path] * generated[waste] / pool_sizes[path]
-                for path in shares
-                if waste in eligibility[path]
-            )
-            for waste in left
-        }
-        if max(abs(updated[w] - generated[w]) for w in left) < TOLERANCE:
-            return updated
-        generated = updated
-    raise RuntimeError(
-        f"The composition before diversion did not settle in {MAX_PASSES} passes."
-    )
+    paths = list(shares)
+    types = list(left)
+    weight = np.array([kept * left[w] for w in types])
+    share = np.array([shares[p] for p in paths])
+    takes = np.array([[w in eligibility[p] for w in types] for p in paths], dtype=float)
+    present = weight > 0
+
+    def room(rates):
+        return np.where(present, 1 - takes.T @ rates, 1.0)
+
+    def cost(rates):
+        if (rates <= 0).any() or (room(rates)[present] <= 0).any():
+            return np.inf
+        return -(weight[present] @ np.log(room(rates)[present])) - share @ np.log(rates)
+
+    def answer(rates):
+        # Add what each pathway takes back onto what was left. This needs no
+        # subtraction, so it keeps its precision where almost all of a type is diverted.
+        generated = weight / room(rates)
+        pool_sizes = takes @ generated
+        adjusted = kept * np.array([left[w] for w in types]) + generated * (
+            takes.T @ (share / pool_sizes)
+        )
+        return adjusted, np.abs(adjusted - generated).max()
+
+    # Each pathway's share as its rate keeps every type's rates under 1: they sum to
+    # less than all the diversion. A step is shortened until it stays in bounds and,
+    # far from the answer, lowers the cost; near it, whole steps converge quadratically
+    # until rounding stops them improving.
+    rates = share.copy()
+    best, best_error, stalled = None, np.inf, 0
+    for _ in range(MAX_STEPS):
+        generated, error = answer(rates)
+        gradient = takes @ (weight / room(rates)) - share / rates
+        hessian = (takes * (weight / room(rates) ** 2)) @ takes.T + np.diag(share / rates**2)
+        step = np.linalg.solve(hessian, gradient)
+        decrement = gradient @ step
+        if error < best_error:
+            best, best_error, stalled = generated, error, 0
+        elif decrement <= NEAR:
+            stalled += 1
+        if best_error < TOLERANCE or stalled >= 3:
+            break
+        size, before = 1.0, cost(rates)
+        while cost(rates - size * step) == np.inf or (
+            decrement > NEAR and cost(rates - size * step) > before - size * decrement / 4
+        ):
+            size /= 2
+        rates = rates - size * step
+    if best_error > PRECISE_ENOUGH:
+        raise RuntimeError(
+            "The composition before diversion could not be found to within "
+            f"{PRECISE_ENOUGH:g} of the waste (best {best_error:.1e}): some type is "
+            "almost all diverted."
+        )
+    return dict(zip(types, best.tolist()))

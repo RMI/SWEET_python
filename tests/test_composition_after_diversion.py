@@ -172,6 +172,39 @@ def test_diversion_scaled_to_a_hair_under_100_percent_is_refused():
         _load("Seattle", row=row, composition_after_diversion=True)
 
 
+MIXED = {
+    "food": 0.3, "green": 0.1, "wood": 0.05, "paper_cardboard": 0.2, "textiles": 0.05,
+    "plastic": 0.15, "metal": 0.05, "glass": 0.05, "rubber": 0.02, "other": 0.03,
+}
+
+
+def _left_after_diverting(generated, shares):
+    pools = {p: sum(generated[w] for w in DIVERSION_ELIGIBILITY[p] if w in generated) for p in shares}
+    left = {
+        w: generated[w] - sum(shares[p] * generated[w] / pools[p] for p in shares if w in DIVERSION_ELIGIBILITY[p])
+        for w in generated
+    }
+    total = sum(left.values())
+    return {w: share / total for w, share in left.items()}
+
+
+def test_diversion_of_all_but_a_millionth_still_solves():
+    """Overlapping pathways that take almost everything used to run out of passes."""
+    shares = {"compost": 0.999994, "recycling": 0.000005}
+    generated = composition_before_diversion(MIXED, shares)
+    assert sum(generated.values()) == pytest.approx(1, abs=1e-12)
+    left = _left_after_diverting(generated, shares)
+    assert max(abs(left[w] - MIXED[w]) for w in MIXED) < 1e-6
+
+
+def test_a_type_rounding_cannot_resolve_is_refused_by_name():
+    """A sliver of wood that compost and digestion must have taken 91% of the waste from."""
+    surveyed = {"wood": 0.0042, "textiles": 0.317, "glass": 0.278, "rubber": 0.139, "other": 0.262}
+    shares = {"compost": 0.30574032247, "anaerobic": 0.60408096140, "recycling": 0.09017770613}
+    with pytest.raises(RuntimeError, match="almost all diverted"):
+        composition_before_diversion(surveyed, shares)
+
+
 @pytest.mark.parametrize("name", ["Seattle", "Canberra"])
 def test_the_tonnage_is_not_touched(name):
     """Both surveyed their tonnage in their population year, so the loader keeps it as is."""
