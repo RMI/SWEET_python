@@ -524,17 +524,75 @@ GENERATED_ROWS_FROM_IPCC_TABLE = {
     "GHA": "Ghana NIR 2015: composition of the municipal waste generated in 2012",
     "ZWE": "Zimbabwe Third National Communication 2018: solid waste generated in 2007, mean of 11 cities",
 }
+# Brazil's national mix serves both tables: Brazil recycles and composts little, so the
+# waste collected is close to the waste landfilled. Abrelpe 2020, as printed in the
+# national plan (Planares 2022, annex to Decreto 11.043, pp.18-19, Grafico 3): about
+# 200 municipal studies of the waste collected, weighted by income band. Its organic
+# 45.3 (food, green waste and wood) is split 85.9/12.2/1.9 as measured in Minas Gerais
+# in 2015 (FEAM, 170 municipalities, Tabela 7); its textiles 5.6 include leather and
+# rubber; other is multilayer packaging 1.4 and rejects 15.5, mostly sanitary waste.
+BRAZIL_ABRELPE_2020 = [38.90, 5.53, 0.87, 10.4, 5.6, 16.8, 2.3, 2.7, 0.0, 16.9]
+BRAZIL_ABRELPE_2020_SOURCE = (
+    "Abrelpe 2020 via Planares 2022 (Decreto 11.043 annex, Grafico 3): waste collected, "
+    "about 200 municipal studies; organics split by FEAM Minas Gerais 2015"
+)
+
+# Generated mixes from national sources, in percent and WASTE_TYPES order, each
+# checked against its source (2026-11-11). Where a source lumps organics, the lump
+# is in food unless the source or a named study splits it.
+WASTE_FRACTIONS_GENERATED_OWN = {
+    "BRA": (BRAZIL_ABRELPE_2020, BRAZIL_ABRELPE_2020_SOURCE),
+    "CHE": (
+        [22.5, 17.2, 0.0, 26.2, 2.3, 7.0, 1.9, 7.3, 0.0, 15.6],
+        "BAFU waste-bag survey 2022 (Table 8) applied to the 321 kg a person burned, plus "
+        "the 350 kg separately collected (BAFU, Abfallmengen und Recycling 2022). The 159 kg "
+        "of separately collected biogenic waste is split 26.9/69.8 food/garden as in BAFU's "
+        "green-waste study 2022/23.",
+    ),
+    "DZA": (
+        [53.6, 0.0, 0.0, 6.8, 4.5, 15.3, 1.7, 1.0, 0.9, 16.2],
+        "Algeria National Waste Agency, household waste characterisation 2018/2019 "
+        "(Figure 14): collected household waste in four wilayas, four seasons. Organic is "
+        "lumped; nappies (11.8) are other.",
+    ),
+    "HKG": (
+        [21.4, 1.4, 1.5, 23.5, 2.7, 16.5, 18.6, 1.6, 0.2, 12.8],
+        "Hong Kong EPD, Waste Statistics for 2022: MSW landfilled (Plates 2.8-2.9) plus "
+        "recovered (Plates 3.1, 3.3). Metal is mostly 885 kt of recovered ferrous scrap.",
+    ),
+    "PER": (
+        [52.4, 3.6, 0.0, 8.2, 1.1, 11.5, 3.1, 2.9, 0.5, 16.5],
+        "Peru MINAM SIGERSOL 2023, composition of household waste generated (open data, "
+        "1,891 districts by tonnage). Sanitary waste, toilet paper included, is other.",
+    ),
+    "USA": (
+        [21.6, 12.1, 6.2, 23.1, 5.8, 12.2, 8.8, 4.2, 3.1, 2.9],
+        "US EPA, Advancing Sustainable Materials Management: 2018 Tables and Figures, "
+        "Table 1: generation before recycling, composting, combustion or landfill.",
+    ),
+    "ZMB": (
+        [51.0, 0.0, 0.0, 6.0, 4.0, 14.0, 9.0, 4.0, 0.0, 12.0],
+        "TNO for CTCN 2022, circular-economy roadmap for Zambia, baseline (Figure 5): 90 "
+        "household samples in Lusaka, Kitwe and Livingstone, 2021. Organic is lumped.",
+    ),
+}
 WASTE_FRACTIONS_GENERATED_COUNTRY = pd.concat(
     [
         pd.DataFrame.from_dict(ERM_2015_COMPOSITION, orient="index", columns=list(ERM_2015_COLUMNS))
         .T.groupby(ERM_TO_WASTE_TYPE).sum().T
         .reindex(columns=list(WASTE_TYPES), fill_value=0.0),
         WASTE_FRACTIONS_COUNTRY.loc[list(GENERATED_ROWS_FROM_IPCC_TABLE)].reindex(columns=list(WASTE_TYPES)),
+        pd.DataFrame.from_dict(
+            {iso3: shares for iso3, (shares, _) in WASTE_FRACTIONS_GENERATED_OWN.items()},
+            orient="index",
+            columns=list(WASTE_TYPES),
+        ),
     ]
 ).sort_index()
 WASTE_FRACTIONS_GENERATED_SOURCES = {
     **{iso3: ERM_2015_SOURCE for iso3 in ERM_2015_COMPOSITION},
     **{iso3: f"IPCC 2019 Table 2A.2, from the {source}" for iso3, source in GENERATED_ROWS_FROM_IPCC_TABLE.items()},
+    **{iso3: source for iso3, (_, source) in WASTE_FRACTIONS_GENERATED_OWN.items()},
 }
 
 # Rows of WASTE_FRACTIONS_COUNTRY whose cited source says they describe waste sent to
@@ -542,9 +600,10 @@ WASTE_FRACTIONS_GENERATED_SOURCES = {
 # inventory rows that their inventory calls generated (Bulgaria, Moldova, Russia,
 # Sweden, Zimbabwe), whose numbers are not in the inventory cited (Germany, the
 # Netherlands), or whose inventory could not be read (Turkiye, Lithuania, Slovenia);
-# rows only inferred to be disposed (Australia, New Zealand, Portugal, Denmark);
-# Latvia, which IPCC misread (its inventory's 47.9% organic waste went into "other",
-# so food shows 0); and Italy, corrected in the 2023 reissue (that row is below).
+# rows only inferred to be disposed (Australia, Portugal, Denmark); and three rows
+# replaced below by their sources read again: New Zealand (MfE 2020), Latvia (IPCC put
+# its inventory's 47.9% organic waste into "other", so food shows 0) and Italy
+# (corrected in the 2023 reissue).
 DISPOSED_ROWS_FROM_IPCC_TABLE = {
     "CHE": "Switzerland NIR: municipal waste going to landfill, 2010 onward; its plastic includes other inert waste",
     "CZE": "Czechia NIR: municipal waste in landfills, from landfill surveys in 2001 and 2005-09",
@@ -561,9 +620,44 @@ DISPOSED_ROWS_FROM_IPCC_TABLE = {
     "POL": "Poland NIR: municipal waste landfilled, from facility reports",
     "USA": "US NIR 2018: EPA Facts and Figures 2014, municipal waste landfilled by material",
 }
-# Inventory mixes that WASTE_FRACTIONS_COUNTRY has no usable row for, in percent and
-# WASTE_TYPES order, with their sources.
+# Disposed mixes from national sources and inventories, in percent and WASTE_TYPES
+# order, each checked against its source (2026-11-11).
 WASTE_FRACTIONS_DISPOSED_OWN = {
+    "BRA": (BRAZIL_ABRELPE_2020, BRAZIL_ABRELPE_2020_SOURCE + "; collected waste, little diverted"),
+    "CHL": (
+        [57.6, 0.0, 0.0, 10.3, 0.0, 10.8, 2.0, 3.2, 0.0, 16.2],
+        "ImplementaSur for MMA 2019, Grafico 2 (from SUBDERE 2018): household and similar "
+        "waste collected, 2017; about 1% is diverted. Organic is lumped. Built from a "
+        "survey of municipalities, not a sort.",
+    ),
+    "HKG": (
+        [29.7, 1.7, 1.9, 20.2, 3.5, 21.3, 2.2, 1.9, 0.0, 17.7],
+        "Hong Kong EPD, Waste Statistics for 2022, Plates 2.8-2.9: MSW disposed of at landfills.",
+    ),
+    "LVA": (
+        [47.90, 0.0, 2.11, 6.40, 3.35, 8.54, 2.36, 20.64, 0.0, 8.69],
+        "Latvia NIR 2017, Table 7.7 (from Virsma 2011): waste sampled at the four largest "
+        "landfills. Organic 47.9 includes hygiene waste and is not split; textiles include "
+        "rubber. Glass 20.64 rests on Daibe samples of 35-62% glass, which look doubtful. "
+        "IPCC put the organic into other.",
+    ),
+    "NZL": (
+        [9.0, 5.7, 12.6, 5.9, 5.0, 8.3, 3.5, 1.8, 2.1, 46.1],
+        "NZ Ministry for the Environment 2020, national average composition of waste "
+        "disposed of to Class 1 landfills, 2018 (Table 3.1). Includes construction waste; "
+        "other holds rubble 20.1, sanitary paper 2.5 and sewage sludge 1.9.",
+    ),
+    "PAN": (
+        [33.0, 0.0, 2.1, 13.7, 6.3, 17.2, 4.5, 3.0, 0.1, 20.1],
+        "Panama AAUD, national waste plan 2017-2027, Tabla 8: household waste sampled at 31 "
+        "disposal sites, 2016-17. Organic is lumped; tissue and nappies (9.4) are other.",
+    ),
+    "TTO": (
+        [20.6, 11.8, 0.0, 18.0, 6.4, 17.4, 2.8, 5.5, 0.0, 17.6],
+        "SWMCOL 2023, Trinidad waste characterisation, final results: unsorted waste at the "
+        "four landfills, 2022-23. Beverage containers split by weight; sanitary textiles, "
+        "construction waste and composites are other.",
+    ),
     "AUT": (
         [35.2, 4.8, 0.0, 12.0, 6.0, 10.0, 3.0, 4.0, 0.0, 24.0],
         "Austria NID 2025 (Umweltbundesamt REP-0964), Table 319, 2008 column: residual "

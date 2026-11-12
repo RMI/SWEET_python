@@ -31,7 +31,7 @@ def test_reference_model_rows_are_complete_as_printed():
 def test_generated_table_maps_the_reference_model_onto_the_ten_types():
     g = d.WASTE_FRACTIONS_GENERATED_COUNTRY
     assert list(g.columns) == list(WASTE_TYPES)
-    assert set(g.index) == EU28 | set(d.GENERATED_ROWS_FROM_IPCC_TABLE)
+    assert set(g.index) == EU28 | set(d.GENERATED_ROWS_FROM_IPCC_TABLE) | set(d.WASTE_FRACTIONS_GENERATED_OWN)
     # Austria as printed: food 18.2, garden 18.6, no other biowaste.
     assert g.loc["AUT", "food"] == pytest.approx(18.2)
     assert g.loc["AUT", "green"] == pytest.approx(18.6)
@@ -94,7 +94,7 @@ def test_waste_composition_by_basis():
         row = d.waste_composition_by_basis("GBR", basis)
         assert list(row.index) == list(WASTE_TYPES)
         assert row.sum() == pytest.approx(1)
-    assert d.waste_composition_by_basis("USA", "generated") is None
+    assert d.waste_composition_by_basis("RUS", "generated") is None
     assert d.waste_composition_by_basis("AUT", "disposed")["food"] == pytest.approx(35.2 / 99)
     with pytest.raises(ValueError):
         d.waste_composition_by_basis("GBR", "landfilled")
@@ -114,3 +114,17 @@ def test_the_default_every_path_reads_is_unchanged(iso3, food):
     got = d.waste_composition_for(iso3, d.REGION_LOOKUP_ISO3[iso3])
     assert got["food"] == pytest.approx(food)
     assert got.sum() == pytest.approx(1)
+
+
+def test_generated_rows_of_their_own_add_up_and_brazil_has_one_home():
+    for iso3, (shares, source) in d.WASTE_FRACTIONS_GENERATED_OWN.items():
+        assert iso3 not in d.ERM_2015_COMPOSITION and iso3 not in d.GENERATED_ROWS_FROM_IPCC_TABLE
+        assert len(shares) == len(WASTE_TYPES)
+        assert 99.5 <= sum(shares) <= 100.5, iso3
+        assert source
+    # Brazil's collected-waste mix serves both tables from one list.
+    assert d.WASTE_FRACTIONS_GENERATED_OWN["BRA"][0] is d.WASTE_FRACTIONS_DISPOSED_OWN["BRA"][0]
+    assert d.WASTE_FRACTIONS_GENERATED_COUNTRY.loc["BRA", "food"] == pytest.approx(38.90)
+    # The US generated mix is EPA 2018 generation; its disposed mix stays EPA 2014 landfilled.
+    assert d.WASTE_FRACTIONS_GENERATED_COUNTRY.loc["USA", "green"] == pytest.approx(12.1)
+    assert "USA" in d.DISPOSED_ROWS_FROM_IPCC_TABLE
