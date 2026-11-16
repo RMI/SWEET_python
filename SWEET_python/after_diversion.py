@@ -9,10 +9,13 @@ modelled at all: Seattle recycles 58% of its waste, and 46% of its surveyed comp
 is material SWEET can recycle.
 
 `composition_before_diversion` adds the diverted waste back. It undoes SWEET's own
-diversion, which takes each pathway's share of the waste from the types that pathway can
-take, in proportion to how much of each the city generates (`diversion-eligibility`).
-Its answer is the composition that, once SWEET diverts from it, leaves the surveyed
-composition behind. The city's tonnage is not touched.
+diversion. Composting, digestion and recycling each take their share of the waste from
+the types they can take, in proportion to how much of each the city generates
+(`diversion-eligibility`). Incineration then burns the same share of every type they
+leave (`diversion-split`), which changes how much is left but not its mix, so only the
+other three's takes are added back. Its answer is the composition that, once SWEET
+diverts from it, leaves the surveyed composition behind. The city's tonnage is not
+touched.
 
 That is the waste sent straight to disposal. SWEET then landfills each pathway's rejects
 as well (`diversion-rejects`), as it does for every city: the recycling and compost
@@ -27,6 +30,7 @@ from collections.abc import Collection, Mapping
 import numpy as np
 
 from SWEET_python.constants import DIVERSION_ELIGIBILITY
+from SWEET_python.dst_allocation import NON_COMBUSTION
 
 #: The answer is final when adding each pathway's take back onto what was left moves no
 #: share by more than this, which bounds the round trip's error.
@@ -87,6 +91,9 @@ def composition_before_diversion(
             f"The diversion shares add up to {taken:.1%} of the waste, so none was "
             "left to survey."
         )
+    # Incineration burns the same share of every type the others leave, so the waste
+    # it leaves has the mix of the waste it got: there is nothing of it to undo.
+    shares = {path: share for path, share in shares.items() if path in NON_COMBUSTION}
     pools = {path: [w for w in left if w in eligibility[path]] for path in shares}
     for path, types in pools.items():
         if sum(left[w] for w in types) <= 0:
@@ -102,7 +109,8 @@ def composition_before_diversion(
     # strictly convex function, so there is one answer, and Newton's method finds it.
     if not shares:
         return dict(left)
-    kept = 1 - taken
+    # What the three leave, which incineration then burns its share of.
+    kept = 1 - sum(shares.values())
     paths = list(shares)
     types = list(left)
     weight = np.array([kept * left[w] for w in types])

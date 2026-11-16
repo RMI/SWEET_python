@@ -211,11 +211,11 @@ When the caller says a city's composition was surveyed on the waste left after d
 - **Kind:** method choice
 - **Why:** Read as generated, a composition weighed at the landfill has its diverted materials taken out twice, and a city diverting more of a material than its landfill still holds can't be modelled.
 - **Paths:**
-  - `city-model`: in `load_andre_params`, given `composition_after_diversion`. Each pathway's share comes back from its eligible types, in proportion to the generated mix, so diverting leaves the survey; rejects are still landfilled. Tonnage unchanged.
+  - `city-model`: in `load_andre_params`, given `composition_after_diversion`. Composting, digestion and recycling come back from their eligible types in proportion to the generated mix. Incineration burns the same share of every type left, so adds nothing back. Rejects still landfilled; tonnage unchanged.
 - **Confidence:** medium
 - **Better:** Record which stage of the waste stream each survey weighed in the database. Where a survey weighed landfill inflow, residue included, solve for the rejects too, so SWEET's landfill matches it.
 - **Code:** `SWEET_python/after_diversion.py`, `SWEET_python/city_params.py`
-- **Reviewed:** 2026-11-10
+- **Reviewed:** 2026-11-16
 
 ### `all-city-waste-is-collected`
 
