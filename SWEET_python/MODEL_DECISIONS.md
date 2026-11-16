@@ -82,6 +82,7 @@ Where the code applies a decision, a one-line comment names it:
 |---|---|---|---|
 | [`site-type-fill`](#site-type-fill) | Inputs | fallback | low |
 | [`waste-composition`](#waste-composition) | Inputs | fallback | medium |
+| [`composition-after-diversion`](#composition-after-diversion) | Inputs | method choice | medium |
 | [`all-city-waste-is-collected`](#all-city-waste-is-collected) | Inputs | simplification | low |
 | [`population-growth`](#population-growth) | Inputs | fallback | medium |
 | [`intake-follows-population`](#intake-follows-population) | Inputs | simplification | low |
@@ -198,10 +199,23 @@ A site or city with no usable composition takes its country's mix, else its regi
   - `site-tool`: the caller's mix, except over the years a Climate TRACE series covers, which keep that series' mix (or split a total by the caller's). The location prefill uses `country`, else `region`.
   - `adst-site`, `adst-city`: the caller's mix, which may change by year.
 - **Confidence:** medium
-- **Better:** Use a site's own composition when reported (Climate TRACE issue #146), and let the mix change over time.
+- **Better:** Use a site's own composition when reported (Climate TRACE issue #146), and let the mix change over time. Give `city-model` a generated mix and `ct-site` and `site-tool` a disposed one; `defaults_2019` now keeps both apart.
 - **Value:** `SWEET_python.defaults_2019`: `WASTE_FRACTIONS_COUNTRY`, `WASTE_FRACTION_DEFAULTS`
 - **Code:** `SWEET_python/defaults_2019.py`, `SWEET_python/city_params.py`
 - **Reviewed:** 2026-10-22
+
+### `composition-after-diversion`
+
+When the caller says a city's composition was surveyed on the waste left after diversion, the city model adds back what each pathway took, and models that as what the city generates.
+
+- **Kind:** method choice
+- **Why:** Read as generated, a composition weighed at the landfill has its diverted materials taken out twice, and a city diverting more of a material than its landfill still holds can't be modelled.
+- **Paths:**
+  - `city-model`: in `load_andre_params`, given `composition_after_diversion`. Each pathway's share comes back from its eligible types, in proportion to the generated mix, so diverting leaves the survey; rejects are still landfilled. Tonnage unchanged.
+- **Confidence:** medium
+- **Better:** Record which stage of the waste stream each survey weighed in the database. Where a survey weighed landfill inflow, residue included, solve for the rejects too, so SWEET's landfill matches it.
+- **Code:** `SWEET_python/after_diversion.py`, `SWEET_python/city_params.py`
+- **Reviewed:** 2026-11-10
 
 ### `all-city-waste-is-collected`
 

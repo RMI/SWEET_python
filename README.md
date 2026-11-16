@@ -72,6 +72,13 @@ Where things are:
   factors), `population.py` (UN population, for growing waste year by year) and
   `dst_common.py` (shared by the DST paths).
 
+# Docs
+
+Longer write-ups live in [`docs/`](docs/):
+
+- [`docs/WASTE_COMPOSITION_DEFAULTS.md`](docs/WASTE_COMPOSITION_DEFAULTS.md): the country waste
+  mixes, generated and disposed, where every row comes from, and what each IPCC row describes.
+
 # Decision comments
 
 Some lines carry a comment like `# decision: mcf-by-type-and-depth`. Each marks a modelling
