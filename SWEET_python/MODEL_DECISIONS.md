@@ -150,8 +150,10 @@ the unknown close year (see `flaring-uniform`, `gas-capture-efficiency`, `missin
 - **Diversion defaults** (`diversion-defaults`): a Custom Location always takes its country's
   composting and incineration shares; a city takes them only when it reports no diversion and its
   landfill shares add up to under 99%.
-- **Over-drawn diversion** (`diversion-split`): the city paths re-split by min-cost max-flow; `adst-city`
-  refuses the request.
+- **Over-drawn diversion** (`diversion-split`): the city paths re-split, keeping each diversion's mix;
+  `adst-city` refuses the request.
+- **Incineration's mix** (`diversion-split`): the city paths burn what composting, digestion and
+  recycling leave; `adst-city` burns in proportion to all of a city's waste.
 - **Food prevention** (`food-waste-prevention`): the city DST keeps the baseline's decay rate and compost
   factor; `adst-city` recomputes both from the reduced mix.
 - **Unknown opening year** (`open-year-unknown`): `ct-site` uses 1970; the site-tool prefill 2010 for a
@@ -209,11 +211,11 @@ When the caller says a city's composition was surveyed on the waste left after d
 - **Kind:** method choice
 - **Why:** Read as generated, a composition weighed at the landfill has its diverted materials taken out twice, and a city diverting more of a material than its landfill still holds can't be modelled.
 - **Paths:**
-  - `city-model`: in `load_andre_params`, given `composition_after_diversion`. Each pathway's share comes back from its eligible types, in proportion to the generated mix, so diverting leaves the survey; rejects are still landfilled. Tonnage unchanged.
+  - `city-model`: in `load_andre_params`, given `composition_after_diversion`. Composting, digestion and recycling come back from their eligible types in proportion to the generated mix. Incineration burns the same share of every type left, so adds nothing back. Rejects still landfilled; tonnage unchanged.
 - **Confidence:** medium
 - **Better:** Record which stage of the waste stream each survey weighed in the database. Where a survey weighed landfill inflow, residue included, solve for the rejects too, so SWEET's landfill matches it.
 - **Code:** `SWEET_python/after_diversion.py`, `SWEET_python/city_params.py`
-- **Reviewed:** 2026-11-10
+- **Reviewed:** 2026-11-16
 
 ### `all-city-waste-is-collected`
 
@@ -486,7 +488,7 @@ Each diversion takes only some waste types: composting and digestion take food, 
 - **Kind:** fixed value
 - **Why:** Not recorded; it follows what each treatment can process.
 - **Paths:**
-  - `city-model`, `city-dst-scenario`, `custom-location`, `adst-city`: a diversion draws on these types in proportion to the mix.
+  - `city-model`, `city-dst-scenario`, `custom-location`, `adst-city`: a diversion draws on these types in proportion to the mix. On the city paths, incineration's mix is what the others leave (`diversion-split`).
 - **Confidence:** medium
 - **Better:** Let incineration take a burnable mix. A share now burns metal and glass in proportion, so it removes fewer degradables than its size suggests.
 - **Value:** `SWEET_python.constants.DIVERSION_ELIGIBILITY`, which `City.div_components` copies and `dst_allocation.DEFAULT_ELIGIBILITY` reads
@@ -523,17 +525,17 @@ Composting emits a CO2e factor per tonne of food and green waste, turned into me
 
 ### `diversion-split`
 
-When a diversion over-draws a waste type, the city paths re-split composting, digestion and recycling by min-cost max-flow, favouring types fewer treatments take, then burn a uniform share of the rest.
+Composting, digestion and recycling draw types in their own mix (published, else the waste mix), sharing any over-drawn type. Incineration burns the same share of every type they leave.
 
 - **Kind:** method choice
-- **Why:** A proportional split can ask for more of a type than a city generates.
+- **Why:** A proportional split can ask for more of a type than a city has, and an incinerator takes what separate collection leaves. So raising any slider never landfills more of any type.
 - **Paths:**
-  - `city-model`, `city-dst-scenario`, `custom-location`: proportional, then the solver when a type is over-drawn.
-  - `adst-city`: proportional; an over-drawn type is refused as an error.
+  - `city-model`, `city-dst-scenario`, `custom-location`: the three's mixes as they are when they fit, else the nearest split that fits (relative entropy); incineration burns what they leave. Until 2026-11: a min-cost max-flow split, and incineration in proportion to all waste.
+  - `adst-city`: proportional, incineration in proportion to all waste; an over-drawn type is refused as an error.
 - **Confidence:** medium
-- **Better:** One rule on every path. The split jumps from proportional to the solver's as a slider crosses the boundary.
-- **Code:** `SWEET_python/city_params.py`
-- **Reviewed:** 2026-10-23
+- **Better:** One rule on every path.
+- **Code:** `SWEET_python/city_params.py` (2 places), `SWEET_python/dst_allocation.py` (2 places)
+- **Reviewed:** 2026-11-10
 
 ### `food-waste-prevention`
 

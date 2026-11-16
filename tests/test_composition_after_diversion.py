@@ -76,14 +76,19 @@ def _surveyed(row):
 
 
 def _left_after_diversion(generated, diverted):
-    """SWEET's own diversion: each pathway takes its share from its types, in proportion."""
+    """SWEET's own diversion: composting, digestion and recycling each take their share
+    from their types, in proportion; incineration then burns the same share of every
+    type they leave."""
     left = dict(generated)
     for path, share in diverted.items():
+        if path == "combustion":
+            continue
         types = [w for w in generated if w in DIVERSION_ELIGIBILITY[path]]
         pool = sum(generated[w] for w in types)
         for w in types:
             left[w] -= share * generated[w] / pool
-    return left
+    burned = diverted.get("combustion", 0.0) / sum(left.values())
+    return {w: share * (1 - burned) for w, share in left.items()}
 
 
 @pytest.mark.parametrize("name", sorted(CITIES))
