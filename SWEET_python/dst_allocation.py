@@ -310,7 +310,6 @@ def proportional_allocation(waste: dict, targets: dict, mixes: dict = None,
     weights = treatment_mixes(waste, mixes, eligibility, treatments)
     support = {t: set(weights[t]) for t in treatments}
     asked = {t: float(targets.get(t, 0.0) or 0.0) for t in treatments}
-    active = [t for t in treatments if asked[t] > 0]
 
     exact = solve_allocation(waste, asked, support, treatments)
     # Short by no more than rounding still fits: diverting all of a city's waste can
@@ -318,6 +317,9 @@ def proportional_allocation(waste: dict, targets: dict, mixes: dict = None,
     if not exact["feasible"] and exact["shortfall"] > ACCEPT_TOLERANCE:
         return {"feasible": False, "allocation": {t: {} for t in treatments},
                 "support": support, "converged": False}
+    # A treatment with none of its types in the city gets nothing. It fits only because
+    # its target is within rounding of 0, and in the re-split its row would be 0/0.
+    active = [t for t in treatments if asked[t] > 0 and weights[t]]
     if not active:
         return {"feasible": True, "allocation": {t: {} for t in treatments},
                 "support": support, "converged": True}

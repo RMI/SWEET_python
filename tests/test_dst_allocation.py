@@ -442,6 +442,23 @@ def test_a_type_the_mix_leaves_out_is_used_once_the_rest_runs_out():
     assert max_feasible_target("compost", waste, {}, ELIG) == pytest.approx(1.0)
 
 
+def test_a_rounding_size_target_with_nothing_to_take_gets_nothing():
+    """A compost target within rounding of 0, in a city with nothing compost can take,
+    fits and gets nothing. Alone it used to raise; beside recycling it turned the
+    re-split into NaN, so recycling fell back on the max-flow split (all textiles)."""
+    waste = wf(textiles=1.0)
+    res = proportional_allocation(waste, {"compost": 1e-9}, treatment_mixes(waste))
+    assert res["feasible"] and res["converged"]
+    assert res["allocation"]["compost"] == {}
+
+    waste = wf(textiles=0.5, plastic=0.5)
+    targets = {"compost": 1e-9, "recycling": 0.2}
+    res = proportional_allocation(waste, targets, treatment_mixes(waste))
+    assert res["feasible"] and res["converged"]
+    assert res["allocation"]["compost"] == {}
+    assert res["allocation"]["recycling"] == pytest.approx({"textiles": 0.1, "plastic": 0.1})
+
+
 def test_a_missing_mix_takes_the_waste_mix():
     mixes = treatment_mixes(LONDON, {"recycling": {"food": 0.5}})
     assert mixes["recycling"] == pytest.approx(
