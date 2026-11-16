@@ -486,14 +486,14 @@ A city's reported treatment shares map onto four buckets: sanitary landfill with
 Each diversion takes only some waste types: composting and digestion take food, green, wood and paper; recycling takes everything but food and green; incineration takes all ten.
 
 - **Kind:** fixed value
-- **Why:** Not recorded; it follows what each treatment can process.
+- **Why:** Each treatment takes what it can process. Incineration takes all ten because a reported incineration share counts the tonnes delivered to the plant, metal and glass included; a burnable-only mix would burn more food and paper than that.
 - **Paths:**
   - `city-model`, `city-dst-scenario`, `custom-location`, `adst-city`: a diversion draws on these types in proportion to the mix. On the city paths, incineration's mix is what the others leave (`diversion-split`).
 - **Confidence:** medium
-- **Better:** Let incineration take a burnable mix. A share now burns metal and glass in proportion, so it removes fewer degradables than its size suggests.
+- **Better:** The `adst-city` `combustion` diversion draws on the whole mix, not on what the others leave. WasteMAP's advanced DST never sends it: its incinerator is a site that burns (`combusts`), which matches the city paths.
 - **Value:** `SWEET_python.constants.DIVERSION_ELIGIBILITY`, which `City.div_components` copies and `dst_allocation.DEFAULT_ELIGIBILITY` reads
 - **Code:** `SWEET_python/constants.py`
-- **Reviewed:** 2026-10-23
+- **Reviewed:** 2026-11-16
 
 ### `diversion-rejects`
 
