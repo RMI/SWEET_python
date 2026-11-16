@@ -490,7 +490,7 @@ Each diversion takes only some waste types: composting and digestion take food, 
 - **Paths:**
   - `city-model`, `city-dst-scenario`, `custom-location`, `adst-city`: a diversion draws on these types in proportion to the mix. On the city paths, incineration's mix is what the others leave (`diversion-split`).
 - **Confidence:** medium
-- **Better:** The `adst-city` combustion pathway draws on the whole mix, not on what the other diversions leave. WasteMAP's advanced DST does not use it; its burning site matches the city paths.
+- **Better:** The `adst-city` `combustion` diversion draws on the whole mix, not on what the others leave. WasteMAP's advanced DST never sends it: its incinerator is a site that burns (`combusts`), which matches the city paths.
 - **Value:** `SWEET_python.constants.DIVERSION_ELIGIBILITY`, which `City.div_components` copies and `dst_allocation.DEFAULT_ELIGIBILITY` reads
 - **Code:** `SWEET_python/constants.py`
 - **Reviewed:** 2026-11-16
