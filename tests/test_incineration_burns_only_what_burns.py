@@ -6,9 +6,10 @@ whether it was sorted out before the furnace or pulled from the ash. So incinera
 burns the same share of every *burnable* type composting, digestion and recycling
 leave, and can take at most all of it:
 
-- a baseline whose data asks for more burns all the burnable waste left, and that is
-  recorded as the city's incineration;
-- a city DST scenario that asks for more is refused, naming the most it can take;
+- a share that asks for more, but no more than all the waste left, burns all the
+  burnable waste left, and that is recorded as the city's incineration: a baseline
+  whose data counts metal and glass, or a site tool's incinerator taking everything
+  it is sent. A share above all the waste left is refused, as before;
 - an advanced DST site that burns its intake keeps the metal and glass it receives.
 
 Osaka and Yokohama are the cities table's rows (dev database, 2026-11-10).
@@ -87,10 +88,17 @@ def test_a_baseline_that_fits_is_left_alone(city):
     assert shares.combustion == 0.47
 
 
-def test_a_scenario_asking_for_more_is_refused(city):
-    with pytest.raises(CustomError, match=r"at most 61\.3%.*metal and glass do not burn"):
-        _check(city, combustion=0.62, scenario=1)
-    _check(city, combustion=0.61, scenario=1)
+def test_a_scenario_asking_for_more_burns_all_the_burnable_waste_left(city):
+    """The site tool sends 100% for an incinerator: it burns all it can."""
+    shares, _ = _check(city, combustion=0.70, scenario=1)
+    assert shares.combustion == pytest.approx(LONDON_BURNABLE_LEFT)
+
+
+def test_a_share_above_all_the_waste_left_is_refused(city):
+    with pytest.raises(CustomError, match=r"at most 70\.0%"):
+        _check(city, combustion=0.71, scenario=1)
+    with pytest.raises(CustomError, match=r"at most 70\.0%"):
+        _check(city, combustion=0.71, scenario=0)
 
 
 def _load_andre(name):

@@ -489,8 +489,7 @@ Each diversion takes only some waste types: composting and digestion take food, 
 - **Kind:** fixed value
 - **Why:** Each treatment takes what it can process. An incineration share counts only waste that burns: the metal and glass recycling leaves are landfilled, whether sorted out before the furnace or pulled from its ash.
 - **Paths:**
-  - `city-model`, `custom-location`: a diversion draws on these types in proportion to the mix. An incineration share above the burnable waste left is cut to it, and recorded as the city's incineration.
-  - `city-dst-scenario`: such a share is refused; the incineration slider reaches the burnable waste left.
+  - `city-model`, `city-dst-scenario`, `custom-location`: a diversion draws on these types in proportion to the mix. An incineration share above the burnable waste left, but within all that is left, is cut to it and recorded as the incineration.
   - `adst-city`: the combustion diversion draws on burnable types in proportion to the mix; a site that `combusts` deposits the metal and glass it receives.
 - **Confidence:** medium
 - **Better:** Know whether a city's recycling share counts metal recovered from incinerator ash. The model assumes it does; where it doesn't, that metal is landfilled here.

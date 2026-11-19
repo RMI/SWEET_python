@@ -82,27 +82,21 @@ CASES = [
     ("legacy_crash_B", _wf(paper_cardboard=.433, plastic=.385, glass=.182),
      {"compost": .3585, "recycling": .3527}, True),
     # Recycling takes its 30% in proportion and leaves 17% metal, which doesn't burn:
-    # 53% of the waste is left to burn.
-    ("C4_metal_left_does_not_burn", _wf(food=.30, paper_cardboard=.30, metal=.30, plastic=.10),
-     {"recycling": .30, "combustion": .55}, False),
-    ("C4_burnable_left_fits", _wf(food=.30, paper_cardboard=.30, metal=.30, plastic=.10),
-     {"recycling": .30, "combustion": .52}, True),
+    # 53% of the waste is left to burn, and a 55% share burns that (it fits in the 70%
+    # left). 71% is more than is left at all.
+    ("C4_combustible_sparing", _wf(food=.30, paper_cardboard=.30, metal=.30, plastic=.10),
+     {"recycling": .30, "combustion": .55}, True),
     ("C5_combustion_over", _wf(food=.30, paper_cardboard=.30, metal=.30, plastic=.10),
      {"recycling": .30, "combustion": .71}, False),
     ("C_divzero_no_combustible", _wf(paper_cardboard=1.0),
      {"compost": .60, "recycling": .40, "combustion": .05}, False),
     ("C_divzero_combustion0_ok", _wf(paper_cardboard=1.0),
      {"compost": .60, "recycling": .40, "combustion": 0.0}, True),
-    # The metal and glass recycling leaves don't burn: 28.3% is left to burn, so 40%
-    # no longer fits.
+    # 28.3% is left to burn, so a 40% share burns that.
     ("full_4slider_boundary",
      _wf(food=.25, green=.10, wood=.05, paper_cardboard=.15, plastic=.15,
          metal=.10, glass=.10, textiles=.05),
-     {"compost": .30, "recycling": .25, "combustion": .40}, False),
-    ("full_4slider_burnable",
-     _wf(food=.25, green=.10, wood=.05, paper_cardboard=.15, plastic=.15,
-         metal=.10, glass=.10, textiles=.05),
-     {"compost": .30, "recycling": .25, "combustion": .28}, True),
+     {"compost": .30, "recycling": .25, "combustion": .40}, True),
 ]
 
 

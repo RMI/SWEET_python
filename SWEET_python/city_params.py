@@ -6352,11 +6352,12 @@ class City:
     def _record_capped_incineration(parameters, burned: float, years=None) -> None:
         """Record the incineration `mass_checker_math` burned as the city's share.
 
-        A baseline's share can be more than the burnable waste left, when the data
-        counts the metal and glass sent to the incinerator. `mass_checker_math` then
-        burns all the burnable waste left, and the city's incineration is that, so
-        what a caller reads, and what `_calculate_diverted_masses` multiplies, is what
-        was burned. A share that fitted is left alone.
+        A share can be more than the burnable waste left: data that counts the metal
+        and glass sent to the incinerator, or a site tool's incinerator taking all it
+        is sent. `mass_checker_math` then burns all the burnable waste left, and the
+        city's incineration is that, so what a caller reads, and what
+        `_calculate_diverted_masses` multiplies, is what was burned. A share that
+        fitted is left alone.
         """
         from SWEET_python.dst_allocation import ACCEPT_TOLERANCE
 
@@ -6513,21 +6514,22 @@ class City:
         # Incineration burns what the three leave: the same share of every burnable
         # type left, so it gives up food in proportion as composting grows. load_csv_new
         # works out a published city's mix the same way, so its baseline matches.
+        left = dst_allocation.left_after(waste_dict, components_multiplied_through)
+        if targets["combustion"] > sum(left.values()) + dst_allocation.ACCEPT_TOLERANCE:
+            raise CustomError(
+                "INVALID_PARAMETERS",
+                f"Incineration can be at most {sum(left.values()) * 100:.1f}% of waste "
+                f"after the requested compost, anaerobic digestion, and "
+                f"recycling, but {targets['combustion'] * 100:.1f}% was "
+                f"requested. Reduce incineration or the other diversion sliders.",
+            )
         # decision: diversion-eligibility
+        # A share within what is left but above its burnable part sends metal and
+        # glass to the incinerator: data that counts them, or a site tool's
+        # incinerator taking everything it is sent. They don't burn, so it burns all
+        # the burnable waste left, and _check_masses_v2 records that as the share.
         most = dst_allocation.max_incineration(waste_dict, components_multiplied_through)
         if targets["combustion"] > most + dst_allocation.ACCEPT_TOLERANCE:
-            if scenario != 0:
-                raise CustomError(
-                    "INVALID_PARAMETERS",
-                    f"Incineration can be at most {most * 100:.1f}% of waste after "
-                    f"the requested compost, anaerobic digestion, and recycling: "
-                    f"that is all the burnable waste left, and metal and glass do "
-                    f"not burn. {targets['combustion'] * 100:.1f}% was requested. "
-                    f"Reduce incineration or the other diversion sliders.",
-                )
-            # A baseline takes its share from data, which may count metal and glass
-            # sent to the incinerator. It burns all the burnable waste left, and
-            # _check_masses_v2 records that as the city's incineration.
             targets["combustion"] = most
             div_fractions.combustion = most
         burned = dst_allocation.incineration_mix(waste_dict, components_multiplied_through)
