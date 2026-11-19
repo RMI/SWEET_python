@@ -46,7 +46,11 @@ import pandas as pd
 from pydantic import BaseModel, Field
 
 import SWEET_python.defaults_2019 as defaults_2019
-from SWEET_python.constants import GWP100_CH4, UNKNOWN_CLIMATE_TEMPERATURE_C
+from SWEET_python.constants import (
+    GWP100_CH4,
+    UNBURNABLE_TYPES,
+    UNKNOWN_CLIMATE_TEMPERATURE_C,
+)
 from SWEET_python.city_params import City, CityParameters, CustomError
 from SWEET_python.class_defs import DivsDF, LandfillType, LandfillWasteMassDF, Variant
 from SWEET_python import dst_common as common
@@ -456,10 +460,9 @@ def _deposited(mass: pd.DataFrame, combusts: bool, city: City) -> pd.DataFrame:
     """
     if not combusts:
         return mass
-    burnable = city.div_components["combustion"]
     kept = pd.Series(
         {
-            column: float(city.combustion_reject_rate) if column in burnable else 1.0
+            column: 1.0 if column in UNBURNABLE_TYPES else float(city.combustion_reject_rate)
             for column in mass.columns
         }
     )
