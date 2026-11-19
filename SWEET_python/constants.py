@@ -138,3 +138,11 @@ class WasteTypeSet(frozenset):
 
     def copy(self):
         return self
+
+
+UNBURNABLE_TYPES: WasteTypeSet = WasteTypeSet({"metal", "glass"})
+"""The waste types an incinerator does not burn. A share of incineration counts
+only waste that burns: metal and glass the city did not recycle are landfilled,
+whether they were sorted out before the furnace or pulled from its ash. Recycling
+takes its share first, so metal recovered from incinerator ash is read as part of
+the city's recycling."""
