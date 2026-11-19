@@ -81,12 +81,14 @@ def _baseline(city):
 
 
 def test_incineration_burns_what_the_others_leave():
-    """London recycles 30% of its waste and none of it is food, so 34 of the 70 points
-    left are food: its incinerator burns 49% food, not the 34% of the whole mix."""
+    """London recycles 30% of its waste and none of it is food, so 70 points are left.
+    8.7 of them are metal and glass, which don't burn, and 34 of the other 61.3 are
+    food: its incinerator burns 55% food, not the 34% of the whole mix."""
     mix = _load("London").baseline_parameters.div_component_fractions.combustion.iloc[0]
+    unburnable_left = (0.04 + 0.12) * (1 - 0.30 / 0.66)
     assert mix.sum() == pytest.approx(1.0)
-    assert mix["food"] == pytest.approx(0.34 / 0.70, rel=1e-4)
-    assert mix["metal"] == pytest.approx((0.04 - 0.30 * 0.04 / 0.66) / 0.70, rel=1e-3)
+    assert mix["food"] == pytest.approx(0.34 / (0.70 - unburnable_left), rel=1e-3)
+    assert mix["metal"] == 0.0 and mix["glass"] == 0.0
 
 
 @pytest.mark.parametrize(

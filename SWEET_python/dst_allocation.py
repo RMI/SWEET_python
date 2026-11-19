@@ -7,10 +7,13 @@ mix: the component fractions the caller passes (a city's published mix in the DS
 else the waste mix. `City.mass_checker_math` uses those proportions as they are
 whenever they fit.
 
-Incineration burns what those three leave: the same share of every type left
-(`incineration_mix`). An incinerator takes the waste left after separate collection
-for recycling and composting, so when composting grows, the incinerator and the
-landfill each give up food in proportion to what they had.
+Incineration burns what those three leave: the same share of every burnable type
+left (`incineration_mix`). An incinerator takes the waste left after separate
+collection for recycling and composting, so when composting grows, the incinerator
+and the landfill each give up food in proportion to what they had. Its share counts
+only waste that burns (`constants.UNBURNABLE_TYPES`): the metal and glass recycling
+leaves are landfilled, so incineration can take at most the burnable waste left
+(`max_incineration`).
 
 When the three's mixes don't fit, because together they ask for more of a type than
 the city has, `proportional_allocation` re-splits them. A type that is over-drawn is
@@ -23,7 +26,8 @@ Two properties follow, and the tests hold the code to both:
   re-split equals the proportional one, so moving a slider across that point doesn't
   jump.
 - Raising any of the three never diverts less of any type. With incineration burning
-  a fixed share of what is left, raising any slider never landfills more of any type.
+  a fixed share of the burnable waste left, raising any slider never landfills more of
+  any type.
 
 The previous solver here split over-drawn waste by min-cost max-flow, steering each
 diversion to the types fewest diversions take. Composting took all the food and green
@@ -271,11 +275,28 @@ def _number(value) -> float:
     return value if math.isfinite(value) else 0.0
 
 
+# decision: diversion-eligibility
+def burnable_left(waste: dict, taken: dict) -> dict:
+    """The burnable part of what composting, digestion and recycling leave
+    (`left_after`), as fractions of the city's waste. Metal and glass are left out:
+    an incinerator does not burn them."""
+    burnable = DIVERSION_ELIGIBILITY["combustion"]
+    return {w: v for w, v in left_after(waste, taken).items() if w in burnable}
+
+
+# decision: diversion-eligibility
+def max_incineration(waste: dict, taken: dict) -> float:
+    """The most incineration can take, as a fraction of the city's waste: all the
+    burnable waste composting, digestion and recycling leave."""
+    return float(sum(burnable_left(waste, taken).values()))
+
+
 # decision: diversion-split
 def incineration_mix(waste: dict, taken: dict) -> dict:
-    """What incineration burns, as shares summing to 1: what composting, digestion and
-    recycling leave (`left_after`), in its own proportions. {} when nothing is left."""
-    left = left_after(waste, taken)
+    """What incineration burns, as shares summing to 1: the burnable waste composting,
+    digestion and recycling leave (`burnable_left`), in its own proportions. {} when
+    none is left."""
+    left = burnable_left(waste, taken)
     total = sum(left.values())
     if total <= 0:
         return {}

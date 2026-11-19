@@ -29,6 +29,7 @@ from SWEET_python.dst_allocation import (
     TREATMENTS,
     incineration_mix,
     left_after,
+    max_incineration,
     max_feasible_target,
     proportional_allocation,
     solve_allocation,
@@ -201,8 +202,9 @@ COMBUSTION_CASES = [
      {"compost": 0.60, "recycling": 0.40, "combustion": 0.05}, False),
     ("C_divzero_combustion0_ok", wf(paper_cardboard=1.0),
      {"compost": 0.60, "recycling": 0.40, "combustion": 0.0}, True),
-    # metal/glass/other are now combustion-eligible: a 100%-metal city CAN combust.
-    ("C_combustion_metal_now_combustible", wf(metal=1.0), {"combustion": 0.10}, True),
+    # Metal and glass don't burn: a city of only metal and glass incinerates nothing.
+    ("C_combustion_metal_does_not_burn", wf(metal=1.0), {"combustion": 0.10}, False),
+    ("C_combustion_other_burns", wf(other=1.0), {"combustion": 0.10}, True),
     ("C_full_4slider_tight_boundary",
      wf(food=0.25, green=0.10, wood=0.05, paper_cardboard=0.15, plastic=0.15,
         metal=0.10, glass=0.10, textiles=0.05),
@@ -281,14 +283,14 @@ def _check_resplit(waste, targets, mixes, tol=1e-8):
 
 def _landfilled(waste, targets, mixes):
     """What is left for the landfill: the three's split, then incineration's share of
-    what they leave, as City.mass_checker_math does. None when it doesn't fit."""
+    the burnable waste they leave, as City.mass_checker_math does. None when it doesn't
+    fit."""
     res = proportional_allocation(waste, targets, mixes)
     if not res["feasible"]:
         return None
     alloc = dict(res["allocation"])
-    left = left_after(waste, alloc)
     burn = targets.get("combustion", 0.0)
-    if burn > sum(left.values()) + 1e-8:
+    if burn > max_incineration(waste, alloc) + 1e-8:
         return None
     alloc["combustion"] = {w: burn * p for w, p in incineration_mix(waste, alloc).items()}
     taken = _taken(alloc)
@@ -308,14 +310,25 @@ def test_a_mix_that_fits_is_used_as_it_is():
         assert alloc["recycling"][w] == pytest.approx(0.30 * p, abs=1e-12)
 
 
+#: London's metal and glass after recycling takes 30 of the 66 points it can take.
+LONDON_UNBURNABLE_LEFT = (0.04 + 0.12) * (1 - 0.30 / 0.66)
+
+
 def test_incineration_burns_what_the_others_leave():
-    """London recycles 30% of its waste, none of it food, so 34 of the 70 points left
-    are food: incineration burns 49% food, not the 34% of the whole mix."""
+    """London recycles 30% of its waste, none of it food, so 70 points are left. 8.7 of
+    them are metal and glass, which don't burn, and 34 of the other 61.3 are food:
+    incineration burns 55% food, not the 34% of the whole mix."""
     alloc = _check_resplit(LONDON, {"recycling": 0.30}, treatment_mixes(LONDON))
     burned = incineration_mix(LONDON, alloc)
     assert sum(burned.values()) == pytest.approx(1.0)
-    assert burned["food"] == pytest.approx(0.34 / 0.70)
-    assert burned["metal"] == pytest.approx((0.04 - 0.30 * 0.04 / 0.66) / 0.70)
+    assert burned["food"] == pytest.approx(0.34 / (0.70 - LONDON_UNBURNABLE_LEFT))
+    assert "metal" not in burned and "glass" not in burned
+
+
+def test_incineration_takes_at_most_the_burnable_waste_left():
+    alloc = _check_resplit(LONDON, {"recycling": 0.30}, treatment_mixes(LONDON))
+    assert max_incineration(LONDON, alloc) == pytest.approx(0.70 - LONDON_UNBURNABLE_LEFT)
+    assert max_incineration(wf(metal=0.5, glass=0.5), {}) == 0.0
 
 
 def test_incineration_reads_a_blank_share_as_none():

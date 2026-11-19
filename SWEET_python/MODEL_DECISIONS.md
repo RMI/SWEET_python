@@ -152,8 +152,9 @@ the unknown close year (see `flaring-uniform`, `gas-capture-efficiency`, `missin
   landfill shares add up to under 99%.
 - **Over-drawn diversion** (`diversion-split`): the city paths re-split, keeping each diversion's mix;
   `adst-city` refuses the request.
-- **Incineration's mix** (`diversion-split`): the city paths burn what composting, digestion and
-  recycling leave; `adst-city` burns in proportion to all of a city's waste.
+- **Incineration's mix** (`diversion-split`): the city paths burn the burnable part of what
+  composting, digestion and recycling leave; `adst-city` burns in proportion to all of a city's
+  burnable waste.
 - **Food prevention** (`food-waste-prevention`): the city DST keeps the baseline's decay rate and compost
   factor; `adst-city` recomputes both from the reduced mix.
 - **Unknown opening year** (`open-year-unknown`): `ct-site` uses 1970; the site-tool prefill 2010 for a
@@ -211,7 +212,7 @@ When the caller says a city's composition was surveyed on the waste left after d
 - **Kind:** method choice
 - **Why:** Read as generated, a composition weighed at the landfill has its diverted materials taken out twice, and a city diverting more of a material than its landfill still holds can't be modelled.
 - **Paths:**
-  - `city-model`: in `load_andre_params`, given `composition_after_diversion`. Composting, digestion and recycling come back from their eligible types in proportion to the generated mix. Incineration burns the same share of every type left, so adds nothing back. Rejects still landfilled; tonnage unchanged.
+  - `city-model`: in `load_andre_params`, given `composition_after_diversion`. Composting, digestion and recycling come back from their eligible types in proportion to the generated mix. Incineration's burn comes back onto the burnable types, in surveyed proportions. Rejects still landfilled; tonnage unchanged.
 - **Confidence:** medium
 - **Better:** Record which stage of the waste stream each survey weighed in the database. Where a survey weighed landfill inflow, residue included, solve for the rejects too, so SWEET's landfill matches it.
 - **Code:** `SWEET_python/after_diversion.py`, `SWEET_python/city_params.py`
@@ -418,7 +419,7 @@ A year a shared site takes waste but no linked city reported sending it any is s
 
 ### `combustion-reject`
 
-None of the waste sent to incineration is landfilled unburned, so incinerated waste makes no methane.
+None of the burnable waste sent to incineration is landfilled unburned, so incinerated waste makes no methane. Metal and glass are never incinerated (`diversion-eligibility`).
 
 - **Kind:** fixed value
 - **Why:** Incinerator ash is nearly all mineral: the EU's Industrial Emissions Directive holds its organic carbon under 3%, and Japan landfills under 1% of its waste unburned. The old 0.1 had no source.
@@ -426,7 +427,7 @@ None of the waste sent to incineration is landfilled unburned, so incinerated wa
   - `city-model`: on the reported, else the default, incineration share (see `diversion-defaults`).
   - `city-dst-scenario`: on the scenario's chosen share.
   - `custom-location`: on the country's default share.
-  - `adst-city`: on the combustion pathway, and on a facility marked `combusts`, which would deposit that share of its intake.
+  - `adst-city`: on the combustion pathway, and on a facility marked `combusts`, which would deposit that share of its burnable intake, besides all its metal and glass.
   - `ct-site`: multiplies an incineration share hard-coded to 0, so it changes nothing.
 - **Confidence:** medium
 - **Better:** Where a plant reports the unburned organic content of its bottom ash, use that.
@@ -483,17 +484,19 @@ A city's reported treatment shares map onto four buckets: sanitary landfill with
 
 ### `diversion-eligibility`
 
-Each diversion takes only some waste types: composting and digestion take food, green, wood and paper; recycling takes everything but food and green; incineration takes all ten.
+Each diversion takes only some waste types: composting and digestion take food, green, wood and paper; recycling takes everything but food and green; incineration takes everything but metal and glass.
 
 - **Kind:** fixed value
-- **Why:** Each treatment takes what it can process. Incineration takes all ten because a reported incineration share counts the tonnes delivered to the plant, metal and glass included; a burnable-only mix would burn more food and paper than that.
+- **Why:** Each treatment takes what it can process. An incineration share counts only waste that burns: the metal and glass recycling leaves are landfilled, whether sorted out before the furnace or pulled from its ash.
 - **Paths:**
-  - `city-model`, `city-dst-scenario`, `custom-location`, `adst-city`: a diversion draws on these types in proportion to the mix. On the city paths, incineration's mix is what the others leave (`diversion-split`).
+  - `city-model`, `custom-location`: a diversion draws on these types in proportion to the mix. An incineration share above the burnable waste left is cut to it, and recorded as the city's incineration.
+  - `city-dst-scenario`: such a share is refused; the incineration slider reaches the burnable waste left.
+  - `adst-city`: the combustion diversion draws on burnable types in proportion to the mix; a site that `combusts` deposits the metal and glass it receives.
 - **Confidence:** medium
-- **Better:** The `adst-city` `combustion` diversion draws on the whole mix, not on what the others leave. WasteMAP's advanced DST never sends it: its incinerator is a site that burns (`combusts`), which matches the city paths.
-- **Value:** `SWEET_python.constants.DIVERSION_ELIGIBILITY`, which `City.div_components` copies and `dst_allocation.DEFAULT_ELIGIBILITY` reads
-- **Code:** `SWEET_python/constants.py`
-- **Reviewed:** 2026-11-16
+- **Better:** Know whether a city's recycling share counts metal recovered from incinerator ash. The model assumes it does; where it doesn't, that metal is landfilled here.
+- **Value:** `SWEET_python.constants.DIVERSION_ELIGIBILITY`, which `City.div_components` copies and `dst_allocation.DEFAULT_ELIGIBILITY` reads; `constants.UNBURNABLE_TYPES`: metal and glass. Through `sweet/2026.11.3` incineration took all ten.
+- **Code:** `SWEET_python/constants.py`, `SWEET_python/city_params.py` (3 places), `SWEET_python/dst_allocation.py` (2 places)
+- **Reviewed:** 2026-11-19
 
 ### `diversion-rejects`
 
@@ -525,13 +528,13 @@ Composting emits a CO2e factor per tonne of food and green waste, turned into me
 
 ### `diversion-split`
 
-Composting, digestion and recycling draw types in their own mix (published, else the waste mix), sharing any over-drawn type. Incineration burns the same share of every type they leave.
+Composting, digestion and recycling draw types in their own mix (published, else the waste mix), sharing any over-drawn type. Incineration burns the same share of every burnable type they leave.
 
 - **Kind:** method choice
 - **Why:** A proportional split can ask for more of a type than a city has, and an incinerator takes what separate collection leaves. So raising any slider never landfills more of any type.
 - **Paths:**
-  - `city-model`, `city-dst-scenario`, `custom-location`: the three's mixes as they are when they fit, else the nearest split that fits (relative entropy); incineration burns what they leave. Until 2026-11: a min-cost max-flow split, and incineration in proportion to all waste.
-  - `adst-city`: proportional, incineration in proportion to all waste; an over-drawn type is refused as an error.
+  - `city-model`, `city-dst-scenario`, `custom-location`: the three's mixes as they are when they fit, else the nearest split that fits (relative entropy); incineration burns the burnable part of what they leave. Until 2026-11: a min-cost max-flow split, and incineration in proportion to all waste.
+  - `adst-city`: proportional, incineration in proportion to all burnable waste; an over-drawn type is refused as an error.
 - **Confidence:** medium
 - **Better:** One rule on every path.
 - **Code:** `SWEET_python/city_params.py` (2 places), `SWEET_python/dst_allocation.py` (2 places)

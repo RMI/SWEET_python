@@ -11,11 +11,12 @@ is material SWEET can recycle.
 `composition_before_diversion` adds the diverted waste back. It undoes SWEET's own
 diversion. Composting, digestion and recycling each take their share of the waste from
 the types they can take, in proportion to how much of each the city generates
-(`diversion-eligibility`). Incineration then burns the same share of every type they
-leave (`diversion-split`), which changes how much is left but not its mix, so only the
-other three's takes are added back. Its answer is the composition that, once SWEET
-diverts from it, leaves the surveyed composition behind. The city's tonnage is not
-touched.
+(`diversion-eligibility`). Incineration then burns the same share of every burnable
+type they leave (`diversion-split`). Metal and glass don't burn, so it leaves them all,
+and the surveyed waste holds more of them than what reached the incinerator did: its
+burn is added back onto the burnable types first, in their surveyed proportions, then
+the other three's takes. Its answer is the composition that, once SWEET diverts from
+it, leaves the surveyed composition behind. The city's tonnage is not touched.
 
 That is the waste sent straight to disposal. SWEET then landfills each pathway's rejects
 as well (`diversion-rejects`), as it does for every city: the recycling and compost
@@ -91,8 +92,25 @@ def composition_before_diversion(
             f"The diversion shares add up to {taken:.1%} of the waste, so none was "
             "left to survey."
         )
-    # Incineration burns the same share of every type the others leave, so the waste
-    # it leaves has the mix of the waste it got: there is nothing of it to undo.
+    # Incineration burns the same share of every burnable type the others leave, so
+    # the burnable types it leaves keep their mix among themselves and only their
+    # amount shrinks. Adding its burn back onto them, in their surveyed proportions,
+    # gives the mix of what the other three left.
+    burned = shares.get("combustion", 0.0)
+    if burned > 0:
+        burnable = eligibility["combustion"]
+        surveyed_burnable = sum(v for w, v in left.items() if w in burnable)
+        if surveyed_burnable <= 0:
+            raise ValueError(
+                f"combustion takes {burned:.1%} of the waste, but the surveyed waste "
+                f"has none of the types it takes ({', '.join(sorted(burnable))})."
+            )
+        landfilled = 1 - taken
+        left = {
+            w: (landfilled * v + (burned * v / surveyed_burnable if w in burnable else 0.0))
+            / (landfilled + burned)
+            for w, v in left.items()
+        }
     shares = {path: share for path, share in shares.items() if path in NON_COMBUSTION}
     pools = {path: [w for w in left if w in eligibility[path]] for path in shares}
     for path, types in pools.items():

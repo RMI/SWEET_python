@@ -78,7 +78,7 @@ def _surveyed(row):
 def _left_after_diversion(generated, diverted):
     """SWEET's own diversion: composting, digestion and recycling each take their share
     from their types, in proportion; incineration then burns the same share of every
-    type they leave."""
+    burnable type they leave."""
     left = dict(generated)
     for path, share in diverted.items():
         if path == "combustion":
@@ -87,8 +87,9 @@ def _left_after_diversion(generated, diverted):
         pool = sum(generated[w] for w in types)
         for w in types:
             left[w] -= share * generated[w] / pool
-    burned = diverted.get("combustion", 0.0) / sum(left.values())
-    return {w: share * (1 - burned) for w, share in left.items()}
+    burnable = DIVERSION_ELIGIBILITY["combustion"]
+    burned = diverted.get("combustion", 0.0) / sum(v for w, v in left.items() if w in burnable)
+    return {w: share * (1 - burned) if w in burnable else share for w, share in left.items()}
 
 
 @pytest.mark.parametrize("name", sorted(CITIES))
@@ -244,10 +245,20 @@ def test_without_diversion_the_survey_is_what_the_city_generates():
     )
 
 
-def test_incineration_alone_leaves_the_mix_as_surveyed():
-    """An incinerator takes every type in proportion, so the mix it leaves is the mix it got."""
+def test_incineration_alone_adds_back_only_what_burns():
+    """An incinerator burns no glass, so the glass the survey found is all the city had:
+    a tenth of the waste reached the landfill, so glass is 2% of what it generated. The
+    burnable types keep their surveyed proportions."""
     surveyed = {"food": 0.5, "paper_cardboard": 0.3, "glass": 0.2}
-    assert composition_before_diversion(surveyed, {"combustion": 0.9}) == pytest.approx(surveyed)
+    generated = composition_before_diversion(surveyed, {"combustion": 0.9})
+    assert generated["glass"] == pytest.approx(0.1 * 0.2)
+    assert generated["food"] / generated["paper_cardboard"] == pytest.approx(0.5 / 0.3)
+    assert sum(generated.values()) == pytest.approx(1.0)
+
+
+def test_incineration_with_nothing_burnable_surveyed_is_refused():
+    with pytest.raises(ValueError, match="none of the types it takes"):
+        composition_before_diversion({"glass": 1.0}, {"combustion": 0.5})
 
 
 def test_any_mix_of_diversions_round_trips():

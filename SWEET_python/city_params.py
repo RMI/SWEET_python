@@ -983,16 +983,28 @@ def _published_controlled_dumpsite_share(city_data: pd.DataFrame) -> float:
     return 0.0 if _is_blank(value) else float(value) / 100
 
 
+def _published_takes(shares: dict, mixes: dict) -> dict:
+    """What a published city's composting, digestion and recycling take of each type,
+    as fractions of its waste: each one's share times its published mix."""
+    from SWEET_python import dst_allocation
+
+    return {
+        t: {w: shares.get(t, 0.0) * share for w, share in mixes[t].items()}
+        for t in dst_allocation.NON_COMBUSTION
+    }
+
+
 # decision: diversion-split
 def _incineration_burns_the_rest(waste: dict, shares: dict, mixes: dict) -> dict:
-    """A published city's incineration mix: what its composting, digestion and
-    recycling leave, worked out exactly as `mass_checker_math` does, so the city DST's
-    baseline and a scenario that changes nothing burn the same.
+    """A published city's incineration mix: the burnable waste its composting,
+    digestion and recycling leave, worked out exactly as `mass_checker_math` does, so
+    the city DST's baseline and a scenario that changes nothing burn the same.
 
     The table's own incineration columns are not read. Before WasteMAP #716 they left
     out metal, glass and other, which load_csv_new read as 0, so every scenario with
     incineration missed its baseline. A table built before SWEET #127 burns in
-    proportion to all of the city's waste instead.
+    proportion to all of the city's waste instead, and one built before metal and glass
+    stopped burning burns them too.
 
     Args:
         waste: {waste_type: fraction of the city's waste}.
@@ -1002,12 +1014,24 @@ def _incineration_burns_the_rest(waste: dict, shares: dict, mixes: dict) -> dict
     """
     from SWEET_python import dst_allocation
 
-    taken = {
-        t: {w: shares.get(t, 0.0) * share for w, share in mixes[t].items()}
-        for t in dst_allocation.NON_COMBUSTION
-    }
-    burned = dst_allocation.incineration_mix(waste, taken)
+    burned = dst_allocation.incineration_mix(waste, _published_takes(shares, mixes))
     return {w: burned.get(w, 0.0) for w in waste}
+
+
+# decision: diversion-eligibility
+def _published_incineration(waste: dict, shares: dict, mixes: dict) -> float:
+    """A published city's incineration share, at most the burnable waste its
+    composting, digestion and recycling leave.
+
+    A table built before metal and glass stopped burning can publish a share that
+    counts them. The city then burns all the burnable waste left, as `mass_checker_math`
+    does for a baseline, so its baseline and a scenario that changes nothing agree.
+    """
+    from SWEET_python import dst_allocation
+
+    share = float(shares.get("combustion", 0.0) or 0.0)
+    most = dst_allocation.max_incineration(waste, _published_takes(shares, mixes))
+    return min(share, most) if share > most + dst_allocation.ACCEPT_TOLERANCE else share
 
 
 def _move_to_existing_gas_capture(
@@ -1230,16 +1254,23 @@ class City:
             ),
         )
 
-        # Incineration burns what composting, digestion and recycling leave.
+        # Incineration burns the burnable waste composting, digestion and recycling
+        # leave, and no more of it than there is.
+        published_waste = {
+            w: 0.0 if pd.isna(v) else v for w, v in waste_fractions.model_dump().items()
+        }
+        published_shares = {
+            d: 0.0 if pd.isna(v) else v for d, v in div_fractions.model_dump().items()
+        }
+        published_mixes = {
+            d: getattr(div_component_fractions, d).model_dump()
+            for d in ("compost", "anaerobic", "recycling")
+        }
+        burned = _published_incineration(published_waste, published_shares, published_mixes)
+        if burned < published_shares["combustion"]:
+            div_fractions.combustion = burned
         div_component_fractions.combustion = WasteFractions(
-            **_incineration_burns_the_rest(
-                {w: 0.0 if pd.isna(v) else v for w, v in waste_fractions.model_dump().items()},
-                {d: 0.0 if pd.isna(v) else v for d, v in div_fractions.model_dump().items()},
-                {
-                    d: getattr(div_component_fractions, d).model_dump()
-                    for d in ("compost", "anaerobic", "recycling")
-                },
-            )
+            **_incineration_burns_the_rest(published_waste, published_shares, published_mixes)
         )
 
         # ks = DecompositionRates(
@@ -1430,15 +1461,19 @@ class City:
             ),
         )
 
-        # Incineration burns what composting, digestion and recycling leave.
+        # Incineration burns the burnable waste composting, digestion and recycling
+        # leave, and no more of it than there is.
+        published_mixes = {
+            d: getattr(div_component_fractions, d).model_dump()
+            for d in ("compost", "anaerobic", "recycling")
+        }
+        published_shares = div_fractions.iloc[0].to_dict()
+        div_fractions["combustion"] = _published_incineration(
+            waste_fractions_dict, published_shares, published_mixes
+        )
         div_component_fractions.combustion = WasteFractions(
             **_incineration_burns_the_rest(
-                waste_fractions_dict,
-                div_fractions.iloc[0].to_dict(),
-                {
-                    d: getattr(div_component_fractions, d).model_dump()
-                    for d in ("compost", "anaerobic", "recycling")
-                },
+                waste_fractions_dict, published_shares, published_mixes
             )
         )
 
@@ -5900,6 +5935,9 @@ class City:
                 waste_fractions=waste_fractions_instance,
                 scenario=scenario,
             )
+            self._record_capped_incineration(
+                parameters, diversion_fractions_instance.combustion
+            )
 
             return
 
@@ -5997,6 +6035,9 @@ class City:
                     waste_fractions=waste_fractions_instance,
                     scenario=scenario,
                     corresponding_year=corresponding_year,
+                )
+                self._record_capped_incineration(
+                    parameters, diversion_fractions_instance.combustion, year_range
                 )
 
                 # Populate the DataFrames for all years in the range
@@ -6306,6 +6347,29 @@ class City:
 
             return
 
+    # decision: diversion-eligibility
+    @staticmethod
+    def _record_capped_incineration(parameters, burned: float, years=None) -> None:
+        """Record the incineration `mass_checker_math` burned as the city's share.
+
+        A baseline's share can be more than the burnable waste left, when the data
+        counts the metal and glass sent to the incinerator. `mass_checker_math` then
+        burns all the burnable waste left, and the city's incineration is that, so
+        what a caller reads, and what `_calculate_diverted_masses` multiplies, is what
+        was burned. A share that fitted is left alone.
+        """
+        from SWEET_python.dst_allocation import ACCEPT_TOLERANCE
+
+        fractions = parameters.div_fractions
+        if isinstance(fractions, pd.DataFrame):
+            rows = fractions.index if years is None else fractions.index.intersection(list(years))
+            column = fractions.loc[rows, "combustion"]
+            if (column > burned + ACCEPT_TOLERANCE).any():
+                fractions.loc[rows, "combustion"] = burned
+        elif isinstance(getattr(fractions, "combustion", None), (int, float)):
+            if fractions.combustion > burned + ACCEPT_TOLERANCE:
+                fractions.combustion = burned
+
     # decision: diversion-split
     def mass_checker_math(
         self,
@@ -6446,18 +6510,26 @@ class City:
                             f"digestion.",
                         )
 
-        # Incineration burns what the three leave: the same share of every type
-        # left, so it gives up food in proportion as composting grows. load_csv_new
+        # Incineration burns what the three leave: the same share of every burnable
+        # type left, so it gives up food in proportion as composting grows. load_csv_new
         # works out a published city's mix the same way, so its baseline matches.
-        left = dst_allocation.left_after(waste_dict, components_multiplied_through)
-        if targets["combustion"] > sum(left.values()) + dst_allocation.ACCEPT_TOLERANCE:
-            raise CustomError(
-                "INVALID_PARAMETERS",
-                f"Incineration can be at most {sum(left.values()) * 100:.1f}% of waste "
-                f"after the requested compost, anaerobic digestion, and "
-                f"recycling, but {targets['combustion'] * 100:.1f}% was "
-                f"requested. Reduce incineration or the other diversion sliders.",
-            )
+        # decision: diversion-eligibility
+        most = dst_allocation.max_incineration(waste_dict, components_multiplied_through)
+        if targets["combustion"] > most + dst_allocation.ACCEPT_TOLERANCE:
+            if scenario != 0:
+                raise CustomError(
+                    "INVALID_PARAMETERS",
+                    f"Incineration can be at most {most * 100:.1f}% of waste after "
+                    f"the requested compost, anaerobic digestion, and recycling: "
+                    f"that is all the burnable waste left, and metal and glass do "
+                    f"not burn. {targets['combustion'] * 100:.1f}% was requested. "
+                    f"Reduce incineration or the other diversion sliders.",
+                )
+            # A baseline takes its share from data, which may count metal and glass
+            # sent to the incinerator. It burns all the burnable waste left, and
+            # _check_masses_v2 records that as the city's incineration.
+            targets["combustion"] = most
+            div_fractions.combustion = most
         burned = dst_allocation.incineration_mix(waste_dict, components_multiplied_through)
 
         component_fractions = {}
