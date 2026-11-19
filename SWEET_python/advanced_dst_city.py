@@ -30,7 +30,8 @@ live in a list, one dict per landfill:
   ``{year: [frac per landfill]}`` ordered to match the ``landfills`` list, with
   each year's fractions summing to ~1.
 * a facility may set ``combusts``: it burns the waste routed to it instead of
-  depositing it, and deposits only the reject, ``City.combustion_reject_rate``,
+  depositing it. It deposits the metal and glass it receives, which don't burn,
+  and the reject of the rest, ``City.combustion_reject_rate``,
   which is 0. See :class:`CityLandfillSpec`.
 * ``other_landfills`` (optional) is where the rest goes. With it, each year's
   fractions may sum to less than 1, a listed landfill's share goes to other
@@ -53,7 +54,7 @@ from pydantic import BaseModel, Field, model_validator
 import SWEET_python.defaults_2019 as defaults_2019
 from SWEET_python.city_params import City, CityParameters, CustomError
 from SWEET_python.class_defs import DivsDF, LandfillType, LandfillWasteMassDF, Variant
-from SWEET_python.constants import MODEL_START_YEAR
+from SWEET_python.constants import MODEL_START_YEAR, UNBURNABLE_TYPES
 from SWEET_python import dst_allocation
 from SWEET_python import dst_common as common
 from SWEET_python import site_inflow
@@ -145,12 +146,13 @@ class CityLandfillSpec(BaseModel):
             "Whether this facility burns the waste routed to it -- incineration, "
             "with or without energy recovery -- instead of depositing it. The "
             "share of the city's disposed waste sent here still arrives here, "
-            "and only the reject (``City.combustion_reject_rate``) is "
-            "deposited; the rest is destroyed. The reject is 0, so a burning "
-            "facility deposits nothing and produces no methane: what an "
-            "incinerator leaves is ash with almost no organic carbon. The burnt "
-            "share is not re-routed to another site. Were the reject set above "
-            "0, the remaining per-site fields would describe its pile: "
+            "and it deposits only what does not burn: the metal and glass it "
+            "receives, and the reject of the rest "
+            "(``City.combustion_reject_rate``); the rest is destroyed. The "
+            "reject is 0, so a burning facility deposits only its metal and "
+            "glass, which make no methane: what an incinerator leaves is ash "
+            "with almost no organic carbon. The burnt share is not re-routed to "
+            "another site. The remaining per-site fields describe its ash pile: "
             "``landfill_type`` is its disposal category, and the gas/biocover "
             "fields are the pile's, not the incinerator's. Omit (the default) "
             "for a depositing site."
@@ -383,10 +385,11 @@ def _mass_flow(
     ``sites_received`` is what the city sends each site, and ``sites`` is what
     each site deposits, the mass its methane comes from. They are the same
     except at a site that burns its waste (``combusts``): it receives its share
-    and deposits only the reject, which is none at the default rate. So an
-    incinerator taking half the city's waste reads half of ``landfilled`` in
-    ``sites_received`` and nothing in ``sites``. A caller saying how much waste
-    goes to a site reads ``sites_received``.
+    and deposits only its metal and glass, which don't burn, and the reject of the
+    rest, which is none at the default rate. So an incinerator taking half the
+    city's waste reads half of ``landfilled`` in ``sites_received`` and half its
+    metal and glass in ``sites``. A caller saying how much waste goes to a site
+    reads ``sites_received``.
 
     Both are per landfill in request order, already windowed by each one's
     open/close years, with other landfills last when the request has them.
@@ -710,15 +713,25 @@ def _split_timeline_to_df(
     return df.sort_index().reindex(years).ffill().bfill()
 
 
-def _deposited_share(combusts: bool, city: City) -> float:
-    """Fraction of the waste arriving at a facility that is actually deposited.
+def _deposited(mass: pd.DataFrame, combusts: bool, city: City) -> pd.DataFrame:
+    """What a facility deposits of the waste arriving at it, per waste type.
 
-    A depositing site keeps all of it. A combusting facility keeps only the
-    reject, ``combustion_reject_rate``, which is 0, so it keeps none. The
-    combustion diversion pathway, like every pathway here, keeps everything it
-    is sent (``_diverted_masses``), so the residue is the facility's alone.
+    A depositing site keeps all of it. A combusting facility burns what burns and
+    keeps only the reject of it, ``combustion_reject_rate``, which is 0. Metal and
+    glass don't burn (``constants.UNBURNABLE_TYPES``), so it keeps all of them: the
+    ash it landfills. They make no methane, so only the mass flow sees them. The
+    combustion diversion pathway, like every pathway here, keeps everything it is
+    sent (``_diverted_masses``), so the residue is the facility's alone.
     """
-    return float(city.combustion_reject_rate) if combusts else 1.0
+    if not combusts:
+        return mass
+    kept = pd.Series(
+        {
+            column: 1.0 if column in UNBURNABLE_TYPES else float(city.combustion_reject_rate)
+            for column in mass.columns
+        }
+    )
+    return mass.mul(kept, axis=1)
 
 
 def _windowed_pair(
@@ -2086,14 +2099,15 @@ def run_advanced_dst_city(
             baseline_received.append(received_base)
             scenario_received.append(received_scen)
 
-        # A combusting facility burns its intake and deposits only the reject
-        # (none, at the default rate).
+        # A combusting facility burns its intake and deposits only what does not
+        # burn: its metal and glass, and the reject of the rest (none, at the
+        # default rate).
         # Scaled per variant here, ahead of both the window and the pre-implement
         # splice, so a site that starts combusting at implement_year keeps
         # depositing everything until then -- and one that stops burning starts to.
         mass_base, mass_scen = _windowed_pair(
-            mass_base * _deposited_share(base_combusts, city),
-            mass_scen * _deposited_share(scen_combusts, city),
+            _deposited(mass_base, base_combusts, city),
+            _deposited(mass_scen, scen_combusts, city),
             *windows,
         )
         baseline_masses.append(mass_base)
@@ -2103,8 +2117,8 @@ def run_advanced_dst_city(
         # three transformations in the same order.
         if surplus_base_masses is not None:
             surplus_base_masses, surplus_scen_masses = _windowed_pair(
-                surplus_base_masses * _deposited_share(base_combusts, city),
-                surplus_scen_masses * _deposited_share(scen_combusts, city),
+                _deposited(surplus_base_masses, base_combusts, city),
+                _deposited(surplus_scen_masses, scen_combusts, city),
                 *windows,
             )
             # A stated total at or below the city's allocation in every year

@@ -2,9 +2,10 @@
 
 ``CityLandfillSpec.combusts`` marks a facility as an incinerator (with or
 without energy recovery): the share of the city's disposed waste routed to it
-still arrives, and only the reject -- ``City.combustion_reject_rate`` -- is
-deposited and left to decay. The rest is destroyed, producing no methane in
-this model, and is *not* re-routed to another site.
+still arrives, and only what does not burn is deposited: the metal and glass
+it receives, and the reject of the rest -- ``City.combustion_reject_rate``.
+The rest is destroyed, producing no methane in this model, and is *not*
+re-routed to another site.
 
 The reject is 0: everything sent to an incinerator stops producing methane.
 It was 10% of the burnable waste, landfilled as the material it was, until
@@ -32,6 +33,7 @@ from SWEET_python.advanced_dst_city import (
     run_advanced_dst_city,
 )
 from SWEET_python.city_params import City
+from SWEET_python.constants import UNBURNABLE_TYPES
 
 YEARS = range(2000, 2051)
 FRACTIONS = [0.5, 0.1, 0.05, 0.1, 0.05, 0.1, 0.02, 0.03, 0.0, 0.05]  # sums to 1.0
@@ -184,16 +186,24 @@ def _flow(request, variant="baseline"):
     return run_advanced_dst_city(request, with_mass_flow=True)["mass_flow"][variant]
 
 
-def test_a_burning_site_receives_its_share_and_deposits_none_of_it():
+def _unburnable(flow):
+    """The metal and glass in what the city disposed of, per year."""
+    return flow["landfilled"][list(UNBURNABLE_TYPES)].sum(axis=1)
+
+
+def test_a_burning_site_receives_its_share_and_deposits_only_its_metal_and_glass():
     """Before ``sites_received`` the mass flow said only what a site deposits,
-    so an incinerator taking half the city's waste read as taking none."""
+    so an incinerator taking half the city's waste read as taking none. It burns
+    all of it but the metal and glass, which don't burn."""
     flow = _flow(_request([_landfill(), _landfill(combusts=BURNS)], [0.5, 0.5]))
     landfilled = flow["landfilled"].sum(axis=1)
+    unburnable = _unburnable(flow)
 
     for year in YEARS:
         assert landfilled[year] > 0
         assert flow["sites_received"][1][year] == pytest.approx(0.5 * landfilled[year])
-        assert flow["sites"][1][year] == 0.0
+        assert flow["sites"][1][year] == pytest.approx(0.5 * unburnable[year])
+        assert unburnable[year] == pytest.approx(0.05 * landfilled[year])
         # The landfill beside it is untouched: it buries all it receives.
         assert flow["sites"][0][year] == pytest.approx(flow["sites_received"][0][year])
 
@@ -224,7 +234,7 @@ def test_a_site_that_starts_burning_receives_the_same_waste_throughout():
         if year < IMPLEMENT_YEAR:
             assert scenario["sites"][0][year] == pytest.approx(baseline["sites"][0][year])
         else:
-            assert scenario["sites"][0][year] == 0.0
+            assert scenario["sites"][0][year] == pytest.approx(_unburnable(scenario)[year])
             assert scenario["sites_received"][0][year] > 0
 
 
@@ -271,11 +281,14 @@ def test_a_reject_is_deposited_as_its_share_of_intake(with_a_reject):
 
 
 def test_a_reject_is_what_the_site_deposits_of_what_it_receives(with_a_reject):
+    """The reject of what burns, besides all the metal and glass."""
     flow = _flow(_request([_landfill(combusts=BURNS)], [1.0]))
+    unburnable = _unburnable(flow)
 
     for year in YEARS:
+        burnable = flow["sites_received"][0][year] - unburnable[year]
         assert flow["sites"][0][year] == pytest.approx(
-            with_a_reject * flow["sites_received"][0][year]
+            with_a_reject * burnable + unburnable[year]
         )
 
 
