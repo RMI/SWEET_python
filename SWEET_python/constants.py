@@ -221,11 +221,18 @@ DEGRADABLE_TYPES: tuple[str, ...] = (
 """The waste types that make methane: the ones with a decay rate and an L_0.
 In WASTE_TYPES order, so a frame built from it has the model's column order."""
 
+UNBURNABLE_TYPES: WasteTypeSet = WasteTypeSet({"metal", "glass"})
+"""The waste types an incinerator does not burn. A share of incineration counts
+only waste that burns: metal and glass the city did not recycle are landfilled,
+whether they were sorted out before the furnace or pulled from its ash. Recycling
+takes its share first, so metal recovered from incinerator ash is read as part of
+the city's recycling."""
+
 # decision: diversion-eligibility
 DIVERSION_ELIGIBILITY: dict[str, WasteTypeSet] = {
     "compost": WasteTypeSet({"food", "green", "wood", "paper_cardboard"}),
     "anaerobic": WasteTypeSet({"food", "green", "wood", "paper_cardboard"}),
-    "combustion": WasteTypeSet(WASTE_TYPES),
+    "combustion": WasteTypeSet(WASTE_TYPES) - UNBURNABLE_TYPES,
     "recycling": WasteTypeSet(
         {
             "wood",

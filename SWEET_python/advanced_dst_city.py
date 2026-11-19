@@ -29,8 +29,9 @@ live in a list, one dict per landfill:
   ``{year: [frac per landfill]}`` ordered to match the ``landfills`` list, with
   each year's fractions summing to ~1.
 * a facility may set ``combusts``: it burns the waste routed to it instead of
-  depositing it, and deposits only the reject, ``City.combustion_reject_rate``,
-  which is 0. See :class:`CityLandfillSpec`.
+  depositing it. It deposits the metal and glass it receives, which don't burn,
+  and the reject of the rest, ``City.combustion_reject_rate``, which is 0. See
+  :class:`CityLandfillSpec`.
 
 Diversion math, reject rates, the per-landfill split, and emissions aggregation
 mirror the tested ``City`` machinery (``_calculate_diverted_masses``,
@@ -45,7 +46,11 @@ import pandas as pd
 from pydantic import BaseModel, Field
 
 import SWEET_python.defaults_2019 as defaults_2019
-from SWEET_python.constants import GWP100_CH4, UNKNOWN_CLIMATE_TEMPERATURE_C
+from SWEET_python.constants import (
+    GWP100_CH4,
+    UNBURNABLE_TYPES,
+    UNKNOWN_CLIMATE_TEMPERATURE_C,
+)
 from SWEET_python.city_params import City, CityParameters, CustomError
 from SWEET_python.class_defs import DivsDF, LandfillType, LandfillWasteMassDF, Variant
 from SWEET_python import dst_common as common
@@ -93,12 +98,13 @@ class CityLandfillSpec(BaseModel):
             "Whether this facility burns the waste routed to it -- incineration, "
             "with or without energy recovery -- instead of depositing it. The "
             "share of the city's disposed waste sent here still arrives here, "
-            "and only the reject (``City.combustion_reject_rate``) is "
-            "deposited; the rest is destroyed. The reject is 0, so a burning "
-            "facility deposits nothing and produces no methane: what an "
-            "incinerator leaves is ash with almost no organic carbon. The burnt "
-            "share is not re-routed to another site. Were the reject set above "
-            "0, the remaining per-site fields would describe its pile: "
+            "and it deposits only what does not burn: the metal and glass it "
+            "receives, and the reject of the rest "
+            "(``City.combustion_reject_rate``); the rest is destroyed. The "
+            "reject is 0, so a burning facility deposits only its metal and "
+            "glass, which make no methane: what an incinerator leaves is ash "
+            "with almost no organic carbon. The burnt share is not re-routed to "
+            "another site. The remaining per-site fields describe its ash pile: "
             "``landfill_type`` is its disposal category, and the gas/biocover "
             "fields are the pile's, not the incinerator's. Omit (the default) "
             "for a depositing site."
@@ -443,16 +449,24 @@ def _split_timeline_to_df(
     return df.sort_index().reindex(years).ffill().bfill()
 
 
-def _deposited_share(combusts: bool, city: City) -> float:
-    """Fraction of the waste arriving at a facility that is actually deposited.
+def _deposited(mass: pd.DataFrame, combusts: bool, city: City) -> pd.DataFrame:
+    """What a facility deposits of the waste arriving at it, per waste type.
 
-    A depositing site keeps all of it. A combusting facility keeps only the
-    reject -- the same ``combustion_reject_rate`` the combustion diversion
-    pathway applies, so an incinerator modeled as a facility and one modeled as
-    upstream combustion leave the same residue behind. The rate is 0, so both
-    leave none.
+    A depositing site keeps all of it. A combusting facility burns what burns and
+    keeps only the reject of it -- the same ``combustion_reject_rate`` the
+    combustion diversion pathway applies, which is 0. Metal and glass don't burn
+    (``constants.UNBURNABLE_TYPES``), so it keeps all of them: the ash it
+    landfills. They make no methane, so only the mass flow sees them.
     """
-    return float(city.combustion_reject_rate) if combusts else 1.0
+    if not combusts:
+        return mass
+    kept = pd.Series(
+        {
+            column: 1.0 if column in UNBURNABLE_TYPES else float(city.combustion_reject_rate)
+            for column in mass.columns
+        }
+    )
+    return mass.mul(kept, axis=1)
 
 
 def _accepting_windows(
@@ -586,7 +600,8 @@ def _validate_shares(split: pd.DataFrame, accepting: pd.DataFrame, label: str) -
 # The binding component is whichever has the largest ``use``. This is stated per
 # component rather than as an organic/recyclable pool pair because the pathways
 # do not partition into two: compost and anaerobic digestion share a component
-# set, recycling overlaps it on wood and paper, and combustion draws on all ten.
+# set, recycling overlaps it on wood and paper, and combustion draws on every
+# type but metal and glass.
 # Summing per component needs no special case for any of that.
 #
 # This bounds GROSS diversion, before reject rates, which is the same basis
@@ -1074,8 +1089,8 @@ def run_advanced_dst_city(
         # Scaled per variant here, ahead of both the window and the pre-implement
         # splice below, so a site that starts combusting at implement_year keeps
         # depositing everything until then -- and one that stops burning starts to.
-        mass_base = mass_base * _deposited_share(base_combusts, city)
-        mass_scen = mass_scen * _deposited_share(scen_combusts, city)
+        mass_base = _deposited(mass_base, base_combusts, city)
+        mass_scen = _deposited(mass_scen, scen_combusts, city)
         # Each variant is windowed on its own open/close years first, and only
         # then does the scenario take baseline's pre-implement rows. The other
         # order spliced baseline's mass in and let the *scenario* window zero it

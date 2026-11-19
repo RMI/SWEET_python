@@ -212,7 +212,10 @@ class TestModelOutputColumnOrder:
         divs = dst_run.baseline_parameters.divs_df
         assert list(divs.compost.columns) == ["food", "green", "wood", "paper_cardboard"]
         assert list(divs.anaerobic.columns) == ["food", "green", "wood", "paper_cardboard"]
-        assert list(divs.combustion.columns) == list(WASTE_TYPES)
+        # Every type but metal and glass, which don't burn.
+        assert list(divs.combustion.columns) == [
+            w for w in WASTE_TYPES if w not in ("metal", "glass")
+        ]
         assert list(divs.recycling.columns) == [
             "wood",
             "paper_cardboard",
