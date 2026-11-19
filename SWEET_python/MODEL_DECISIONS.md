@@ -98,6 +98,7 @@ Where the code applies a decision, a one-line comment names it:
 | [`combustion-reject`](#combustion-reject) | Diversion | fixed value | medium |
 | [`other-treatment-shares-landfilled`](#other-treatment-shares-landfilled) | Diversion | simplification | low |
 | [`diversion-defaults`](#diversion-defaults) | Diversion | fallback | low |
+| [`china-treatment-split-2020`](#china-treatment-split-2020) | Diversion | fixed value | low |
 | [`city-treatment-buckets`](#city-treatment-buckets) | Diversion | method choice | low |
 | [`diversion-eligibility`](#diversion-eligibility) | Diversion | fixed value | medium |
 | [`diversion-rejects`](#diversion-rejects) | Diversion | fixed value | low |
@@ -109,6 +110,7 @@ Where the code applies a decision, a one-line comment names it:
 | [`methane-potential-by-waste-type`](#methane-potential-by-waste-type) | Decay model | fixed value | high |
 | [`oxidation`](#oxidation) | Decay model | fallback | medium |
 | [`gas-capture-efficiency`](#gas-capture-efficiency) | Decay model | fallback | medium |
+| [`default-landfill-capture-share`](#default-landfill-capture-share) | Decay model | fallback | low |
 | [`flaring-uniform`](#flaring-uniform) | Decay model | simplification | medium |
 | [`monthly-from-decay-model`](#monthly-from-decay-model) | Decay model | simplification | medium |
 | [`inert-waste-types`](#inert-waste-types) | Decay model | simplification | low |
@@ -468,6 +470,21 @@ A city or place with no treatment data takes its country's, else its region's, c
 - **Code:** `SWEET_python/city_params.py` (2 places)
 - **Reviewed:** 2026-10-23
 
+### `china-treatment-split-2020`
+
+China's default treatment is its urban domestic waste in 2020: 33% landfilled, 62% incinerated, 5% composted. China had no row of its own and took Eastern Asia's, which landfilled 76%.
+
+- **Kind:** fixed value
+- **Why:** Hugh, 2026-11-19: 2020 is near China's 2015-2024 average (landfilled 60% in 2015, 5% in 2024), and one split covers every year.
+- **Paths:**
+  - `city-model`: a Chinese city with no treatment or landfill shares of its own.
+  - `custom-location`: every Chinese Custom Location.
+- **Confidence:** low
+- **Better:** A split by year (`city-shares-constant`): China's landfilling fell from 60% to 5% in nine years. "Other" (5%) is taken as composting; the yearbook doesn't say. Needed before the cities pipeline relies on it.
+- **Value:** `SWEET_python.defaults_2019`: the "China" rows of `FRACTION_LANDFILLED_COUNTRY`, `FRACTION_INCINERATED_COUNTRY`, `FRACTION_COMPOSTED_COUNTRY`, `FRACTION_OPEN_DUMPED_COUNTRY`, `FRACTION_UNSPECIFIED_COUNTRY` (China Statistical Yearbook 2021)
+- **Code:** `SWEET_python/defaults_2019.py` (5 places)
+- **Reviewed:** 2026-11-19
+
 ### `city-treatment-buckets`
 
 A city's reported treatment shares map onto four buckets: sanitary landfill with gas collection is "with capture"; controlled landfill and unspecified landfill are "without capture"; open dump is "dumpsite"; controlled dumpsite is "controlled dumpsite". Advanced thermal treatment counts as incineration.
@@ -638,13 +655,33 @@ A site captures its reported efficiency, else a default: the remediated value fo
   - `site-tool`: `reported`; left blank, `remediated` for a site upgraded in the scenario, else `type-default`.
   - `adst-site`, `adst-city`: the caller's value, by year where it gives years; none given means 0.
   - `city-model`: 0.6 on the share sent to landfills with capture; the cities table's efficiency is read but never used.
-  - `custom-location`: 0.6 on a capture share, but the default split has none, so a Custom Location captures nothing.
+  - `custom-location`: 0.6 on the capture share its default split now carries (`default-landfill-capture-share`).
   - `city-dst-scenario`: "add gas capture" sets 0.6 on both landfill shares, `remediated` (30%) on the dumpsite, which it makes a controlled dumpsite, and `type-default` (45%) on the controlled dumpsite, which stays one, from the year after implementation.
 - **Confidence:** medium
 - **Better:** Let the city model read each city's reported efficiency.
 - **Value:** `SWEET_python.gas_capture`: `GAS_CAPTURE_EFFICIENCY`, `CONVERTED_DUMP_CAPTURE_EFFICIENCY`, `UPGRADED_CONTROLLED_DUMP_CAPTURE_EFFICIENCY`
 - **Code:** `SWEET_python/city_params.py` (2 places)
 - **Reviewed:** 2026-10-23
+
+### `default-landfill-capture-share`
+
+A defaulted landfill share sends part of its waste to landfills with gas capture: the country's researched share, else half for a high-income country, else none.
+
+- **Kind:** fallback
+- **Why:** IPCC's default splits say nothing about capture, so every defaulted landfill in the US or EU was modelled without it; Hugh, 2026-11-19.
+- **Options, best first:**
+  1. `reported`: the city's own landfill shares, which are never changed.
+  2. `country`: a researched share: US 0.85, Canada 0.66, New Zealand 0.92, Australia 0.6.
+  3. `high-income`: 0.5, a placeholder, for a World Bank high-income country.
+  4. `none`: no capture.
+- **Paths:**
+  - `city-model`: `reported`; with every landfill share blank or zero, `country`, else `high-income` when the caller passes the income group, else `none`.
+  - `custom-location`: `country`, else `high-income` when the caller passes the income group, else `none`.
+- **Confidence:** low
+- **Better:** A researched share for every country, mass-weighted, before this is relied on. The Gulf states and Russia are high income but capture little; Turkey and Mexico capture some but get none.
+- **Value:** `SWEET_python.landfill_capture`: `CAPTURE_SHARE_COUNTRY`, `HIGH_INCOME_SHARE`
+- **Code:** `SWEET_python/landfill_capture.py`, `SWEET_python/city_params.py`, `SWEET_python/defaults_2019.py`
+- **Reviewed:** 2026-11-19
 
 ### `flaring-uniform`
 

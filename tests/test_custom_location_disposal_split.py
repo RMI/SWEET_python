@@ -26,7 +26,7 @@ with no landfill data (`defaults_2019.disposal_split_for`).
 import numpy as np
 import pytest
 
-from SWEET_python import defaults_2019
+from SWEET_python import defaults_2019, landfill_capture
 from SWEET_python.city_params import City
 
 POPULATION = 2_000_000
@@ -149,11 +149,11 @@ def test_a_high_income_country_in_a_region_with_no_row_landfills_its_waste():
     # caller passes the income group; SWEET holds none.
     split = _custom_location("BRN", income_id="HIC").split_fractions
 
-    assert (split.landfill_w_capture, split.landfill_wo_capture, split.dumpsite) == (
-        0.0,
-        1.0,
-        0.0,
-    )
+    # All landfilled; half of it at landfills with gas capture, the high-income default
+    # (landfill_capture).
+    assert split.landfill_w_capture + split.landfill_wo_capture == pytest.approx(1.0)
+    assert split.dumpsite == 0.0
+    assert split.landfill_w_capture == pytest.approx(landfill_capture.HIGH_INCOME_SHARE)
 
 
 def test_without_an_income_brunei_falls_to_its_regions_rule():
@@ -166,11 +166,11 @@ def test_without_an_income_brunei_falls_to_its_regions_rule():
 def test_a_country_whose_row_is_all_zeros_landfills_its_waste(iso3):
     split = _custom_location(iso3).split_fractions
 
-    assert (split.landfill_w_capture, split.landfill_wo_capture, split.dumpsite) == (
-        0.0,
-        1.0,
-        0.0,
-    )
+    # All landfilled; the share at landfills with gas capture is the country's
+    # researched one, if any (landfill_capture; no income is passed here).
+    assert split.landfill_w_capture + split.landfill_wo_capture == pytest.approx(1.0)
+    assert split.dumpsite == 0.0
+    assert split.landfill_w_capture == pytest.approx(landfill_capture.capture_share(iso3))
 
 
 @pytest.mark.parametrize("iso3", _one_country_per_region_and_rule())

@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 import SWEET_python.gas_capture as gas_capture
+import SWEET_python.landfill_capture as landfill_capture
 import SWEET_python.oxidation as oxidation
 from SWEET_python.constants import GWP100_CH4, SHORT_TONS_PER_TONNE, WASTE_TYPES
 
@@ -1524,6 +1525,10 @@ FRACTION_OPEN_DUMPED_COUNTRY = {
     "Australia": 0.0,
     "New Zealand": 0.0,
     "Nigeria": 1.0,
+    # decision: china-treatment-split-2020
+    # China: urban domestic waste, 2020 (China Statistical Yearbook 2021): 235.1 Mt collected,
+    # 77.7 Mt sanitary landfill, 146.1 Mt incineration, 10.7 Mt other (taken as composting).
+    "China": 0.0,
 }
 FRACTION_OPEN_DUMPED_COUNTRY = {
     COUNTRY_TO_ISO3[country]: value
@@ -1615,6 +1620,10 @@ FRACTION_LANDFILLED_COUNTRY = {
     "Australia": 0.52,
     "New Zealand": 0.85,
     "Nigeria": 0.0,
+    # decision: china-treatment-split-2020
+    # China: urban domestic waste, 2020 (China Statistical Yearbook 2021): 235.1 Mt collected,
+    # 77.7 Mt sanitary landfill, 146.1 Mt incineration, 10.7 Mt other (taken as composting).
+    "China": 0.33,
 }
 FRACTION_LANDFILLED_COUNTRY = {
     COUNTRY_TO_ISO3[country]: value
@@ -1641,6 +1650,9 @@ def disposal_split_for(iso3, region, income_id=None):
     and Switzerland's rows are all zeros, so they take their region's, which is
     landfill only.
 
+    The country's share of landfilled waste that goes to landfills with gas capture
+    (``landfill_capture``) is then moved to ``landfill_w_capture``.
+
     This is the split ``City.load_andre_params`` gives a cities-table row with no
     landfill data, so a Custom Location starts from the same split as a mapped
     city in the same country.
@@ -1653,20 +1665,29 @@ def disposal_split_for(iso3, region, income_id=None):
         landfill = landfilled.get(key, 0.0)
         total = dumpsite + landfill
         if total > 0:
-            return {
-                "landfill_w_capture": 0.0,
-                "landfill_wo_capture": landfill / total,
-                "dumpsite": dumpsite / total,
-            }
+            # decision: default-landfill-capture-share
+            return landfill_capture.with_default_capture(
+                {
+                    "landfill_w_capture": 0.0,
+                    "landfill_wo_capture": landfill / total,
+                    "dumpsite": dumpsite / total,
+                },
+                iso3,
+                income_id,
+            )
     # Imported here: site_type_defaults imports this module.
     from SWEET_python.site_type_defaults import landfill_is_default
 
     landfills = landfill_is_default(iso3, income_id)
-    return {
-        "landfill_w_capture": 0.0,
-        "landfill_wo_capture": 1.0 if landfills else 0.0,
-        "dumpsite": 0.0 if landfills else 1.0,
-    }
+    return landfill_capture.with_default_capture(
+        {
+            "landfill_w_capture": 0.0,
+            "landfill_wo_capture": 1.0 if landfills else 0.0,
+            "dumpsite": 0.0 if landfills else 1.0,
+        },
+        iso3,
+        income_id,
+    )
 
 
 FRACTION_INCINERATED_COUNTRY = {
@@ -1754,6 +1775,10 @@ FRACTION_INCINERATED_COUNTRY = {
     "United States": 0.12,
     "Australia": 0.08,
     "New Zealand": 0.0,
+    # decision: china-treatment-split-2020
+    # China: urban domestic waste, 2020 (China Statistical Yearbook 2021): 235.1 Mt collected,
+    # 77.7 Mt sanitary landfill, 146.1 Mt incineration, 10.7 Mt other (taken as composting).
+    "China": 0.62,
 }
 FRACTION_INCINERATED_COUNTRY = {
     COUNTRY_TO_ISO3[country]: value
@@ -1844,6 +1869,10 @@ FRACTION_COMPOSTED_COUNTRY = {
     "United States": 0.08,
     "Australia": 0.0,
     "New Zealand": 0.0,
+    # decision: china-treatment-split-2020
+    # China: urban domestic waste, 2020 (China Statistical Yearbook 2021): 235.1 Mt collected,
+    # 77.7 Mt sanitary landfill, 146.1 Mt incineration, 10.7 Mt other (taken as composting).
+    "China": 0.05,
 }
 FRACTION_COMPOSTED_COUNTRY = {
     COUNTRY_TO_ISO3[country]: value
@@ -1934,6 +1963,10 @@ FRACTION_UNSPECIFIED_COUNTRY = {
     "United States": 0.26,
     "Australia": 0.4,
     "New Zealand": 0.15,
+    # decision: china-treatment-split-2020
+    # China: urban domestic waste, 2020 (China Statistical Yearbook 2021): 235.1 Mt collected,
+    # 77.7 Mt sanitary landfill, 146.1 Mt incineration, 10.7 Mt other (taken as composting).
+    "China": 0.0,
 }
 FRACTION_UNSPECIFIED_COUNTRY = {
     COUNTRY_TO_ISO3[country]: value

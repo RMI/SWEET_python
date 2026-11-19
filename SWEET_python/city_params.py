@@ -27,6 +27,7 @@ from SWEET_python import after_diversion
 import SWEET_python.defaults_2019 as defaults_2019
 import SWEET_python.mcf as mcf_defaults
 import SWEET_python.site_type_defaults as site_type_defaults
+import SWEET_python.landfill_capture as landfill_capture
 from SWEET_python.population import (
     average_growth_rates,
     city_population_series,
@@ -2110,6 +2111,8 @@ class City:
 
             # Normalize landfills to 1
             split_total = sum([x for x in split_fractions.values()])
+            # No landfill share of the city's own: the split is its country's or region's.
+            split_defaulted = all_nan_fill or split_total == 0
             if split_total == 0:
                 if site_type_defaults.landfill_is_default(iso3, income_id):
                     split_fractions = {
@@ -2126,6 +2129,9 @@ class City:
             split_total = sum([x for x in split_fractions.values()])
             for site in split_fractions.keys():
                 split_fractions[site] /= split_total
+            # decision: default-landfill-capture-share
+            if split_defaulted:
+                split_fractions = landfill_capture.with_default_capture(split_fractions, iso3, income_id)
 
             # Replace diversion NaN values with 0
             (
